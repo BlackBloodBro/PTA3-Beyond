@@ -1,0 +1,76 @@
+/* General Styling */
+body {
+  font-family: 'Arial', sans-serif;
+  background-color: #f4f4f9;
+  color: #333;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+
+.gamemaster-container {
+  background-color: #fff;
+  width: 80%;
+  max-width: 800px;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+h1 {
+  font-size: 2.5rem;
+  color: #eb5e5e;
+  margin-bottom: 20px;
+}
+
+h2 {
+  font-size: 2rem;
+  color: #555;
+  margin: 10px 0;
+}
+
+#players-list {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.player-link {
+  display: block;
+  font-size: 1.3rem;
+  margin: 10px 0;
+  padding: 10px;
+  background-color: #e24a4a;
+  color: white;
+  text-decoration: none;
+  border-radius: 5px;
+  transition: background-color 0.3s ease;
+}
+
+.player-link:hover {
+  background-color: #bd3535;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .gamemaster-container {
+      width: 90%;
+      padding: 15px;
+  }
+
+  h1 {
+      font-size: 2rem;
+  }
+
+  h2 {
+      font-size: 1.6rem;
+  }
+
+  .player-link {
+      font-size: 1.1rem;
+  }
+}

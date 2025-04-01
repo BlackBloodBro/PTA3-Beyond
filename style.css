@@ -1,0 +1,213 @@
+/* Global body styling */
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f0f0f0; /* Light gray background */
+  color: #333; /* Dark text color */
+  margin: 20px;
+  padding: 0;
+}
+
+/* Container for the trainer profile */
+.player-container {
+  max-width: 800px;
+  margin: 20px auto;
+  padding: 20px;
+  background-color: #fff; /* White background for the container */
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.section {
+  margin-bottom: 20px; /* Space between each section */
+}
+
+.pokemon-container {
+  max-width: 800px;
+  margin: 20px auto;
+  padding: 20px;
+  background-color: #fff; /* White background for the container */
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Header */
+h1 {
+  text-align: center;
+  color: #333;
+}
+
+/* Stats and other sections */
+h2 {
+  color: #555; /* Slightly lighter gray for section headers */
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+
+p {
+  color: #333; /* Set text color for paragraphs */
+  margin: 10px 0;
+}
+
+/* Container for buttons */
+.category-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px; /* Space between buttons */
+  justify-content: center; /* Center buttons */
+}
+
+.category-button {
+  flex: 1 0 18%; /* This will allow 5 buttons per row */
+  padding: 8px; /* Smaller padding */
+  background-color: #af4c4c;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px; /* Smaller font size */
+  margin-top: 10px; /* Space between rows */
+  text-align: center; /* Center the text */
+  min-width: 120px; /* Minimum width to keep buttons consistent */
+  max-width: 150px; /* Maximum width for buttons */
+}
+
+.damageButton {
+  flex: 1 0 5%;
+  padding: 8px; /* Smaller padding */
+  background-color: #af4c4c;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px; /* Smaller font size */
+  margin-top: 10px; /* Space between rows */
+  text-align: center; /* Center the text */
+  min-width: 32px; /* Minimum width to keep buttons consistent */
+  max-width: 32px; /* Maximum width for buttons */
+  display: inline;
+}
+
+.damageInput {
+  width: 50px; /* Adjust width */
+  height: 25px; /* Adjust height */
+  font-size: 14px; /* Smaller text */
+  text-align: center; /* Center the number */
+  padding: 2px 5px; /* Reduce padding */
+  border: 1px solid #ccc; /* Light border */
+  border-radius: 5px; /* Rounded corners */
+  outline: none; /* Remove default focus outline */
+}
+
+.damageInput:focus {
+  border-color: #007bff; /* Highlight on focus */
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+}
+
+/* Button style */
+button {
+  display: block;
+  width: 100%;
+  max-width: 350px; /* Limit the width to 200px */
+  padding: 10px;
+  background-color: #af4c4c;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+  margin-top: 10px;
+  margin-left: 5px;
+}
+
+.topButton {
+  display: block;  /* Make sure the button is a block element */
+  margin: 0 auto;  /* This will center it horizontally */
+  margin-top: 10px;  /* This will center it horizontally */
+}
+
+button:hover {
+  background-color: #a04545; /* Darker green on hover */
+}
+
+.moves-header {
+  display: flex;
+  align-items: center;
+  gap: 10px; /* Adds space between the title and button */
+}
+
+.change-moves-btn {
+  width: 15%;
+  font-size: 14px;
+  padding: 5px 10px;
+  background-color: #af4c4c;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.change-moves-btn:hover {
+  background-color: #a04545;
+}
+
+/* Styling for Pokémon team */
+#pokemon-team {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+#pokemon-team p {
+  color: #333;
+}
+
+/* Style for the card */
+.card {
+  position: relative;  /* Needed for the absolute positioning of the tooltip */
+  border: 2px solid #444;
+  border-radius: 10px;
+  padding: 10px;
+  margin: 5px 0;
+  background-color: #f8f8f8;
+  cursor: pointer;  /* Change the cursor to indicate the card is hoverable */
+}
+
+/* Initially hide the tooltip */
+.card .tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute; /* Position it absolutely relative to the card */
+  top: -100%;
+  background-color: rgba(255, 255, 255, 0.5);
+  padding: 10px;
+  border-radius: 5px;
+  max-width: 300px;
+  z-index: 10; /* Make sure the tooltip is above other elements */
+  transition: opacity 0.3s ease, visibility 0s 0.3s; /* Fade-in effect */
+  pointer-events: none;  /* Prevents tooltip from blocking other interactions */
+}
+
+/* Show the tooltip when the card is hovered */
+.card:hover .tooltip {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 0.3s ease;  /* Fade-in effect */
+}
+
+/* Optional: Style for the content within the card */
+.card p {
+  margin: 5px 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.card .move-name {
+  font-weight: bold;
+}
+
+/* Optional: Style for the container holding all the cards */
+.card-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);  /* 3 columns for cards */
+  gap: 10px;
+  margin: 10px 0;
+}

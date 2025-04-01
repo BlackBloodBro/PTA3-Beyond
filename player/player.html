@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trainer Profile</title>
+    <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+    <div class="player-container">
+        <h1>Trainer Profile</h1>
+
+        <div class="section">
+            <h2>Trainer Info</h2>
+            <div id="trainer-info"></div>
+        </div>
+
+        <div class="section">
+            <h2>Stats</h2>
+            <div id="stats"></div>
+        </div>
+
+        <div class="section">
+            <h2>Inventory</h2>
+            <p id="money"></p>
+            <button onclick="goToInventory()">Show inventory</button>
+        </div>
+
+        <div class="section">
+            <h2>Pokémon Team</h2>
+            <div id="pokemon-team"></div>
+            <button onclick="goToComputer()">Show all Pokemon</button>
+        </div>
+
+    </div>
+
+    <script src="player.js"></script>
+    <script src="../scripts/gamemasterButton.js"></script>
+</body>
+</html>

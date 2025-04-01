@@ -1,0 +1,21 @@
+{
+  "Axel": {
+      "password": "Axel",
+      "role": "player"
+  },
+
+  "Flint": {
+      "password": "Flint",
+      "role": "player"
+  },
+
+  "Lily": {
+      "password": "Lily",
+      "role": "player"
+  },
+  
+  "Gamemaster": {
+      "password": "Gamemaster",
+      "role": "gamemaster"
+  }
+}

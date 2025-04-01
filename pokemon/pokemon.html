@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pokemon Profile</title>
+    <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+    <div class="pokemon-container">
+        <h1>Pokémon Profile</h1>
+
+        <div class="section">
+            <h2>Pokemon Info</h2>
+            <div id="pokemon-info"></div>
+        </div>
+
+        <div class="section">
+            <h2>Stats</h2>
+            <div id="stats"></div>
+        </div>
+
+        <div class="section">
+            <div class="moves-header">
+                <h2>Moves</h2>
+                <button id="change-moves" class="change-moves-btn">Change Moves</button>
+            </div>
+            <div id="moves" class="card-container"></div>
+        </div>        
+
+        <div class="section">
+            <h2>Passives</h2>
+            <div id="passives" class="card-container"></div>
+        </div>
+
+    </div>
+
+    <script type="module" src="pokemon.js"></script>
+    <script type="module" src="../scripts/gamemasterButton.js"></script>
+</body>
+</html>
