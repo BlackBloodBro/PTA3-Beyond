@@ -177,13 +177,13 @@ button:hover {
   opacity: 0;
   position: absolute; /* Position it absolutely relative to the card */
   bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%) translateY(-10px); /* Center and add spacing */
-  background-color: #fff;
+  background-color: rgb(200, 200, 200);
+  transform: translateY(-5px); /* Center and add spacing */
   padding: 10px;
   border-radius: 5px;
   max-width: 300px;
   z-index: 10; /* Make sure the tooltip is above other elements */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); /* Optional: subtle shadow */
   transition: opacity 0.3s ease, visibility 0s 0.3s; /* Fade-in effect */
   pointer-events: none;  /* Prevents tooltip from blocking other interactions */
 }
