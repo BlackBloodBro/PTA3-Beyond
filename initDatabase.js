@@ -167,10 +167,21 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS pokedex_proficiencies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pokedex_id INTEGER NOT NULL,
-      move_proficiency_id INTEGER NOT NULL,
+      proficiencies_id INTEGER NOT NULL,
       FOREIGN KEY (pokedex_id) REFERENCES pokedex(id),
-      FOREIGN KEY (move_proficiency_id) REFERENCES move_proficiencies(id),
-      UNIQUE (pokedex_id, move_proficiency_id)
+      FOREIGN KEY (proficiencies_id) REFERENCES proficiencies(id),
+      UNIQUE (pokedex_id, proficiencies_id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS moves_proficiencies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      move_id INTEGER NOT NULL,
+      proficiencies_id INTEGER NOT NULL,
+      FOREIGN KEY (move_id) REFERENCES moves(id),
+      FOREIGN KEY (proficiencies_id) REFERENCES proficiencies(id),
+      UNIQUE (move_id, proficiencies_id)
     )
   `);
 
@@ -178,7 +189,7 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS parties (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       trainer_id INTEGER NOT NULL,
-      pokemon_id INTEGER NOT NULL,
+      pokemon_id INTEGER NOT NULL UNIQUE,
       placement INTEGER NOT NULL CHECK(placement >= 1 AND placement <= 6),
       FOREIGN KEY (trainer_id) REFERENCES trainers(id),
       FOREIGN KEY (pokemon_id) REFERENCES pokemon(id),
@@ -233,11 +244,20 @@ db.serialize(() => {
       name TEXT NOT NULL CHECK(length(name) > 0),
       range TEXT NOT NULL,
       type_id INTEGER NOT NULL,
-      stat TEXT NOT NULL CHECK(stat IN ("attack", "special_attack", "speed")),
-      frequency TEXT NOT NULL CHECK(frequency IN ("at_will", "3/day", "1/day")),
+      stat_id INTEGER NOT NULL,
+      frequency_id INTEGER NOT NULL,
       damage TEXT NOT NULL,
       effect TEXT,
-      FOREIGN KEY (type_id) REFERENCES types(id)
+      FOREIGN KEY (type_id) REFERENCES types(id),
+      FOREIGN KEY (stat_id) REFERENCES stats(id),
+      FOREIGN KEY (frequency_id) REFERENCES moves_frequency(id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS moves_frequency (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL
     )
   `);
 
