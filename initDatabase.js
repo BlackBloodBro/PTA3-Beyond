@@ -25,6 +25,7 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS loyalties (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       level INTEGER NOT NULL UNIQUE,
+      description TEXT NOT NULL CHECK(length(description) > 0),
       exp_modifier REAL
     )
   `);
@@ -61,7 +62,8 @@ db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS diets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE
+      name TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL CHECK(length(description) > 0)
     )
   `);
 
@@ -75,7 +77,8 @@ db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS proficiencies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE
+      name TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL CHECK(length(description) > 0)
     )
   `);
 
@@ -99,8 +102,10 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS natures (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL CHECK(length(name) > 0),
-      stat_increase TEXT NOT NULL CHECK(stat_increase IN ("attack", "defense", "special_attack", "special_defense", "speed")),
-      stat_decrease TEXT NOT NULL CHECK(stat_decrease IN ("attack", "defense", "special_attack", "special_defense", "speed"))
+      stat_increase_id INTEGER NOT NULL,
+      stat_decrease_id INTEGER NOT NULL,
+      FOREIGN KEY (stat_increase_id) REFERENCES stats(id),
+      FOREIGN KEY (stat_decrease_id) REFERENCES stats(id)
     )
   `);
 
@@ -108,14 +113,15 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS passives (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL CHECK(length(name) > 0),
-      effect TEXT NOT NULL
+      description TEXT NOT NULL CHECK(length(description) > 0)
     )
   `);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS item_categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE CHECK(length(name) > 0)
+      name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
+      description TEXT NOT NULL CHECK(length(description) > 0)
     )
   `);
 
@@ -146,6 +152,7 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS afflictions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
+      description TEXT NOT NULL CHECK(length(description) > 0),
       catch_modifier INTEGER NOT NULL
     )
   `);
@@ -178,7 +185,7 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL CHECK(length(name) > 0),
-      effect TEXT NOT NULL,
+      description TEXT NOT NULL CHECK(length(description) > 0),
       category_id INTEGER NOT NULL,
       held_item BOOLEAN NOT NULL CHECK(held_item IN (0, 1)),
       price INTEGER CHECK(price >= 0),
@@ -199,6 +206,7 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS classes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
+      description TEXT NOT NULL CHECK(length(description) > 0),
       type TEXT NOT NULL CHECK(type IN ('class', 'subclass')),
       class_id INTEGER,
       FOREIGN KEY (class_id) REFERENCES classes(id)
