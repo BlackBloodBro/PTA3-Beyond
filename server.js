@@ -1,57 +1,39 @@
-const express = require("express");
-const fs = require("fs");
-const path = require("path");
-const cors = require("cors");
+const express = require('express');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 
 const app = express();
-const PORT = 3000;
-const POKEMON_FILE = path.join(__dirname, "pokemon", "pokemon.json");
+const PORT = process.env.PORT || 3000;
 
-// Middleware
+// Middleware to parse JSON requests
 app.use(express.json());
-app.use(cors());
+app.use(express.static('public'));
 
-// Serve static files from the root
-app.use(express.static(__dirname));
+// Initialize the database
+require('./database/initDatabase');
 
-// Route to update Pokémon HP
-app.post("/update-hp", (req, res) => {
-    const { name, currentHitpoints } = req.body;
-
-    fs.readFile(POKEMON_FILE, "utf8", (err, data) => {
-        if (err) {
-            console.error("Error reading file:", err);
-            return res.status(500).json({ error: "Failed to read Pokémon data" });
-        }
-
-        let pokemonData;
-        try {
-            pokemonData = JSON.parse(data);
-        } catch (parseErr) {
-            console.error("Error parsing JSON:", parseErr);
-            return res.status(500).json({ error: "Failed to parse Pokémon data" });
-        }
-
-        if (!pokemonData[name]) {
-            return res.status(404).json({ error: "Pokémon not found" });
-        }
-
-        // Update HP
-        pokemonData[name].currentHitpoints = currentHitpoints;
-
-        // Save updated data
-        fs.writeFile(POKEMON_FILE, JSON.stringify(pokemonData, null, 2), (err) => {
-            if (err) {
-                console.error("Error writing file:", err);
-                return res.status(500).json({ error: "Failed to update Pokémon data" });
-            }
-
-            res.json({ message: "HP updated successfully", pokemon: pokemonData[name] });
-        });
-    });
+// Open a database connection
+const db = new sqlite3.Database('database.db', (err) => {
+  if (err) {
+    console.error('Error opening database:', err);
+  } else {
+    console.log('Connected to the SQLite database.');
+  }
 });
 
-// Start the server
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running at http://localhost:${PORT}`);
+// Make db accessible to routes
+app.locals.db = db;
+
+// Import and use routes
+const userRoutes = require('./routes/users');
+const trainerRoutes = require('./routes/trainers');
+const pokemonRoutes = require('./routes/pokemon');
+
+app.use('/api/users', userRoutes);
+app.use('/api/trainers', trainerRoutes);
+app.use('/api/pokemon', pokemonRoutes);
+// (use other route files similarly)
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });

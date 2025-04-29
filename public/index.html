@@ -10,6 +10,7 @@
     <div class="welcome-container">
         <h1>Welcome to Pokémon Tabletop Adventure 3</h1>
         <p>Embark on an adventure in the world of Pokémon with our Tabletop RPG. Create your trainer, catch Pokémon, and explore vast regions!</p>
+
         <div class="login-section">
             <h2>Login</h2>
             <form id="loginForm">
@@ -24,7 +25,30 @@
                 <button type="submit" class="login-btn">Login</button>
             </form>
         </div>
+
+        <div class="create-account-section">
+            <h2>Create Account</h2>
+            <form id="createAccountForm">
+                <div class="input-group">
+                    <label for="newTrainer">Trainer Name</label>
+                    <input type="text" id="newTrainer" required>
+                </div>
+                <div class="input-group">
+                    <label for="newPassword">Password</label>
+                    <input type="password" id="newPassword" required>
+                </div>
+                <div class="input-group">
+                    <label for="role">Role</label>
+                    <select id="role" required>
+                        <option value="player">Player</option>
+                        <option value="gamemaster">Gamemaster</option>
+                    </select>
+                </div>
+                <button type="submit" class="create-btn">Create Account</button>
+            </form>
+        </div>
     </div>
-    <script src="scripts/script.js"></script>
+
+    <script src="scripts/login.js"></script>
 </body>
 </html>
