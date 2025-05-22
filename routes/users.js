@@ -44,6 +44,39 @@ router.post('/', (req, res) => {
   });
 });
 
+// PUT - update user
+router.put('/:id', (req, res) => {
+  const db = req.app.locals.db;
+  const { username, password, role } = req.body;
+  const id = req.params.id;
+
+  db.run(
+    'UPDATE users SET username = ?, password = ?, role = ? WHERE id = ?',
+    [username, password, role, id],
+    function (err) {
+      if (err) {
+        res.status(500).json({ error: 'Failed to update user' });
+      } else {
+        res.json({ message: 'User updated' });
+      }
+    }
+  );
+});
+
+// DELETE - remove user
+router.delete('/:id', (req, res) => {
+  const db = req.app.locals.db;
+  const id = req.params.id;
+
+  db.run('DELETE FROM users WHERE id = ?', [id], function (err) {
+    if (err) {
+      res.status(500).json({ error: 'Failed to delete user' });
+    } else {
+      res.json({ message: 'User deleted' });
+    }
+  });
+});
+
 // Handle POST request to log in a user
 router.post('/login', (req, res) => {
   const db = req.app.locals.db;

@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 
-// Define user routes
+// Define pokemon routes
 
 
 module.exports = router;
