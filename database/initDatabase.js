@@ -22,7 +22,7 @@ db.serialize(() => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       level INTEGER NOT NULL UNIQUE,
       description TEXT NOT NULL CHECK(length(description) > 0),
-      exp_modifier REAL NOT NULL
+      exp_modifier REAL NOT NULL,
       breeding_modifier INTEGER NOT NULL
     );
 
@@ -258,7 +258,7 @@ db.serialize(() => {
       pokedex_id INTEGER NOT NULL,
       trainer_id INTEGER NOT NULL,
       nature_id INTEGER NOT NULL,
-      nickname TEXT CHECK(length(nickname) <= 30 AND length(nickname) > 0)
+      nickname TEXT CHECK(length(nickname) <= 30 AND length(nickname) > 0),
       obtain_method_id INTEGER NOT NULL,
       experience INTEGER NOT NULL CHECK(experience >= 0),
       loyalty REAL NOT NULL CHECK(loyalty >= 0.0),
@@ -350,7 +350,7 @@ db.serialize(() => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pokedex_id INTEGER NOT NULL,
       passive_id INTEGER NOT NULL,
-      level INTEGER
+      level INTEGER,
       FOREIGN KEY (pokedex_id) REFERENCES pokedex(id),
       FOREIGN KEY (passive_id) REFERENCES passives(id),
       UNIQUE (pokedex_id, passive_id)
@@ -383,7 +383,7 @@ db.serialize(() => {
 	    item_category_id INTEGER NOT NULL,
 	    FOREIGN KEY(item_category_id) REFERENCES item_categories(id),
 	    FOREIGN KEY(item_id) REFERENCES items(id)
-    )
+    );
 
     CREATE TABLE IF NOT EXISTS type_effectiveness (
     	id INTEGER PRIMARY KEY AUTOINCREMENT,

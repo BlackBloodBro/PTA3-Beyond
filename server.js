@@ -25,14 +25,21 @@ const db = new sqlite3.Database('database.db', (err) => {
 app.locals.db = db;
 
 // Import and use routes
-const userRoutes = require('./routes/users');
-const trainerRoutes = require('./routes/trainers');
-const pokemonRoutes = require('./routes/pokemon');
+const loginRoutes = require('./routes/login');
 
-app.use('/api/users', userRoutes);
-app.use('/api/trainers', trainerRoutes);
-app.use('/api/pokemon', pokemonRoutes);
+app.use('/api/login', loginRoutes);
 // (use other route files similarly)
+
+app.get('/test/trainers', (req, res) => {
+  const db = req.app.locals.db;
+  db.all('SELECT * FROM trainers', (err, rows) => {
+    if (err) {
+      console.error("DB Error:", err);
+      return res.status(500).send("DB error");
+    }
+    res.json(rows);
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

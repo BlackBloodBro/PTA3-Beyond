@@ -2,26 +2,6 @@
 const express = require('express');
 const router = express.Router();
 
-// Handle GET request to fetch all users
-router.get('/', (req, res) => {
-  // Get the database connection from the server
-  const db = req.app.locals.db;
-
-  // Query to select all users
-  const query = 'SELECT * FROM users';
-
-  // Execute the query
-  db.all(query, (error, users) => {
-    if (error) {
-      console.error('Error fetching users from database:', error);
-      return res.status(500).json({ error: 'Failed to fetch users' });
-    }
-
-    // Send back the list of users as JSON
-    res.json(users);
-  });
-});
-
 // Handle POST request to create a new user
 router.post('/', (req, res) => {
   const db = req.app.locals.db;
@@ -41,39 +21,6 @@ router.post('/', (req, res) => {
 
     // Respond with the new user's ID
     res.status(201).json({ id: this.lastID });
-  });
-});
-
-// PUT - update user
-router.put('/:id', (req, res) => {
-  const db = req.app.locals.db;
-  const { username, password, role } = req.body;
-  const id = req.params.id;
-
-  db.run(
-    'UPDATE users SET username = ?, password = ?, role = ? WHERE id = ?',
-    [username, password, role, id],
-    function (err) {
-      if (err) {
-        res.status(500).json({ error: 'Failed to update user' });
-      } else {
-        res.json({ message: 'User updated' });
-      }
-    }
-  );
-});
-
-// DELETE - remove user
-router.delete('/:id', (req, res) => {
-  const db = req.app.locals.db;
-  const id = req.params.id;
-
-  db.run('DELETE FROM users WHERE id = ?', [id], function (err) {
-    if (err) {
-      res.status(500).json({ error: 'Failed to delete user' });
-    } else {
-      res.json({ message: 'User deleted' });
-    }
   });
 });
 
