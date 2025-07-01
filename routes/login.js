@@ -2,26 +2,6 @@
 const express = require('express');
 const router = express.Router();
 
-// Handle GET request to fetch all users
-router.get('/', (req, res) => {
-  // Get the database connection from the server
-  const db = req.app.locals.db;
-
-  // Query to select all users
-  const query = 'SELECT * FROM users';
-
-  // Execute the query
-  db.all(query, (error, users) => {
-    if (error) {
-      console.error('Error fetching users from database:', error);
-      return res.status(500).json({ error: 'Failed to fetch users' });
-    }
-
-    // Send back the list of users as JSON
-    res.json(users);
-  });
-});
-
 // Handle POST request to create a new user
 router.post('/', (req, res) => {
   const db = req.app.locals.db;

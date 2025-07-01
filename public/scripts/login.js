@@ -5,6 +5,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('loginForm');
     const createAccountForm = document.getElementById('createAccountForm');
 
+    // Remove old login data
+    localStorage.removeItem("user_id");
+    localStorage.removeItem("role");
+
     // If login form exists, set it up
     if (loginForm) {
         setupLoginForm();
@@ -33,7 +37,13 @@ function setupLoginForm() {
 
             if (response.ok) {
                 const data = await response.json();
-                redirectUserByRole(data.role); // Redirect based on user role
+
+                // Store role and user ID in localStorage
+                localStorage.setItem("user_id", data.id);
+                localStorage.setItem("role", data.role);
+
+                // Redirect based on user role
+                redirectUserByRole(data.role);
             } else {
                 const errorData = await response.json();
                 alert(`Login failed: ${errorData.error}`);
@@ -78,7 +88,7 @@ function setupCreateAccountForm() {
 
 // Function: Send new user data to server to create a user in the database
 async function createUser(username, password, role) {
-    return fetch('/api/users', {
+    return fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password, role })
@@ -87,7 +97,7 @@ async function createUser(username, password, role) {
 
 // Function: Send login request to server with username and password
 async function loginUser(username, password) {
-    return fetch('/api/users/login', {
+    return fetch('/api/login/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -97,7 +107,7 @@ async function loginUser(username, password) {
 // Function: Redirect user to correct page based on their role (player or gamemaster)
 function redirectUserByRole(role) {
     if (role === 'player') {
-        window.location.href = '/player/player.html';
+        window.location.href = '/user/user.html';
     } else if (role === 'gamemaster') {
         window.location.href = '/gamemaster/gamemaster.html';
     } else {

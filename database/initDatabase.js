@@ -5,100 +5,76 @@ db.serialize(() => {
 
   db.run("PRAGMA foreign_keys = ON");
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE CHECK(length(username) > 0),
       password TEXT NOT NULL,
       role TEXT NOT NULL CHECK(role IN ('player', 'gamemaster'))
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS stats (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS loyalties (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       level INTEGER NOT NULL UNIQUE,
       description TEXT NOT NULL CHECK(length(description) > 0),
-      exp_modifier REAL
-    )
-  `);
+      exp_modifier REAL NOT NULL,
+      breeding_modifier INTEGER NOT NULL
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS obtain_methods (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
       exp_modifier REAL
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS sizes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS weights (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS egg_groups (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS diets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       description TEXT NOT NULL CHECK(length(description) > 0)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS habitats (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE
-    )
-  `);
-
-  db.run(`
+    );
+    
     CREATE TABLE IF NOT EXISTS proficiencies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT NOT NULL CHECK(length(description) > 0)
-    )
-  `);
+      name TEXT NOT NULL UNIQUE
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS growth_rates (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       exp_modifier REAL
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS frequencies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       frequency INTEGER NOT NULL
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS natures (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL CHECK(length(name) > 0),
@@ -106,103 +82,85 @@ db.serialize(() => {
       stat_decrease_id INTEGER NOT NULL,
       FOREIGN KEY (stat_increase_id) REFERENCES stats(id),
       FOREIGN KEY (stat_decrease_id) REFERENCES stats(id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS passives (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL CHECK(length(name) > 0),
       description TEXT NOT NULL CHECK(length(description) > 0)
-    )
-  `);
+    );
 
-  db.run(`
+    CREATE TABLE IF NOT EXISTS skills (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL CHECK(length(name) > 0),
+      stat_id INTEGER,
+      FOREIGN KEY (stat_id) REFERENCES stats(id)
+    );
+
     CREATE TABLE IF NOT EXISTS item_categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
       description TEXT NOT NULL CHECK(length(description) > 0)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS types (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS origins (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
       feature TEXT
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS levels (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       level INTEGER NOT NULL UNIQUE CHECK(level >= 1),
       experience INTEGER NOT NULL UNIQUE CHECK(experience >= 0)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS afflictions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
       description TEXT NOT NULL CHECK(length(description) > 0),
       catch_modifier INTEGER NOT NULL
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS catch_modifier_hp (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
       catch_modifier INTEGER NOT NULL
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS catch_modifier_battlestart (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
       catch_modifier INTEGER NOT NULL
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS breeding_modifier_friendship (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
       breeding_modifier INTEGER NOT NULL
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL CHECK(length(name) > 0),
       description TEXT NOT NULL CHECK(length(description) > 0),
-      category_id INTEGER NOT NULL,
       held_item BOOLEAN NOT NULL CHECK(held_item IN (0, 1)),
-      price INTEGER CHECK(price >= 0),
-      FOREIGN KEY (category_id) REFERENCES item_categories(id)
-    )
-  `);
+      stackable BOOLEAN NOT NULL CHECK(stackable IN (0, 1)),
+      price INTEGER CHECK(price >= 0)
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS catch_modifier_ball (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       item_id INTEGER NOT NULL UNIQUE,
       catch_modifier INTEGER NOT NULL,
       FOREIGN KEY (item_id) REFERENCES items(id) 
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS classes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
@@ -210,22 +168,20 @@ db.serialize(() => {
       type TEXT NOT NULL CHECK(type IN ('class', 'subclass')),
       class_id INTEGER,
       FOREIGN KEY (class_id) REFERENCES classes(id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS features (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE CHECK(length(name) > 0),
       description TEXT NOT NULL CHECK(length(description) > 0),
       class_id INTEGER NOT NULL,
+      level INTEGER NOT NULL,
       frequency_id INTEGER,
+      cost INTEGER,
       FOREIGN KEY (class_id) REFERENCES classes(id),
       FOREIGN KEY (frequency_id) REFERENCES frequencies(id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS moves (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL CHECK(length(name) > 0),
@@ -238,10 +194,8 @@ db.serialize(() => {
       FOREIGN KEY (type_id) REFERENCES types(id),
       FOREIGN KEY (stat_id) REFERENCES stats(id),
       FOREIGN KEY (frequency_id) REFERENCES frequencies(id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS passive_modifiers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       passive_id INTEGER NOT NULL,
@@ -250,16 +204,16 @@ db.serialize(() => {
       FOREIGN KEY (passive_id) REFERENCES passives(id),
       FOREIGN KEY (stat_id) REFERENCES stats(id)
     );
-  `);
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS pokedex (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      dexpage INTEGER CHECK(dexpage > 0),
       name TEXT NOT NULL CHECK(length(name) > 0),
       type_1_id INTEGER NOT NULL,
       type_2_id INTEGER,
       growth_rate_id INTEGER NOT NULL,
+      catch_rate INTEGER NOT NULL,
+      size_id INTEGER NOT NULL,
+      weight_id INTEGER NOT NULL,
       base_hp INTEGER NOT NULL,
       base_attack INTEGER NOT NULL,
       base_defense INTEGER NOT NULL,
@@ -268,11 +222,11 @@ db.serialize(() => {
       base_speed INTEGER NOT NULL,
       FOREIGN KEY (type_1_id) REFERENCES types(id),
       FOREIGN KEY (type_2_id) REFERENCES types(id),
-      FOREIGN KEY (growth_rate_id) REFERENCES growth_rates(id)
-    )
-  `);
+      FOREIGN KEY (growth_rate_id) REFERENCES growth_rates(id),
+      FOREIGN KEY (size_id) REFERENCES sizes(id),
+      FOREIGN KEY (weight_id) REFERENCES weights(id)
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS trainers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -297,18 +251,13 @@ db.serialize(() => {
       FOREIGN KEY (subclass_2_id) REFERENCES classes(id),
       FOREIGN KEY (subclass_3_id) REFERENCES classes(id),
       FOREIGN KEY (origin_id) REFERENCES origins(id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS pokemon (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pokedex_id INTEGER NOT NULL,
       trainer_id INTEGER NOT NULL,
       nature_id INTEGER NOT NULL,
-      size_id INTEGER NOT NULL,
-      weight_id INTEGER NOT NULL,
-      hatch_rate INTEGER NOT NULL CHECK(hatch_rate > 0),
       nickname TEXT CHECK(length(nickname) <= 30 AND length(nickname) > 0),
       obtain_method_id INTEGER NOT NULL,
       experience INTEGER NOT NULL CHECK(experience >= 0),
@@ -328,27 +277,20 @@ db.serialize(() => {
       FOREIGN KEY (pokedex_id) REFERENCES pokedex(id),
       FOREIGN KEY (trainer_id) REFERENCES trainers(id),
       FOREIGN KEY (nature_id) REFERENCES natures(id),
-      FOREIGN KEY (size_id) REFERENCES sizes(id),
-      FOREIGN KEY (weight_id) REFERENCES weights(id),
       FOREIGN KEY (obtain_method_id) REFERENCES obtain_methods(id),
       FOREIGN KEY (held_item_id) REFERENCES items(id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS trainers_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       trainer_id INTEGER NOT NULL,
       item_id INTEGER NOT NULL,
-      quantity INTEGER NOT NULL CHECK ((stackable = 1 AND quantity >= 1) OR (stackable = 0 AND quantity = 1)),
-      stackable BOOLEAN NOT NULL CHECK(stackable IN (0, 1)),
+      quantity INTEGER NOT NULL,
       FOREIGN KEY (trainer_id) REFERENCES trainers(id),
       FOREIGN KEY (item_id) REFERENCES items(id),
       UNIQUE (trainer_id, item_id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS pokedex_egg_groups (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pokedex_id INTEGER NOT NULL,
@@ -356,10 +298,8 @@ db.serialize(() => {
       FOREIGN KEY (pokedex_id) REFERENCES pokedex(id),
       FOREIGN KEY (egg_group_id) REFERENCES egg_groups(id),
       UNIQUE (pokedex_id, egg_group_id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS pokedex_diets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pokedex_id INTEGER NOT NULL,
@@ -367,10 +307,8 @@ db.serialize(() => {
       FOREIGN KEY (pokedex_id) REFERENCES pokedex(id),
       FOREIGN KEY (diet_id) REFERENCES diets(id),
       UNIQUE (pokedex_id, diet_id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS pokedex_habitats (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pokedex_id INTEGER NOT NULL,
@@ -378,10 +316,8 @@ db.serialize(() => {
       FOREIGN KEY (pokedex_id) REFERENCES pokedex(id),
       FOREIGN KEY (habitat_id) REFERENCES habitats(id),
       UNIQUE (pokedex_id, habitat_id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS pokedex_proficiencies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pokedex_id INTEGER NOT NULL,
@@ -389,10 +325,8 @@ db.serialize(() => {
       FOREIGN KEY (pokedex_id) REFERENCES pokedex(id),
       FOREIGN KEY (proficiency_id) REFERENCES proficiencies(id),
       UNIQUE (pokedex_id, proficiency_id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS moves_proficiencies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       move_id INTEGER NOT NULL,
@@ -400,10 +334,8 @@ db.serialize(() => {
       FOREIGN KEY (move_id) REFERENCES moves(id),
       FOREIGN KEY (proficiency_id) REFERENCES proficiencies(id),
       UNIQUE (move_id, proficiency_id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS trainers_pokemon (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       trainer_id INTEGER NOT NULL,
@@ -412,21 +344,18 @@ db.serialize(() => {
       FOREIGN KEY (trainer_id) REFERENCES trainers(id),
       FOREIGN KEY (pokemon_id) REFERENCES pokemon(id),
       UNIQUE (trainer_id, placement)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS pokedex_passives (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pokedex_id INTEGER NOT NULL,
       passive_id INTEGER NOT NULL,
+      level INTEGER,
       FOREIGN KEY (pokedex_id) REFERENCES pokedex(id),
       FOREIGN KEY (passive_id) REFERENCES passives(id),
       UNIQUE (pokedex_id, passive_id)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS pokemon_moves (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pokemon_id INTEGER NOT NULL,
@@ -436,10 +365,8 @@ db.serialize(() => {
       FOREIGN KEY (move_id) REFERENCES moves(id),
       UNIQUE (pokemon_id, move_id),
       UNIQUE (pokemon_id, placement)
-    )
-  `);
+    );
 
-  db.run(`
     CREATE TABLE IF NOT EXISTS pokedex_moves (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       move_id INTEGER NOT NULL,
@@ -448,6 +375,23 @@ db.serialize(() => {
       FOREIGN KEY (move_id) REFERENCES moves(id),
       FOREIGN KEY (pokedex_id) REFERENCES pokedex(id),
       UNIQUE (move_id, pokedex_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS items_item_categories (
+	    id INTEGER PRIMARY KEY AUTOINCREMENT,
+	    item_id INTEGER NOT NULL,
+	    item_category_id INTEGER NOT NULL,
+	    FOREIGN KEY(item_category_id) REFERENCES item_categories(id),
+	    FOREIGN KEY(item_id) REFERENCES items(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS type_effectiveness (
+    	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	    attack_type_id INTEGER NOT NULL,
+	    defend_type_id INTEGER NOT NULL,
+	    effectiveness INTEGER,
+	    FOREIGN KEY(attack_type_id) REFERENCES types(id),
+	    FOREIGN KEY(defend_type_id) REFERENCES types(id)
     )
   `);
 
