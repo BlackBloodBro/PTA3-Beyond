@@ -1,0 +1,195 @@
+'use server'
+
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+
+export async function createCampaign(formData: FormData) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const name = (formData.get('name') as string)?.trim()
+  const description = (formData.get('description') as string)?.trim()
+
+  if (!name) {
+    redirect(`/campaigns/new?error=${encodeURIComponent('Name is required')}`)
+  }
+
+  const { data: campaign, error } = await supabase
+    .from('campaigns')
+    .insert({ name, description: description || null, gm_user_id: user.id })
+    .select('id')
+    .single()
+
+  if (error || !campaign) {
+    redirect(`/campaigns/new?error=${encodeURIComponent(error?.message ?? 'Could not create campaign')}`)
+  }
+
+  redirect(`/campaigns/${campaign.id}`)
+}
+
+export async function joinCampaign(formData: FormData) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const code = (formData.get('code') as string)?.trim()
+
+  if (!code) {
+    redirect(`/campaigns/join?error=${encodeURIComponent('Invite code is required')}`)
+  }
+
+  const { data: campaignId, error } = await supabase.rpc('join_campaign', { code })
+
+  if (error || !campaignId) {
+    redirect(`/campaigns/join?error=${encodeURIComponent(error?.message ?? 'Could not join campaign')}`)
+  }
+
+  redirect(`/campaigns/${campaignId}`)
+}
+
+export async function leaveCampaign(trainerId: string) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  // .eq('user_id', user.id) here isn't just belt-and-suspenders -- it's what makes this "leave
+  // MY trainer" rather than any trainer; RLS would allow a GM to null out campaign_id on a
+  // player's trainer too (that's the "remove a player" action below), so this action needs its
+  // own explicit ownership check to stay scoped to self-service use.
+  await supabase.from('trainers').update({ campaign_id: null }).eq('id', trainerId).eq('user_id', user.id)
+
+  redirect(`/trainers/${trainerId}`)
+}
+
+// Lets a trainer's owner assign it to (or move it between, or clear it from) any campaign they
+// GM or are a member of, from the /trainers list -- the counterpart to leaveCampaign, but usable
+// without already being on the campaign's own page, and without needing to go all the way back to
+// the trainer-creation flow to set a campaign for the first time.
+// Called directly from a client component (no <form action>, no redirect) so re-assigning a
+// trainer's campaign from the /trainers list updates that row in place instead of reloading the
+// whole list.
+export async function assignTrainerToCampaign(
+  trainerId: string,
+  campaignIdRaw: string,
+): Promise<{ error: string } | { campaignId: string | null; campaignName: string | null }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  // Same ownership reasoning as leaveCampaign -- RLS would let a GM update a player's trainer too,
+  // so this needs its own explicit check to stay scoped to "assign MY trainer."
+  const { data: trainer } = await supabase.from('trainers').select('id').eq('id', trainerId).eq('user_id', user.id).maybeSingle()
+
+  if (!trainer) {
+    return { error: 'Not authorized to move that trainer' }
+  }
+
+  let campaignId: string | null = null
+  let campaignName: string | null = null
+  if (campaignIdRaw) {
+    // Same "GM or joined member" check as createTrainer's own campaign assignment.
+    const [{ data: asGM }, { data: asMember }, { data: campaign }] = await Promise.all([
+      supabase.from('campaigns').select('id').eq('id', campaignIdRaw).eq('gm_user_id', user.id).maybeSingle(),
+      supabase.from('campaign_members').select('campaign_id').eq('campaign_id', campaignIdRaw).eq('user_id', user.id).maybeSingle(),
+      supabase.from('campaigns').select('name').eq('id', campaignIdRaw).maybeSingle(),
+    ])
+    if (!asGM && !asMember) {
+      return { error: 'You are not part of that campaign' }
+    }
+    campaignId = campaignIdRaw
+    campaignName = campaign?.name ?? null
+  }
+
+  const { error } = await supabase.from('trainers').update({ campaign_id: campaignId }).eq('id', trainerId).eq('user_id', user.id)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { campaignId, campaignName }
+}
+
+export async function removePlayer(campaignId: string, targetUserId: string) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  // Both operations are gated by existing RLS (GM-of-this-campaign only), so this silently
+  // affects zero rows for anyone who isn't the GM -- it's not a real permission check on its own.
+  await supabase
+    .from('trainers')
+    .update({ campaign_id: null })
+    .eq('campaign_id', campaignId)
+    .eq('user_id', targetUserId)
+
+  await supabase.from('campaign_members').delete().eq('campaign_id', campaignId).eq('user_id', targetUserId)
+
+  redirect(`/campaigns/${campaignId}`)
+}
+
+export async function deleteCampaign(campaignId: string) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  // Only player trainers block deletion -- they must be removed manually first (same as always).
+  // NPCs are wholly GM-owned, so they're cleaned up automatically below rather than forcing the GM
+  // to delete potentially dozens of them one at a time first.
+  const { count } = await supabase
+    .from('trainers')
+    .select('id', { count: 'exact', head: true })
+    .eq('campaign_id', campaignId)
+    .eq('is_npc', false)
+
+  if (count && count > 0) {
+    redirect(
+      `/campaigns/${campaignId}?error=${encodeURIComponent(
+        'Remove all trainers from the campaign before deleting it',
+      )}`,
+    )
+  }
+
+  // Deleting each NPC cascades its trainers_pokemon link (on delete cascade), which orphans their
+  // Pokemon back into the unassigned pool rather than deleting the Pokemon -- intentional,
+  // non-destructive default; the GM can separately clean up leftover pool Pokemon if they want.
+  await supabase.from('trainers').delete().eq('campaign_id', campaignId).eq('is_npc', true)
+
+  const { error } = await supabase.from('campaigns').delete().eq('id', campaignId)
+
+  if (error) {
+    redirect(`/campaigns/${campaignId}?error=${encodeURIComponent(error.message)}`)
+  }
+
+  redirect('/dashboard')
+}

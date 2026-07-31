@@ -1,0 +1,348 @@
+import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import { deleteTrainer, restPokemonCenter, restSleep } from '@/app/trainers/actions'
+import { ConfirmButton } from '@/components/ConfirmButton'
+import { PokemonSprite } from '@/components/PokemonSprite'
+import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
+import { NpcLabelsSection } from './NpcLabelsSection'
+import type { LabelColor } from '@/lib/pta3/labelColors'
+import { loadTrainerDerived, loadPendingMilestone, loadQualifyingMilestones, computeEffectiveStats, computeMaxHp } from '@/lib/pta3/trainerFeatures'
+import {
+  TrainerStateProvider,
+  TrainerNameHeading,
+  PendingMilestoneBanner,
+  TrainerInfoSection,
+  TrainerHpSection,
+  StatsSection,
+  SkillsSection,
+  ActiveFeaturesSection,
+  PassiveFeaturesSection,
+  type StatBreakdown,
+} from './TrainerInteractive'
+
+const STAT_FIELDS = ['attack', 'defense', 'special_attack', 'special_defense', 'speed'] as const
+
+// No in-schema source for a configurable team cap (no Feature/Item raises it, no per-class
+// variance) -- 6 is simply the standard team size, same as the main games.
+const MAX_TEAM_SIZE = 6
+
+// Matches the user's exact boundaries: >50% green, >1/6 and <=50% orange, <=1/6 red.
+function hpColorClass(current: number, max: number): string {
+  if (max <= 0) return 'text-neutral-500'
+  const ratio = current / max
+  if (ratio > 0.5) return 'text-green-600'
+  if (ratio > 1 / 6) return 'text-amber-600'
+  return 'text-red-600'
+}
+
+export default async function TrainerPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ error?: string; message?: string }>
+}) {
+  const { id } = await params
+  const { error, message } = await searchParams
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  // No .eq('user_id', ...) filter here -- RLS already scopes this to the trainer's owner OR the
+  // GM of the campaign it belongs to (if any), so relying on RLS lets a GM view a player's sheet
+  // without needing separate query branches.
+  const { data: trainer } = await supabase
+    .from('trainers')
+    .select(
+      `
+      id, name, level, current_hp, temporary_hp, user_id, campaign_id, is_npc,
+      base_attack, base_defense, base_special_attack, base_special_defense, base_speed,
+      class_id, origin_id,
+      classes(name),
+      origins(name, lifestyle),
+      campaigns(id, name, gm_user_id),
+      trainer_labels(campaign_labels(id, name, color))
+    `,
+    )
+    .eq('id', id)
+    .single()
+
+  if (!trainer) {
+    redirect('/dashboard')
+  }
+
+  const isOwner = trainer.user_id === user.id
+  const isGM = trainer.campaigns?.gm_user_id === user.id
+  const campaign = trainer.campaign_id && trainer.campaigns ? { id: trainer.campaigns.id, name: trainer.campaigns.name } : null
+
+  // Only fetched when actually needed to render the Labels section below.
+  const { data: campaignLabels } =
+    isGM && trainer.is_npc && trainer.campaign_id
+      ? await supabase.from('campaign_labels').select('id, name, color').eq('campaign_id', trainer.campaign_id).order('name')
+      : { data: null }
+  const selectedLabelIds = (trainer.trainer_labels ?? [])
+    .map((tl) => tl.campaign_labels?.id)
+    .filter((v): v is string => Boolean(v))
+
+  // The one query everything derived below is built from -- see lib/pta3/trainerFeatures.ts for why
+  // this replaces the old raw-column approach (stats/advanced-classes/max-HP are never stored as a
+  // running total, only ever recomputed from this list against the trainer's current level).
+  const milestones = await loadQualifyingMilestones(supabase, id, trainer.level)
+
+  const baseStats = {
+    attack: trainer.base_attack,
+    defense: trainer.base_defense,
+    special_attack: trainer.base_special_attack,
+    special_defense: trainer.base_special_defense,
+    speed: trainer.base_speed,
+  }
+  const effectiveStats = computeEffectiveStats(baseStats, milestones)
+  const maxHp = computeMaxHp(milestones)
+
+  // Shared with updateTrainerInfo so the trainer page and the "no reload" Info edit form derive
+  // advanced-class display names and the active/passive Features lists exactly the same way.
+  const [{ advancedClasses, activeFeatures, passiveFeatures }, { hasPendingMilestone, nextMilestoneLevel }] = await Promise.all([
+    loadTrainerDerived(supabase, id, { classId: trainer.class_id, level: trainer.level }),
+    loadPendingMilestone(supabase, { trainerId: id, classId: trainer.class_id, level: trainer.level }),
+  ])
+
+  const { data: skills } = await supabase.from('skills').select('name, stats(name)').order('name')
+
+  // Powers the Stats section's tooltip breakdown -- base is now the true point-buy base (base_attack
+  // etc. are never mutated after creation), so no reconstruction is needed; increases come straight
+  // from the qualifying-milestones list already loaded above.
+  const milestoneSubclassIds = [...new Set(milestones.map((m) => m.subclass_id))]
+  const { data: milestoneSubclasses } =
+    milestoneSubclassIds.length > 0
+      ? await supabase.from('subclasses').select('id, name').in('id', milestoneSubclassIds)
+      : { data: [] }
+  const subclassNameByMilestoneId = new Map((milestoneSubclasses ?? []).map((s) => [s.id, s.name]))
+
+  const increasesByStat: Record<string, { level: number; subclassName: string }[]> = Object.fromEntries(
+    STAT_FIELDS.map((f) => [f, []]),
+  )
+  for (const m of milestones) {
+    const subclassName = subclassNameByMilestoneId.get(m.subclass_id) ?? 'Unknown'
+    increasesByStat[m.stat_a]?.push({ level: m.level, subclassName })
+    increasesByStat[m.stat_b]?.push({ level: m.level, subclassName })
+  }
+  const statBreakdown = Object.fromEntries(
+    STAT_FIELDS.map((f) => [f, { base: baseStats[f as keyof typeof baseStats], increases: increasesByStat[f] }]),
+  ) as StatBreakdown
+
+  // Options for the Info section's Edit form -- Class/Background stay freeform GM/owner overrides;
+  // Subclasses are no longer settable here (only through resolveMilestone), so no subclass list is
+  // fetched for this form anymore.
+  const [{ data: classes }, { data: origins }] = await Promise.all([
+    supabase.from('classes').select('id, name').order('name'),
+    supabase.from('origins').select('id, name, lifestyle').order('name'),
+  ])
+
+  const { data: featureUses } = await supabase
+    .from('trainer_feature_uses')
+    .select('feature_id, uses_remaining')
+    .eq('trainer_id', id)
+
+  const usesRemainingByFeature = Object.fromEntries((featureUses ?? []).map((fu) => [fu.feature_id, fu.uses_remaining]))
+
+  const { data: trainersPokemon } = await supabase
+    .from('trainers_pokemon')
+    .select(
+      `
+      obtain_method_id,
+      pokemon(
+        id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_id,
+        pokedex(name, base_hp, sprite_code, growth_rate_id),
+        loyalty:loyalties(name)
+      )
+    `,
+    )
+    .eq('trainer_id', id)
+
+  // Same derivation as the Pokemon detail page -- level is never stored, so the Team list needs to
+  // compute it per Pokemon exactly the same way.
+  const team = await Promise.all(
+    (trainersPokemon ?? []).map(async (tp) => {
+      const p = tp.pokemon!
+      const { level } = await computePokemonLevel(supabase, {
+        currentExp: p.current_exp,
+        isShiny: p.is_shiny,
+        loyaltyId: p.loyalty_id,
+        obtainMethodId: tp.obtain_method_id,
+        growthRateId: p.pokedex!.growth_rate_id,
+      })
+      return { ...p, level, maxHp: p.pokedex!.base_hp + p.ev_hp * 6 }
+    }),
+  )
+
+  const { data: trainerMoves } = await supabase
+    .from('trainer_moves')
+    .select('uses_remaining, resets_on, moves(name)')
+    .eq('trainer_id', id)
+
+  return (
+    <main className="flex min-h-screen flex-col items-center gap-6 p-24">
+      <div className="w-full max-w-6xl">
+        <Link href="/trainers" className="text-sm underline">
+          ← Trainers
+        </Link>
+      </div>
+
+      {error && <p className="w-full max-w-6xl text-red-600">{error}</p>}
+      {message && <p className="w-full max-w-6xl text-green-700">{message}</p>}
+
+      <TrainerStateProvider
+        trainerId={id}
+        isOwner={isOwner}
+        isGM={isGM}
+        initialName={trainer.name}
+        initialLevel={trainer.level}
+        initialCurrentHp={trainer.current_hp}
+        initialMaxHp={maxHp}
+        initialStats={effectiveStats}
+        initialAdvancedClasses={advancedClasses}
+        initialActiveFeatures={activeFeatures}
+        initialPassiveFeatures={passiveFeatures}
+        initialUsesRemainingByFeature={usesRemainingByFeature}
+        initialClassId={trainer.class_id}
+        initialClassName={trainer.classes?.name ?? ''}
+        initialOriginId={trainer.origin_id}
+        initialOriginName={trainer.origins?.name ?? ''}
+        initialLifestyle={trainer.origins?.lifestyle ?? null}
+        initialHasPendingMilestone={hasPendingMilestone}
+        initialNextMilestoneLevel={nextMilestoneLevel}
+      >
+      <PendingMilestoneBanner trainerId={id} />
+
+      <div className="flex w-full max-w-6xl items-center justify-between">
+        <h1 className="text-2xl font-bold">
+          <TrainerNameHeading />
+          {!isOwner && <span className="ml-2 text-sm font-normal text-neutral-500">(GM view)</span>}
+        </h1>
+        <div className="flex gap-2">
+          <Link href={`/trainers/${id}/pc`} className="rounded border px-4 py-2 text-sm">
+            PC
+          </Link>
+          <Link href={`/trainers/${id}/bag`} className="rounded border px-4 py-2 text-sm">
+            Bag
+          </Link>
+          {isOwner && (
+            <form action={deleteTrainer.bind(null, id)}>
+              <ConfirmButton
+                confirmMessage={`Permanently delete ${trainer.name}? This cannot be undone.`}
+                className="rounded border border-red-600 px-4 py-2 text-sm text-red-600"
+              >
+                Delete
+              </ConfirmButton>
+            </form>
+          )}
+        </div>
+      </div>
+
+      {isGM && trainer.is_npc && trainer.campaign_id && (
+        <NpcLabelsSection
+          trainerId={id}
+          campaignId={trainer.campaign_id}
+          initialLabels={(campaignLabels ?? []).map((l) => ({ id: l.id, name: l.name, color: l.color as LabelColor }))}
+          initialSelectedLabelIds={selectedLabelIds}
+        />
+      )}
+
+      <div className="flex w-full max-w-6xl items-start gap-4">
+        <aside className="flex w-64 shrink-0 flex-col gap-4">
+          <TrainerInfoSection trainerId={id} campaign={campaign} classes={classes ?? []} origins={origins ?? []} />
+
+          <TrainerHpSection trainerId={id} temporaryHp={trainer.temporary_hp} />
+
+          <section className="rounded border p-4">
+            <h2 className="mb-2 font-semibold">Rest</h2>
+            <div className="flex flex-wrap gap-2">
+              <form action={restSleep.bind(null, id)}>
+                <ConfirmButton
+                  confirmMessage="Sleep? You heal 1d6 HP, each Pokémon heals 1/6 of its max HP, and rest-based features recharge."
+                  className="rounded border px-4 py-2 text-sm"
+                >
+                  Sleep
+                </ConfirmButton>
+              </form>
+              <form action={restPokemonCenter.bind(null, id)}>
+                <ConfirmButton
+                  confirmMessage="Visit the Pokémon Center? This instantly heals all your Pokémon's HP (not move uses, not your own HP)."
+                  className="rounded border px-4 py-2 text-sm"
+                >
+                  Pokémon Center
+                </ConfirmButton>
+              </form>
+            </div>
+            <p className="mt-2 text-xs text-neutral-500">
+              Sleep: trainer heals 1d6 and rest-based features recharge; each Pokémon heals 1/6 of its
+              max HP. Pokémon Center: instantly fully heals all Pokémon HP only (not move uses, not
+              the trainer).
+            </p>
+          </section>
+        </aside>
+
+        <div className="flex flex-1 flex-col gap-4">
+        <StatsSection breakdown={statBreakdown} />
+
+        <SkillsSection skills={(skills ?? []) as unknown as { name: string; stats: { name: string } | null }[]} />
+
+        <ActiveFeaturesSection trainerId={id} />
+
+        <PassiveFeaturesSection />
+
+        <section className="rounded border p-4">
+          <h2 className="mb-2 font-semibold">Trainer Moves</h2>
+          {(trainerMoves ?? []).length === 0 ? (
+            <p className="text-sm text-neutral-500">None yet.</p>
+          ) : (
+            <ul className="list-disc pl-5">
+              {(trainerMoves ?? []).map((tm, i) => (
+                <li key={i}>{tm.moves!.name}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+        </div>
+
+        <aside className="w-64 shrink-0">
+          <section className="rounded border p-4">
+            <h2 className="mb-2 font-semibold">
+              Team ({team.length}/{MAX_TEAM_SIZE})
+            </h2>
+            {team.length === 0 ? (
+              <p className="text-sm text-neutral-500">No Pokémon yet.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {team.map((p, i) => (
+                  <li key={i} className="flex items-center gap-2 rounded border p-2">
+                    <PokemonSprite spriteCode={p.pokedex!.sprite_code} shiny={p.is_shiny} alt={p.pokedex!.name} size={40} />
+                    <div className="min-w-0 flex-1 text-sm">
+                      <Link href={`/pokemon/${p.id}`} className="block truncate font-medium underline">
+                        {p.nickname ? `${p.nickname} (${p.pokedex!.name})` : p.pokedex!.name}
+                      </Link>
+                      <p className="text-xs text-neutral-500">
+                        Level {p.level} · Loyalty: {p.loyalty?.name ?? '—'}
+                      </p>
+                      <p className={`font-semibold ${hpColorClass(p.current_hp, p.maxHp)}`}>
+                        {p.current_hp} / {p.maxHp} HP
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </aside>
+      </div>
+      </TrainerStateProvider>
+    </main>
+  )
+}
