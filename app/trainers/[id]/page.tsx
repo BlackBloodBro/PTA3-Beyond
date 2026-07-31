@@ -5,6 +5,7 @@ import { deleteTrainer, restPokemonCenter, restSleep } from '@/app/trainers/acti
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
+import { MAX_TEAM_SIZE } from '@/lib/pta3/pokemonTeam'
 import { NpcLabelsSection } from './NpcLabelsSection'
 import type { LabelColor } from '@/lib/pta3/labelColors'
 import { loadTrainerDerived, loadPendingMilestone, loadQualifyingMilestones, computeEffectiveStats, computeMaxHp } from '@/lib/pta3/trainerFeatures'
@@ -22,10 +23,6 @@ import {
 } from './TrainerInteractive'
 
 const STAT_FIELDS = ['attack', 'defense', 'special_attack', 'special_defense', 'speed'] as const
-
-// No in-schema source for a configurable team cap (no Feature/Item raises it, no per-class
-// variance) -- 6 is simply the standard team size, same as the main games.
-const MAX_TEAM_SIZE = 6
 
 // Matches the user's exact boundaries: >50% green, >1/6 and <=50% orange, <=1/6 red.
 function hpColorClass(current: number, max: number): string {
@@ -152,6 +149,9 @@ export default async function TrainerPage({
 
   const usesRemainingByFeature = Object.fromEntries((featureUses ?? []).map((fu) => [fu.feature_id, fu.uses_remaining]))
 
+  // Team only -- a Trainer's off-Team Pokemon (party_slot null) live in the PC page instead. Since
+  // the PC system introduced party_slot, this query now covers only the subset actually on the
+  // Team, ordered by slot rather than insertion order.
   const { data: trainersPokemon } = await supabase
     .from('trainers_pokemon')
     .select(
@@ -165,6 +165,8 @@ export default async function TrainerPage({
     `,
     )
     .eq('trainer_id', id)
+    .not('party_slot', 'is', null)
+    .order('party_slot')
 
   // Same derivation as the Pokemon detail page -- level is never stored, so the Team list needs to
   // compute it per Pokemon exactly the same way.

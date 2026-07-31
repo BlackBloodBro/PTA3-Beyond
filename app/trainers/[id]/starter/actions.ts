@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { pickRandomNatureId } from '@/lib/pta3/nature'
 import { pickRandomGender } from '@/lib/pta3/gender'
+import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
 
 export async function createStarterPokemon(trainerId: string, formData: FormData) {
   const supabase = await createClient()
@@ -80,10 +81,17 @@ export async function createStarterPokemon(trainerId: string, formData: FormData
     )
   }
 
+  // A brand-new trainer's starter always lands on the Team, not the PC -- findNextOpenSlot still
+  // goes through the actual current state (rather than hardcoding slot 1) so this stays correct
+  // even if this action is ever reused for a trainer that already has Pokemon.
+  const { data: existingSlots } = await supabase.from('trainers_pokemon').select('party_slot').eq('trainer_id', trainerId)
+  const nextSlot = findNextOpenSlot((existingSlots ?? []).map((r) => r.party_slot))
+
   const { error: linkError } = await supabase.from('trainers_pokemon').insert({
     trainer_id: trainerId,
     pokemon_id: pokemonId,
     obtain_method_id: obtainMethod?.id ?? null,
+    party_slot: nextSlot,
   })
 
   if (linkError) {

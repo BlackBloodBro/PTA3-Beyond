@@ -8,6 +8,7 @@ import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
+import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
 
 const GENDER_VALUES = ['male', 'female', 'genderless'] as const
 
@@ -117,9 +118,14 @@ export async function createPokemon(formData: FormData) {
   }
 
   if (trainerId) {
+    // Same auto-park behavior as assignPokemon below -- lands on the Team if there's room, parks
+    // in the PC (party_slot null) rather than blocking creation if it's already full.
+    const { data: existingSlots } = await supabase.from('trainers_pokemon').select('party_slot').eq('trainer_id', trainerId)
+    const nextSlot = findNextOpenSlot((existingSlots ?? []).map((r) => r.party_slot))
+
     const { error: linkError } = await supabase
       .from('trainers_pokemon')
-      .insert({ trainer_id: trainerId, pokemon_id: pokemonId })
+      .insert({ trainer_id: trainerId, pokemon_id: pokemonId, party_slot: nextSlot })
 
     if (linkError) {
       redirect(`/pokemon/new?error=${encodeURIComponent(linkError.message)}`)
@@ -178,7 +184,15 @@ export async function assignPokemon(
     return { error: trainer.campaign_id ? 'Only that campaign\'s GM can assign to this trainer' : 'Not authorized to assign to that trainer' }
   }
 
-  const { error } = await supabase.from('trainers_pokemon').insert({ trainer_id: trainerId, pokemon_id: pokemonId })
+  // Auto-park: bringing a wild/pool Pokemon onto a full Team shouldn't block the assignment or
+  // force an immediate bench decision -- it lands in the PC (party_slot null) instead, same as
+  // anything already parked there. The GM/owner can move it onto the Team later from the PC page.
+  const { data: existingSlots } = await supabase.from('trainers_pokemon').select('party_slot').eq('trainer_id', trainerId)
+  const nextSlot = findNextOpenSlot((existingSlots ?? []).map((r) => r.party_slot))
+
+  const { error } = await supabase
+    .from('trainers_pokemon')
+    .insert({ trainer_id: trainerId, pokemon_id: pokemonId, party_slot: nextSlot })
 
   if (error) {
     return { error: error.message }
