@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { deleteCampaign, leaveCampaign, removePlayer } from '@/app/(authenticated)/campaigns/actions'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { loadQualifyingMilestones, computeMaxHp } from '@/lib/pta3/trainerFeatures'
+import { CampaignInfoSection } from './CampaignInfoSection'
 
 export default async function CampaignPage({
   params,
@@ -81,15 +82,19 @@ export default async function CampaignPage({
 
       {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
 
-      <div className="w-full max-w-2xl">
-        <h1 className="text-2xl font-bold">{campaign.name}</h1>
-        {campaign.description && <p className="text-muted">{campaign.description}</p>}
-        {isGM && (
-          <p className="mt-2 text-sm">
+      <CampaignInfoSection
+        campaignId={id}
+        isGM={isGM}
+        initialName={campaign.name}
+        initialDescription={campaign.description}
+      />
+      {isGM && (
+        <div className="w-full max-w-2xl">
+          <p className="text-sm">
             Invite code: <span className="font-mono font-semibold">{campaign.invite_code}</span>
           </p>
-        )}
-      </div>
+        </div>
+      )}
 
       {isGM && (
         <div className="flex w-full max-w-2xl gap-3">

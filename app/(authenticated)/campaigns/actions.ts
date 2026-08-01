@@ -130,6 +130,48 @@ export async function assignTrainerToCampaign(
   return { campaignId, campaignName }
 }
 
+// GM-only, same edit-toggle pattern as updateTrainerInfo -- called directly from a client component
+// (no <form action>, no redirect) so the campaign page updates in place instead of reloading.
+export async function updateCampaign(
+  campaignId: string,
+  input: { name: string; description: string },
+): Promise<{ error: string } | { name: string; description: string | null }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const name = input.name.trim()
+  const description = input.description.trim()
+
+  if (!name) {
+    return { error: 'Name is required' }
+  }
+
+  // RLS already restricts campaign updates to the GM, but this action needs its own explicit check
+  // to return a client-friendly error instead of a silently-ignored zero-row update.
+  const { data: campaign } = await supabase.from('campaigns').select('gm_user_id').eq('id', campaignId).maybeSingle()
+
+  if (!campaign || campaign.gm_user_id !== user.id) {
+    return { error: 'Only this campaign\'s GM can edit it' }
+  }
+
+  const { error } = await supabase
+    .from('campaigns')
+    .update({ name, description: description || null })
+    .eq('id', campaignId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { name, description: description || null }
+}
+
 export async function removePlayer(campaignId: string, targetUserId: string) {
   const supabase = await createClient()
   const {
