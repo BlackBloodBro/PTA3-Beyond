@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { Sidebar } from './Sidebar'
 
 // Shared shell for every authenticated route (Dashboard/Campaigns/Trainers/Pokemon/Settings) --
 // centralizes the auth guard so a signed-out visit anywhere under here redirects to /login before
@@ -36,7 +37,10 @@ export default async function AuthenticatedLayout({ children }: { children: Reac
           Settings
         </Link>
       </header>
-      {children}
+      <div className="flex">
+        <Sidebar />
+        <div className="flex-1">{children}</div>
+      </div>
     </div>
   )
 }
