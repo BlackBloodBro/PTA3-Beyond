@@ -21,7 +21,7 @@ export function SpeciesPicker({
   const selected = species.find((s) => s.name === selectedName)
 
   if (species.length === 0) {
-    return <p className="text-sm text-neutral-500">No species match the current filters.</p>
+    return <p className="text-sm text-muted">No species match the current filters.</p>
   }
 
   return (
@@ -31,7 +31,7 @@ export function SpeciesPicker({
         {selected ? (
           <PokemonSprite key={selected.sprite_code} spriteCode={selected.sprite_code} alt={selected.name} size={64} />
         ) : (
-          <div style={{ width: 64, height: 64 }} className="shrink-0 rounded bg-neutral-100" />
+          <div style={{ width: 64, height: 64 }} className="shrink-0 rounded bg-surface-muted" />
         )}
         <select
           id={name}

@@ -25,7 +25,7 @@ export function PokemonSprite({
     return (
       <div
         style={{ width: size, height: size }}
-        className={`flex shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] text-neutral-400 ${className ?? ''}`}
+        className={`flex shrink-0 items-center justify-center rounded bg-surface-muted text-[10px] text-muted ${className ?? ''}`}
       >
         No image
       </div>

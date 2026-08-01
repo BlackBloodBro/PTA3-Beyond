@@ -1,3 +1,69 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  /* Today's exact literal values -- an unthemed (theme_mode/theme_accent both null) user sees
+     pixel-identical output to before Themes existed. */
+  --color-bg: #ffffff;
+  --color-fg: #000000;
+  --color-muted: #737373;
+  --color-border: #e5e7eb;
+  --color-surface-subtle: #fafafa;
+  --color-surface-muted: #f5f5f5;
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-warning-fill: #f59e0b;
+  --color-warning-surface: #fffbeb;
+  --color-accent: 0 0 0;
+  --color-accent-foreground: 255 255 255;
+}
+
+[data-theme="dark"] {
+  --color-bg: #171717;
+  --color-fg: #f5f5f5;
+  --color-muted: #a3a3a3;
+  --color-border: #404040;
+  --color-surface-subtle: #262626;
+  --color-surface-muted: #262626;
+  --color-danger: #f87171;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-warning-surface: #451a03;
+  --color-accent: 245 245 245;
+  --color-accent-foreground: 23 23 23;
+  /* --color-warning-fill intentionally NOT overridden -- it's a self-contained fill+text pair (the
+     "ACTIVE" badge, active-feature card border) whose own contrast doesn't depend on page mode. */
+}
+
+/* Accent overrides: 13 light (-600 shade) + 13 dark (-400 shade, lighter so it reads against a
+   dark page), RGB triplets for the rgb(var(...) / <alpha-value>) pattern in tailwind.config.ts.
+   The 2-attribute dark selectors beat the single-attribute light ones whenever both are present. */
+[data-accent="red"]    { --color-accent: 220 38 38; }
+[data-accent="orange"] { --color-accent: 234 88 12; }
+[data-accent="amber"]  { --color-accent: 217 119 6; }
+[data-accent="yellow"] { --color-accent: 202 138 4; }
+[data-accent="lime"]   { --color-accent: 101 163 13; }
+[data-accent="green"]  { --color-accent: 22 163 74; }
+[data-accent="teal"]   { --color-accent: 13 148 136; }
+[data-accent="cyan"]   { --color-accent: 8 145 178; }
+[data-accent="blue"]   { --color-accent: 37 99 235; }
+[data-accent="indigo"] { --color-accent: 79 70 229; }
+[data-accent="violet"] { --color-accent: 124 58 237; }
+[data-accent="pink"]   { --color-accent: 219 39 119; }
+[data-accent="gray"]   { --color-accent: 75 85 99; }
+
+[data-theme="dark"][data-accent="red"]    { --color-accent: 248 113 113; }
+[data-theme="dark"][data-accent="orange"] { --color-accent: 251 146 60; }
+[data-theme="dark"][data-accent="amber"]  { --color-accent: 251 191 36; }
+[data-theme="dark"][data-accent="yellow"] { --color-accent: 250 204 21; }
+[data-theme="dark"][data-accent="lime"]   { --color-accent: 163 230 53; }
+[data-theme="dark"][data-accent="green"]  { --color-accent: 74 222 128; }
+[data-theme="dark"][data-accent="teal"]   { --color-accent: 45 212 191; }
+[data-theme="dark"][data-accent="cyan"]   { --color-accent: 34 211 238; }
+[data-theme="dark"][data-accent="blue"]   { --color-accent: 96 165 250; }
+[data-theme="dark"][data-accent="indigo"] { --color-accent: 129 140 248; }
+[data-theme="dark"][data-accent="violet"] { --color-accent: 167 139 250; }
+[data-theme="dark"][data-accent="pink"]   { --color-accent: 244 114 182; }
+[data-theme="dark"][data-accent="gray"]   { --color-accent: 156 163 175; }

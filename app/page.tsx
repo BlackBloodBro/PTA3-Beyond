@@ -10,7 +10,7 @@ export default async function HomePage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-24">
       <h1 className="text-3xl font-bold">PTA3 Tool</h1>
-      <p className="text-neutral-500">Trainers, Pokémon, and reference data go here.</p>
+      <p className="text-muted">Trainers, Pokémon, and reference data go here.</p>
 
       {user ? (
         <Link href="/dashboard" className="underline">
