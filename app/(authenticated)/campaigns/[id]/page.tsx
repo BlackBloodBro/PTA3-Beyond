@@ -49,6 +49,7 @@ export default async function CampaignPage({
     )
     .eq('campaign_id', id)
     .eq('is_npc', false)
+    .not('trainers_pokemon.party_slot', 'is', null)
 
   // Max HP is never stored (see lib/pta3/trainerFeatures.ts) -- recompute it per trainer from their
   // qualifying milestones.
