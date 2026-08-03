@@ -896,3 +896,46 @@ export async function forgetMove(pokemonId: string, moveId: number): Promise<{ e
 
   return {}
 }
+
+// Owner-or-GM, free and instant -- same reasoning as learnMove/forgetMove: marking a status ailment
+// is bookkeeping of something that already happened in the fiction, not a resource-costed action.
+// No ownership filter needed -- RLS on pokemon_afflictions already covers both tiers directly.
+// Unlike Moves, afflictions aren't species-gated and have no stacking cap, so this is a plain
+// insert/delete with no eligibility check.
+export async function addAffliction(pokemonId: string, afflictionId: number): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { error } = await supabase.from('pokemon_afflictions').insert({ pokemon_id: pokemonId, affliction_id: afflictionId })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return {}
+}
+
+export async function removeAffliction(pokemonId: string, afflictionId: number): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { error } = await supabase.from('pokemon_afflictions').delete().eq('pokemon_id', pokemonId).eq('affliction_id', afflictionId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return {}
+}
