@@ -6,6 +6,8 @@ import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
+import { isBookmarked } from '@/lib/pta3/bookmarks'
+import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import {
   PokemonStateProvider,
@@ -143,6 +145,7 @@ export default async function WildPokemonPage({
   // Everyone who can reach Edit mode at all can at least change the Nickname; GM-only fields are
   // further gated inside the form itself.
   const canEditInfo = isOwner || isGM
+  const bookmarked = await isBookmarked(supabase, user.id, 'pokemon', pokemonId)
   const species = pokemon.pokedex
 
   if (!species) {
@@ -366,8 +369,9 @@ export default async function WildPokemonPage({
           <section className="rounded border border-accent bg-accent/10 p-4">
             <div className="mb-3 flex flex-col items-center gap-1 text-center">
               <PokemonSprite spriteCode={species.sprite_code} shiny={pokemon.is_shiny} alt={species.name} size={96} />
-              <h1 className="text-lg font-bold leading-tight">
+              <h1 className="flex items-center gap-2 text-lg font-bold leading-tight">
                 {pokemon.nickname ? `${pokemon.nickname} (${species.name})` : species.name}
+                <BookmarkToggle entityType="pokemon" entityId={pokemonId} initialBookmarked={bookmarked} />
               </h1>
               {pokemon.is_shiny && <span className="text-xs font-medium text-warning">✦ Shiny</span>}
               {!isOwner && <span className="text-xs text-muted">(GM view)</span>}

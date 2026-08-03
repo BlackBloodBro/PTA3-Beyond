@@ -6,6 +6,8 @@ import { ConfirmButton } from '@/components/ConfirmButton'
 import { loadQualifyingMilestones, computeMaxHp } from '@/lib/pta3/trainerFeatures'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
+import { isBookmarked } from '@/lib/pta3/bookmarks'
+import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { CampaignInfoSection } from './CampaignInfoSection'
 
 export default async function CampaignPage({
@@ -38,6 +40,8 @@ export default async function CampaignPage({
   }
 
   const isGM = campaign.gm_user_id === user.id
+
+  const bookmarked = await isBookmarked(supabase, user.id, 'campaign', id)
 
   // No .eq('user_id', ...) filter here -- RLS already returns the right set for each role:
   // the GM sees every trainer in the campaign, a player sees their own trainer plus fellow
@@ -77,10 +81,11 @@ export default async function CampaignPage({
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
-      <div className="w-full max-w-2xl">
+      <div className="flex w-full max-w-2xl items-center justify-between">
         <Link href="/campaigns" className="text-sm underline">
           ← Campaigns
         </Link>
+        <BookmarkToggle entityType="campaign" entityId={id} initialBookmarked={bookmarked} />
       </div>
 
       {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
