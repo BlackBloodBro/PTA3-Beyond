@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { deleteCampaign, leaveCampaign, removePlayer } from '@/app/(authenticated)/campaigns/actions'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { loadQualifyingMilestones, computeMaxHp } from '@/lib/pta3/trainerFeatures'
+import { trainerHref } from '@/lib/pta3/trainerPaths'
+import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { CampaignInfoSection } from './CampaignInfoSection'
 
 export default async function CampaignPage({
@@ -128,7 +130,7 @@ export default async function CampaignPage({
               <div key={t.id} className="rounded border p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold">
-                    <Link href={`/trainers/${t.id}`} className="underline">
+                    <Link href={trainerHref({ id: t.id, is_npc: false, campaign_id: id })} className="underline">
                       {t.name}
                     </Link>
                   </h3>
@@ -162,7 +164,7 @@ export default async function CampaignPage({
                   <ul className="mt-1 list-disc pl-5 text-sm">
                     {t.trainers_pokemon.map((tp, i) => (
                       <li key={i}>
-                        <Link href={`/pokemon/${tp.pokemon!.id}`} className="underline">
+                        <Link href={pokemonHref({ id: tp.pokemon!.id, hasOwner: true, campaignId: id })} className="underline">
                           {tp.pokemon!.nickname
                             ? `${tp.pokemon!.nickname} (${tp.pokemon!.pokedex!.name})`
                             : tp.pokemon!.pokedex!.name}

@@ -5,6 +5,7 @@ import { deletePokemon } from '@/app/(authenticated)/pokemon/actions'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { PokemonAssignmentPanel } from './PokemonAssignmentPanel'
+import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 
 export default async function PokemonListPage({
   searchParams,
@@ -29,7 +30,7 @@ export default async function PokemonListPage({
       // trainer for display).
       supabase
         .from('trainers_pokemon')
-        .select('trainer_id, trainers!inner(id, name, user_id), pokemon(id, nickname, is_shiny, pokedex(name, sprite_code))')
+        .select('trainer_id, trainers!inner(id, name, user_id, is_npc, campaign_id), pokemon(id, nickname, is_shiny, pokedex(name, sprite_code))')
         .eq('trainers.user_id', user.id),
       // Pool Pokemon this user created -- filtered to unassigned (no trainers_pokemon row) below,
       // since PostgREST has no direct "no related row exists" filter for a reverse relation.
@@ -63,6 +64,8 @@ export default async function PokemonListPage({
     pokedex: { name: string; sprite_code: string } | null
     trainerId: string | null
     trainerName: string | null
+    trainerIsNpc: boolean | null
+    trainerCampaignId: string | null
     campaignId: string | null
   }
 
@@ -78,6 +81,8 @@ export default async function PokemonListPage({
       pokedex: tp.pokemon!.pokedex,
       trainerId: tp.trainer_id,
       trainerName: tp.trainers?.name ?? null,
+      trainerIsNpc: tp.trainers?.is_npc ?? null,
+      trainerCampaignId: tp.trainers?.campaign_id ?? null,
       campaignId: null,
     })) as unknown) as PokemonRow[]
 
@@ -90,6 +95,8 @@ export default async function PokemonListPage({
       pokedex: p.pokedex,
       trainerId: null,
       trainerName: null,
+      trainerIsNpc: null,
+      trainerCampaignId: null,
       campaignId: p.campaign_id,
     })) as unknown) as PokemonRow[]
 
@@ -119,7 +126,14 @@ export default async function PokemonListPage({
           allMyPokemon.map((p) => (
             <div key={p.id} className="flex flex-col gap-2 rounded border p-3">
               <div className="flex items-center justify-between gap-2">
-                <Link href={`/pokemon/${p.id}`} className="flex items-center gap-2 underline">
+                <Link
+                  href={pokemonHref({
+                    id: p.id,
+                    hasOwner: p.trainerId !== null,
+                    campaignId: p.trainerId !== null ? p.trainerCampaignId : p.campaignId,
+                  })}
+                  className="flex items-center gap-2 underline"
+                >
                   {p.pokedex && <PokemonSprite spriteCode={p.pokedex.sprite_code} shiny={p.is_shiny} alt={p.pokedex.name} size={32} />}
                   {p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name}
                 </Link>
@@ -139,6 +153,8 @@ export default async function PokemonListPage({
                 pokemonId={p.id}
                 initialTrainerId={p.trainerId}
                 initialTrainerName={p.trainerName}
+                initialTrainerIsNpc={p.trainerIsNpc}
+                initialTrainerCampaignId={p.trainerCampaignId}
                 initialCampaignId={p.campaignId}
                 assignableTrainers={assignableTrainers}
                 assignableCampaigns={assignableCampaignsForPokemon}

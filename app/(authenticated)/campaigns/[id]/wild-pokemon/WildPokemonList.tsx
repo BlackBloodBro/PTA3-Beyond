@@ -6,6 +6,7 @@ import { assignPokemon } from '@/app/(authenticated)/pokemon/actions'
 import { createLabel, setPokemonLabels } from '@/app/(authenticated)/campaigns/[id]/actions'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { LABEL_CHIP_CLASSES, LABEL_COLORS, LABEL_SWATCH_CLASSES, type LabelColor } from '@/lib/pta3/labelColors'
+import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 
 type Label = { id: string; name: string; color: LabelColor }
 type Trainer = { id: string; name: string; is_npc: boolean }
@@ -134,7 +135,7 @@ function WildPokemonRow({
   return (
     <div className="rounded border p-3">
       <div className="flex items-center justify-between gap-2">
-        <Link href={`/pokemon/${pokemon.id}`} className="flex items-center gap-2 underline">
+        <Link href={pokemonHref({ id: pokemon.id, hasOwner: false, campaignId })} className="flex items-center gap-2 underline">
           {pokemon.pokedex && (
             <PokemonSprite spriteCode={pokemon.pokedex.sprite_code} shiny={pokemon.is_shiny} alt={pokemon.pokedex.name} size={32} />
           )}

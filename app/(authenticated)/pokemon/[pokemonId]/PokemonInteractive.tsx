@@ -111,6 +111,7 @@ function modifierForDamageStat(damageStat: string, statRows: StatRows) {
 
 type PokemonStateValue = {
   pokemonId: string
+  basePath: string
   isOwner: boolean
   isGM: boolean
   effectiveType1?: string
@@ -164,6 +165,7 @@ function usePokemonState() {
 // which moves are learnable.
 export function PokemonStateProvider(props: {
   pokemonId: string
+  basePath: string
   isOwner: boolean
   isGM: boolean
   effectiveType1?: string
@@ -224,6 +226,7 @@ export function PokemonStateProvider(props: {
 
   const value: PokemonStateValue = {
     pokemonId: props.pokemonId,
+    basePath: props.basePath,
     isOwner: props.isOwner,
     isGM: props.isGM,
     effectiveType1: props.effectiveType1,
@@ -630,6 +633,7 @@ export function StatsSection() {
 export function MovesSection() {
   const {
     pokemonId,
+    basePath,
     isEditingMoves,
     knownMoves,
     fullLearnset,
@@ -699,11 +703,11 @@ export function MovesSection() {
       <div className="mb-2 flex items-center justify-between">
         <h2 className="font-semibold">Moves</h2>
         {isEditingMoves ? (
-          <Link href={`/pokemon/${pokemonId}`} className="rounded border px-3 py-1 text-sm">
+          <Link href={basePath} className="rounded border px-3 py-1 text-sm">
             Done
           </Link>
         ) : (
-          <Link href={`/pokemon/${pokemonId}?editMoves=1`} className="rounded border px-3 py-1 text-sm">
+          <Link href={`${basePath}?editMoves=1`} className="rounded border px-3 py-1 text-sm">
             Edit
           </Link>
         )}

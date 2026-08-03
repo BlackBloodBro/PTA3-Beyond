@@ -4,16 +4,17 @@ import { createClient } from '@/lib/supabase/server'
 import { resolveMilestone } from '@/app/(authenticated)/trainers/actions'
 import { loadPendingMilestone, loadQualifyingMilestones } from '@/lib/pta3/trainerFeatures'
 import { STAT_OPTIONS, loadAdvancedClassOptions } from '@/lib/pta3/advancedClassOptions'
-import { AdvancedClassPicker } from './AdvancedClassPicker'
+import { AdvancedClassPicker } from '@/app/(authenticated)/trainers/[id]/level-up/AdvancedClassPicker'
+import { trainerHref } from '@/lib/pta3/trainerPaths'
 
-export default async function LevelUpPage({
+export default async function CampaignTrainerLevelUpPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ id: string }>
+  params: Promise<{ id: string; trainerId: string }>
   searchParams: Promise<{ error?: string }>
 }) {
-  const { id } = await params
+  const { id: campaignId, trainerId: id } = await params
   const { error } = await searchParams
   const supabase = await createClient()
 
@@ -25,16 +26,17 @@ export default async function LevelUpPage({
     redirect('/login')
   }
 
-  const { data: trainer } = await supabase.from('trainers').select('name, level, class_id, campaign_id').eq('id', id).single()
+  const { data: trainer } = await supabase.from('trainers').select('name, level, class_id, is_npc, campaign_id').eq('id', id).single()
 
   if (!trainer) {
     redirect('/dashboard')
   }
 
-  // Any Trainer belonging to a Campaign (NPC or player) lives under /campaigns/[id]/.../level-up now.
-  if (trainer.campaign_id) {
+  if (trainer.is_npc || trainer.campaign_id !== campaignId) {
     notFound()
   }
+
+  const basePath = trainerHref({ id, is_npc: false, campaign_id: campaignId })
 
   // Same derivation the trainer page and resolveMilestone use -- see
   // lib/pta3/trainerFeatures.ts for why "does a trainer_milestones row already exist at this exact
@@ -48,7 +50,7 @@ export default async function LevelUpPage({
   // Nothing pending (already resolved, not reached yet, or this class has no milestones) --
   // there's nothing for this page to show.
   if (!hasPendingMilestone || !nextMilestoneLevel) {
-    redirect(`/trainers/${id}`)
+    redirect(basePath)
   }
 
   const filledIds = (await loadQualifyingMilestones(supabase, id, trainer.level)).map((m) => m.subclass_id)
@@ -57,7 +59,7 @@ export default async function LevelUpPage({
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-2xl">
-        <Link href={`/trainers/${id}`} className="text-sm underline">
+        <Link href={basePath} className="text-sm underline">
           ← {trainer.name}
         </Link>
       </div>

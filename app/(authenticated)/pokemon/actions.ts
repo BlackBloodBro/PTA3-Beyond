@@ -9,6 +9,7 @@ import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
+import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 
 const GENDER_VALUES = ['male', 'female', 'genderless'] as const
 
@@ -84,6 +85,7 @@ export async function createPokemon(formData: FormData) {
   // by campaignId above -- a personal-pool (campaign-less) Pokemon can still be handed straight to
   // a trainer in any campaign this user GMs.
   let trainerId: string | null = null
+  let trainerCampaignId: string | null = null
   if (trainerIdRaw) {
     const { data: trainer } = await supabase
       .from('trainers')
@@ -95,6 +97,7 @@ export async function createPokemon(formData: FormData) {
       redirect(`/pokemon/new?error=${encodeURIComponent('You are not the GM for that trainer')}`)
     }
     trainerId = trainerIdRaw
+    trainerCampaignId = trainer.campaign_id
   }
 
   // Generate the id up front rather than reading it back after insert -- same RETURNING-requires-
@@ -131,7 +134,7 @@ export async function createPokemon(formData: FormData) {
       redirect(`/pokemon/new?error=${encodeURIComponent(linkError.message)}`)
     }
 
-    redirect(`/pokemon/${pokemonId}`)
+    redirect(pokemonHref({ id: pokemonId, hasOwner: true, campaignId: trainerCampaignId }))
   }
 
   redirect('/pokemon')
@@ -152,7 +155,7 @@ export async function createPokemon(formData: FormData) {
 export async function assignPokemon(
   pokemonId: string,
   trainerId: string,
-): Promise<{ error: string } | { trainerId: string; trainerName: string }> {
+): Promise<{ error: string } | { trainerId: string; trainerName: string; trainerIsNpc: boolean; trainerCampaignId: string | null }> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -168,7 +171,7 @@ export async function assignPokemon(
 
   const { data: trainer } = await supabase
     .from('trainers')
-    .select('id, name, user_id, campaign_id, campaigns(gm_user_id)')
+    .select('id, name, user_id, campaign_id, is_npc, campaigns(gm_user_id)')
     .eq('id', trainerId)
     .maybeSingle()
 
@@ -198,7 +201,7 @@ export async function assignPokemon(
     return { error: error.message }
   }
 
-  return { trainerId, trainerName: trainer.name }
+  return { trainerId, trainerName: trainer.name, trainerIsNpc: trainer.is_npc, trainerCampaignId: trainer.campaign_id }
 }
 
 // Sends an assigned Pokemon back to the unassigned pool. Same "campaign hands GM-tier control to the
@@ -603,7 +606,9 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
 
   const { data: pokemon } = await supabase
     .from('pokemon')
-    .select('created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), trainers_pokemon(trainers(user_id, campaigns(gm_user_id)))')
+    .select(
+      'created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), trainers_pokemon(trainers(user_id, campaign_id, campaigns(gm_user_id)))',
+    )
     .eq('id', pokemonId)
     .single()
 
@@ -614,7 +619,7 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
   // Same trainers_pokemon-is-a-primary-key quirk as elsewhere -- this reverse embed (and the
   // forward trainers -> campaigns embed nested inside it) both come back as single objects.
   const ownerLink = pokemon.trainers_pokemon as unknown as {
-    trainers: { user_id: string; campaigns: { gm_user_id: string } | null } | null
+    trainers: { user_id: string; campaign_id: string | null; campaigns: { gm_user_id: string } | null } | null
   } | null
   const campaign = pokemon.campaign as unknown as { gm_user_id: string } | null
   // A Wild/pool Pokemon has no trainers_pokemon row -- its GM-tier authority is the campaign's real
@@ -633,8 +638,13 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
       : ownerLink.trainers?.user_id === user.id
     : poolAuthority
 
+  // Effective campaign: an owned Pokemon's is its Trainer's campaign_id, not its own (possibly
+  // vestigial) campaign_id tag -- same "wherever it actually lives" rule as the read-side page.
+  const effectiveCampaignId = ownerLink ? ownerLink.trainers?.campaign_id ?? null : pokemon.campaign_id
+  const base = pokemonHref({ id: pokemonId, hasOwner: ownerLink !== null, campaignId: effectiveCampaignId })
+
   if (!isOwner && !isGM) {
-    redirect(`/pokemon/${pokemonId}?editInfo=1&error=${encodeURIComponent('Not authorized to edit this Pokemon')}`)
+    redirect(`${base}?editInfo=1&error=${encodeURIComponent('Not authorized to edit this Pokemon')}`)
   }
 
   const nicknameRaw = (formData.get('nickname') as string)?.trim()
@@ -643,7 +653,7 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
   if (isGM) {
     const genderRaw = (formData.get('gender') as string)?.trim()
     if (genderRaw && !POKEMON_GENDER_VALUES.includes(genderRaw as (typeof POKEMON_GENDER_VALUES)[number])) {
-      redirect(`/pokemon/${pokemonId}?editInfo=1&error=${encodeURIComponent('Invalid gender')}`)
+      redirect(`${base}?editInfo=1&error=${encodeURIComponent('Invalid gender')}`)
     }
     updates.gender = genderRaw || null
 
@@ -651,7 +661,7 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
     if (natureIdRaw) {
       const { data: nature } = await supabase.from('natures').select('id').eq('id', Number(natureIdRaw)).maybeSingle()
       if (!nature) {
-        redirect(`/pokemon/${pokemonId}?editInfo=1&error=${encodeURIComponent('Invalid nature')}`)
+        redirect(`${base}?editInfo=1&error=${encodeURIComponent('Invalid nature')}`)
       }
       updates.nature_id = nature.id
     } else {
@@ -682,7 +692,7 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
   const { error } = await supabase.from('pokemon').update(updates).eq('id', pokemonId)
 
   if (error) {
-    redirect(`/pokemon/${pokemonId}?editInfo=1&error=${encodeURIComponent(error.message)}`)
+    redirect(`${base}?editInfo=1&error=${encodeURIComponent(error.message)}`)
   }
 
   // Obtain method lives on trainers_pokemon (the link table), not pokemon itself, so it's a
@@ -695,11 +705,11 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
       .eq('pokemon_id', pokemonId)
 
     if (obtainError) {
-      redirect(`/pokemon/${pokemonId}?editInfo=1&error=${encodeURIComponent(obtainError.message)}`)
+      redirect(`${base}?editInfo=1&error=${encodeURIComponent(obtainError.message)}`)
     }
   }
 
-  redirect(`/pokemon/${pokemonId}`)
+  redirect(base)
 }
 
 const MAX_KNOWN_MOVES = 6

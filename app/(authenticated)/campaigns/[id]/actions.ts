@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { POINT_BUY_BUDGET, STAT_KEYS, pointBuyCost, type StatKey } from '@/lib/pta3/pointBuy'
 import { isLabelColor, type LabelColor } from '@/lib/pta3/labelColors'
+import { trainerHref } from '@/lib/pta3/trainerPaths'
 
 // Mirrors createTrainer (app/trainers/actions.ts) -- same name/class/origin/25-point stat-budget
 // validation -- but is deliberately its own function, not a shared refactor: campaignId here is
@@ -90,7 +91,7 @@ export async function createNpc(campaignId: string, formData: FormData) {
     redirect(`${npcNewUrl}?error=${encodeURIComponent(error?.message ?? 'Could not create NPC')}`)
   }
 
-  redirect(`/trainers/${trainer.id}`)
+  redirect(trainerHref({ id: trainer.id, is_npc: true, campaign_id: campaignId }))
 }
 
 // Promotes an existing trainer (created the normal way, anywhere -- no campaign, or a different
@@ -147,7 +148,7 @@ export async function convertTrainerToNpc(campaignId: string, formData: FormData
     redirect(`${npcsUrl}?error=${encodeURIComponent('Not authorized to convert that trainer, or it is already an NPC')}`)
   }
 
-  redirect(`/trainers/${trainer.id}`)
+  redirect(trainerHref({ id: trainer.id, is_npc: true, campaign_id: campaignId }))
 }
 
 // GM-only, creates a new campaign label (name + a color from the fixed palette). Called directly

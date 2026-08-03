@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { deleteTrainer } from '@/app/(authenticated)/trainers/actions'
 import { ConfirmButton } from '@/components/ConfirmButton'
+import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { TrainerCampaignControl } from './TrainerCampaignControl'
 
 export default async function TrainersPage({
@@ -77,7 +78,7 @@ export default async function TrainersPage({
             return (
               <div key={t.id} className="rounded border p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <Link href={`/trainers/${t.id}`} className="text-lg font-semibold underline">
+                  <Link href={trainerHref({ id: t.id, is_npc: false, campaign_id: t.campaign_id })} className="text-lg font-semibold underline">
                     {t.name}
                   </Link>
                   <form action={deleteTrainer.bind(null, t.id)}>

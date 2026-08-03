@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { POINT_BUY_BUDGET, STAT_KEYS, pointBuyCost, type StatKey } from '@/lib/pta3/pointBuy'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
+import { trainerHref } from '@/lib/pta3/trainerPaths'
 import {
   loadTrainerDerived,
   loadPendingMilestone,
@@ -123,7 +124,7 @@ export async function deleteTrainer(trainerId: string) {
   // MY trainer," so it's scoped the same way regardless of what RLS would otherwise allow.
   const { data: trainer } = await supabase
     .from('trainers')
-    .select('campaign_id')
+    .select('campaign_id, is_npc')
     .eq('id', trainerId)
     .eq('user_id', user.id)
     .single()
@@ -149,10 +150,10 @@ export async function deleteTrainer(trainerId: string) {
   const { error } = await supabase.from('trainers').delete().eq('id', trainerId).eq('user_id', user.id)
 
   if (error) {
-    redirect(`/trainers/${trainerId}?error=${encodeURIComponent(error.message)}`)
+    redirect(`${trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaign_id })}?error=${encodeURIComponent(error.message)}`)
   }
 
-  redirect('/trainers')
+  redirect(trainer.is_npc && trainer.campaign_id ? `/campaigns/${trainer.campaign_id}/npcs` : '/trainers')
 }
 
 export type TrainerInfoSnapshot = {
@@ -394,17 +395,19 @@ export async function resolveMilestone(trainerId: string, formData: FormData) {
   const statB = formData.get('statB') as string
   const subclassChoice = formData.get('subclassChoice') as string
 
-  if (!STAT_COLUMNS.includes(statA as StatColumn) || !STAT_COLUMNS.includes(statB as StatColumn) || statA === statB) {
-    redirect(`/trainers/${trainerId}/level-up?error=${encodeURIComponent('Choose two different stats')}`)
-  }
-  if (!subclassChoice) {
-    redirect(`/trainers/${trainerId}/level-up?error=${encodeURIComponent('Choose an advanced class')}`)
-  }
-
-  const { data: trainer } = await supabase.from('trainers').select('class_id, level, current_hp').eq('id', trainerId).single()
+  const { data: trainer } = await supabase.from('trainers').select('class_id, level, current_hp, is_npc, campaign_id').eq('id', trainerId).single()
 
   if (!trainer) {
     redirect('/dashboard')
+  }
+
+  const base = trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaign_id })
+
+  if (!STAT_COLUMNS.includes(statA as StatColumn) || !STAT_COLUMNS.includes(statB as StatColumn) || statA === statB) {
+    redirect(`${base}/level-up?error=${encodeURIComponent('Choose two different stats')}`)
+  }
+  if (!subclassChoice) {
+    redirect(`${base}/level-up?error=${encodeURIComponent('Choose an advanced class')}`)
   }
 
   // Recompute the pending milestone server-side rather than trusting the level-up page's own gate --
@@ -418,19 +421,19 @@ export async function resolveMilestone(trainerId: string, formData: FormData) {
   })
 
   if (!hasPendingMilestone || !milestoneLevel) {
-    redirect(`/trainers/${trainerId}?error=${encodeURIComponent('No pending milestone to resolve')}`)
+    redirect(`${base}?error=${encodeURIComponent('No pending milestone to resolve')}`)
   }
 
   const heldSubclassIds = (await loadQualifyingMilestones(supabase, trainerId, trainer.level)).map((m) => m.subclass_id)
 
   const resolved = await resolveSubclassChoice(supabase, trainer.class_id, subclassChoice, formData)
   if ('error' in resolved) {
-    redirect(`/trainers/${trainerId}/level-up?error=${encodeURIComponent(resolved.error)}`)
+    redirect(`${base}/level-up?error=${encodeURIComponent(resolved.error)}`)
   }
   const { subclass, chosenStat, chosenTypeId } = resolved
 
   if (heldSubclassIds.includes(subclass.id)) {
-    redirect(`/trainers/${trainerId}/level-up?error=${encodeURIComponent('That advanced class is already chosen')}`)
+    redirect(`${base}/level-up?error=${encodeURIComponent('That advanced class is already chosen')}`)
   }
 
   // HP gain lives here now rather than in a separate "level up" step -- the Info section's Level
@@ -444,7 +447,7 @@ export async function resolveMilestone(trainerId: string, formData: FormData) {
     .eq('id', trainerId)
 
   if (error) {
-    redirect(`/trainers/${trainerId}/level-up?error=${encodeURIComponent(error.message)}`)
+    redirect(`${base}/level-up?error=${encodeURIComponent(error.message)}`)
   }
 
   const { error: milestoneError } = await supabase.from('trainer_milestones').insert({
@@ -459,10 +462,10 @@ export async function resolveMilestone(trainerId: string, formData: FormData) {
   })
 
   if (milestoneError) {
-    redirect(`/trainers/${trainerId}?error=${encodeURIComponent(milestoneError.message)}`)
+    redirect(`${base}?error=${encodeURIComponent(milestoneError.message)}`)
   }
 
-  redirect(`/trainers/${trainerId}`)
+  redirect(base)
 }
 
 // Lets an owner/GM change which subclass and which 2 stats an already-resolved milestone granted,
@@ -484,17 +487,19 @@ export async function editMilestone(trainerId: string, level: number, formData: 
   const statB = formData.get('statB') as string
   const subclassChoice = formData.get('subclassChoice') as string
 
-  if (!STAT_COLUMNS.includes(statA as StatColumn) || !STAT_COLUMNS.includes(statB as StatColumn) || statA === statB) {
-    redirect(`/trainers/${trainerId}/level-up/${level}?error=${encodeURIComponent('Choose two different stats')}`)
-  }
-  if (!subclassChoice) {
-    redirect(`/trainers/${trainerId}/level-up/${level}?error=${encodeURIComponent('Choose an advanced class')}`)
-  }
-
-  const { data: trainer } = await supabase.from('trainers').select('class_id').eq('id', trainerId).single()
+  const { data: trainer } = await supabase.from('trainers').select('class_id, is_npc, campaign_id').eq('id', trainerId).single()
 
   if (!trainer) {
     redirect('/dashboard')
+  }
+
+  const base = trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaign_id })
+
+  if (!STAT_COLUMNS.includes(statA as StatColumn) || !STAT_COLUMNS.includes(statB as StatColumn) || statA === statB) {
+    redirect(`${base}/level-up/${level}?error=${encodeURIComponent('Choose two different stats')}`)
+  }
+  if (!subclassChoice) {
+    redirect(`${base}/level-up/${level}?error=${encodeURIComponent('Choose an advanced class')}`)
   }
 
   const { data: existing } = await supabase
@@ -505,7 +510,7 @@ export async function editMilestone(trainerId: string, level: number, formData: 
     .maybeSingle()
 
   if (!existing) {
-    redirect(`/trainers/${trainerId}?error=${encodeURIComponent('No milestone at that level to edit')}`)
+    redirect(`${base}?error=${encodeURIComponent('No milestone at that level to edit')}`)
   }
 
   const { data: allMilestones } = await supabase.from('trainer_milestones').select('subclass_id').eq('trainer_id', trainerId)
@@ -513,12 +518,12 @@ export async function editMilestone(trainerId: string, level: number, formData: 
 
   const resolved = await resolveSubclassChoice(supabase, trainer.class_id, subclassChoice, formData)
   if ('error' in resolved) {
-    redirect(`/trainers/${trainerId}/level-up/${level}?error=${encodeURIComponent(resolved.error)}`)
+    redirect(`${base}/level-up/${level}?error=${encodeURIComponent(resolved.error)}`)
   }
   const { subclass, chosenStat, chosenTypeId } = resolved
 
   if (heldSubclassIds.includes(subclass.id)) {
-    redirect(`/trainers/${trainerId}/level-up/${level}?error=${encodeURIComponent('That advanced class is already chosen')}`)
+    redirect(`${base}/level-up/${level}?error=${encodeURIComponent('That advanced class is already chosen')}`)
   }
 
   const { error } = await supabase
@@ -528,10 +533,10 @@ export async function editMilestone(trainerId: string, level: number, formData: 
     .eq('level', level)
 
   if (error) {
-    redirect(`/trainers/${trainerId}/level-up/${level}?error=${encodeURIComponent(error.message)}`)
+    redirect(`${base}/level-up/${level}?error=${encodeURIComponent(error.message)}`)
   }
 
-  redirect(`/trainers/${trainerId}`)
+  redirect(base)
 }
 
 // Called directly from a client component (no <form action>, no redirect) -- mirrors
@@ -655,11 +660,13 @@ export async function restSleep(trainerId: string) {
 
   // No ownership filter -- RLS already covers owner + campaign GM (both have UPDATE rights), and
   // a GM calling a rest for the whole party is the expected use case.
-  const { data: trainer } = await supabase.from('trainers').select('level, current_hp').eq('id', trainerId).single()
+  const { data: trainer } = await supabase.from('trainers').select('level, current_hp, is_npc, campaign_id').eq('id', trainerId).single()
 
   if (!trainer) {
     redirect('/dashboard')
   }
+
+  const base = trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaign_id })
 
   // Max HP is never stored -- recompute it from this trainer's qualifying milestones.
   const maxHp = computeMaxHp(await loadQualifyingMilestones(supabase, trainerId, trainer.level))
@@ -673,7 +680,7 @@ export async function restSleep(trainerId: string) {
     .eq('id', trainerId)
 
   if (trainerError) {
-    redirect(`/trainers/${trainerId}?error=${encodeURIComponent(trainerError.message)}`)
+    redirect(`${base}?error=${encodeURIComponent(trainerError.message)}`)
   }
 
   // Pokemon heal 1/6th of their total HP on a sleep rest -- "total HP" is the species' base_hp
@@ -732,7 +739,7 @@ export async function restSleep(trainerId: string) {
   }
 
   redirect(
-    `/trainers/${trainerId}?message=${encodeURIComponent(
+    `${base}?message=${encodeURIComponent(
       `Slept and rolled a ${roll} — healed to ${newTrainerHp}/${maxHp} HP. Rest-based features and Pokémon move uses recharged.`,
     )}`,
   )
@@ -749,11 +756,13 @@ export async function restPokemonCenter(trainerId: string) {
   }
 
   // No ownership filter -- same reasoning as restSleep.
-  const { data: trainer } = await supabase.from('trainers').select('id').eq('id', trainerId).single()
+  const { data: trainer } = await supabase.from('trainers').select('id, is_npc, campaign_id').eq('id', trainerId).single()
 
   if (!trainer) {
     redirect('/dashboard')
   }
+
+  const base = trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaign_id })
 
   // Pokemon Centers instantly heal all Pokemon HP to full -- not their move uses, and not the
   // trainer's own HP or activatable features (that's what Sleep is for).
@@ -772,6 +781,6 @@ export async function restPokemonCenter(trainerId: string) {
   )
 
   redirect(
-    `/trainers/${trainerId}?message=${encodeURIComponent('All Pokémon fully healed at the Pokémon Center.')}`,
+    `${base}?message=${encodeURIComponent('All Pokémon fully healed at the Pokémon Center.')}`,
   )
 }
