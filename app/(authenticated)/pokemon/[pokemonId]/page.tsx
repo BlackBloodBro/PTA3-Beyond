@@ -116,7 +116,10 @@ export default async function PokemonPage({
     user.id,
   )
   const isOwner = trainer ? trainer.user_id === user.id : poolAuthority
-  const isGM = trainer ? trainer.campaigns?.gm_user_id === user.id : poolAuthority
+  // No campaign -> no GM to defer to -- falls back to the Trainer's own owner, same rule as the
+  // write-side actions (updatePokemonDetails/addPokemonExp/loadPokemonEvContext). Without this, the
+  // GM-only fields below never even render for a campaign-less Trainer's own Pokemon.
+  const isGM = trainer ? (trainer.campaigns ? trainer.campaigns.gm_user_id === user.id : trainer.user_id === user.id) : poolAuthority
   // Everyone who can reach Edit mode at all can at least change the Nickname; GM-only fields are
   // further gated inside the form itself.
   const canEditInfo = isOwner || isGM
