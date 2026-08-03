@@ -383,7 +383,13 @@ async function loadPokemonEvContext(supabase: Awaited<ReturnType<typeof createCl
     ownerLink,
     currentEvs,
     isOwner: ownerLink ? ownerLink.trainers?.user_id === userId : poolAuthority,
-    isGM: ownerLink ? ownerLink.trainers?.campaigns?.gm_user_id === userId : poolAuthority,
+    // No campaign -> no GM to defer to -- falls back to the Trainer's own owner, same rule as
+    // updatePokemonDetails/addPokemonExp/the Pokemon page's read side.
+    isGM: ownerLink
+      ? ownerLink.trainers?.campaigns
+        ? ownerLink.trainers.campaigns.gm_user_id === userId
+        : ownerLink.trainers?.user_id === userId
+      : poolAuthority,
   }
 }
 
@@ -619,7 +625,13 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
     user.id,
   )
   const isOwner = ownerLink ? ownerLink.trainers?.user_id === user.id : poolAuthority
-  const isGM = ownerLink ? ownerLink.trainers?.campaigns?.gm_user_id === user.id : poolAuthority
+  // No campaign -> no GM to defer to -- falls back to the Trainer's own owner, same rule as
+  // addPokemonExp/loadPokemonEvContext/the Pokemon page's read side.
+  const isGM = ownerLink
+    ? ownerLink.trainers?.campaigns
+      ? ownerLink.trainers.campaigns.gm_user_id === user.id
+      : ownerLink.trainers?.user_id === user.id
+    : poolAuthority
 
   if (!isOwner && !isGM) {
     redirect(`/pokemon/${pokemonId}?editInfo=1&error=${encodeURIComponent('Not authorized to edit this Pokemon')}`)
@@ -824,7 +836,7 @@ export async function addPokemonExp(
   const { data: pokemon } = await supabase
     .from('pokemon')
     .select(
-      'current_exp, is_shiny, loyalty_id, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(campaigns(gm_user_id)))',
+      'current_exp, is_shiny, loyalty_id, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(user_id, campaigns(gm_user_id)))',
     )
     .eq('id', pokemonId)
     .single()
@@ -837,13 +849,18 @@ export async function addPokemonExp(
   // forward trainers -> campaigns embed nested inside it) both come back as single objects.
   const ownerLink = pokemon.trainers_pokemon as unknown as {
     obtain_method_id: number | null
-    trainers: { campaigns: { gm_user_id: string } | null } | null
+    trainers: { user_id: string; campaigns: { gm_user_id: string } | null } | null
   } | null
   const campaign = pokemon.campaign as unknown as { gm_user_id: string } | null
   // A Wild/pool Pokemon has no trainers_pokemon row -- its GM-tier authority is the campaign's real
-  // GM if it's tagged to one, else its creator (see resolveWildPokemonAuthority).
+  // GM if it's tagged to one, else its creator (see resolveWildPokemonAuthority). A Trainer-owned
+  // Pokemon whose Trainer has no campaign has no GM to defer to either -- falls back to the
+  // Trainer's own owner, same "no campaign -> the personal owner has full control" rule already
+  // used for Trainer-level GM-tier fields (trainers/actions.ts) and for Wild Pokemon.
   const isGM = ownerLink
-    ? ownerLink.trainers?.campaigns?.gm_user_id === user.id
+    ? ownerLink.trainers?.campaigns
+      ? ownerLink.trainers.campaigns.gm_user_id === user.id
+      : ownerLink.trainers?.user_id === user.id
     : resolveWildPokemonAuthority(
         { campaignId: pokemon.campaign_id, campaignGmUserId: campaign?.gm_user_id ?? null, createdByUserId: pokemon.created_by_user_id },
         user.id,
