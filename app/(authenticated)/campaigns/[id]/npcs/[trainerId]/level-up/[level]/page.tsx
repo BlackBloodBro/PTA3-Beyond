@@ -3,19 +3,19 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { editMilestone } from '@/app/(authenticated)/trainers/actions'
 import { STAT_OPTIONS, loadAdvancedClassOptions } from '@/lib/pta3/advancedClassOptions'
-import { AdvancedClassPicker } from '../AdvancedClassPicker'
+import { AdvancedClassPicker } from '@/app/(authenticated)/trainers/[id]/level-up/AdvancedClassPicker'
+import { trainerHref } from '@/lib/pta3/trainerPaths'
 
 // Lets an owner/GM change which subclass and which 2 stats an already-resolved milestone granted --
-// same form as the level-up page, pre-filled with the milestone's current choice and posting to
-// editMilestone (an update, not a fresh grant) instead of resolveMilestone.
-export default async function EditMilestonePage({
+// mirrors trainers/[id]/level-up/[level]/page.tsx under the NPC's campaign-scoped path.
+export default async function NpcEditMilestonePage({
   params,
   searchParams,
 }: {
-  params: Promise<{ id: string; level: string }>
+  params: Promise<{ id: string; trainerId: string; level: string }>
   searchParams: Promise<{ error?: string }>
 }) {
-  const { id, level: levelParam } = await params
+  const { id: campaignId, trainerId: id, level: levelParam } = await params
   const { error } = await searchParams
   const level = Number(levelParam)
   const supabase = await createClient()
@@ -28,16 +28,17 @@ export default async function EditMilestonePage({
     redirect('/login')
   }
 
-  const { data: trainer } = await supabase.from('trainers').select('name, class_id, campaign_id').eq('id', id).single()
+  const { data: trainer } = await supabase.from('trainers').select('name, class_id, is_npc, campaign_id').eq('id', id).single()
 
   if (!trainer) {
     redirect('/dashboard')
   }
 
-  // Any Trainer belonging to a Campaign (NPC or player) lives under /campaigns/[id]/.../level-up/[level] now.
-  if (trainer.campaign_id) {
+  if (!trainer.is_npc || trainer.campaign_id !== campaignId) {
     notFound()
   }
+
+  const basePath = trainerHref({ id, is_npc: true, campaign_id: campaignId })
 
   const { data: milestone } = await supabase
     .from('trainer_milestones')
@@ -47,7 +48,7 @@ export default async function EditMilestonePage({
     .maybeSingle()
 
   if (!milestone) {
-    redirect(`/trainers/${id}?error=${encodeURIComponent('No milestone at that level to edit')}`)
+    redirect(`${basePath}?error=${encodeURIComponent('No milestone at that level to edit')}`)
   }
 
   const { data: allMilestones } = await supabase.from('trainer_milestones').select('subclass_id').eq('trainer_id', id)
@@ -64,7 +65,7 @@ export default async function EditMilestonePage({
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-2xl">
-        <Link href={`/trainers/${id}`} className="text-sm underline">
+        <Link href={basePath} className="text-sm underline">
           ← {trainer.name}
         </Link>
       </div>

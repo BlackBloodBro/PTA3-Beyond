@@ -2,8 +2,8 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 
-export default async function BagPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
+export default async function CampaignTrainerBagPage({ params }: { params: Promise<{ id: string; trainerId: string }> }) {
+  const { id: campaignId, trainerId: id } = await params
   const supabase = await createClient()
 
   const {
@@ -15,14 +15,13 @@ export default async function BagPage({ params }: { params: Promise<{ id: string
   }
 
   // No .eq('user_id', ...) filter -- RLS scopes this to the owner or the campaign's GM.
-  const { data: trainer } = await supabase.from('trainers').select('id, name, campaign_id').eq('id', id).single()
+  const { data: trainer } = await supabase.from('trainers').select('id, name, is_npc, campaign_id').eq('id', id).single()
 
   if (!trainer) {
     redirect('/dashboard')
   }
 
-  // Any Trainer belonging to a Campaign (NPC or player) lives under /campaigns/[id]/.../bag now.
-  if (trainer.campaign_id) {
+  if (trainer.is_npc || trainer.campaign_id !== campaignId) {
     notFound()
   }
 
@@ -47,7 +46,7 @@ export default async function BagPage({ params }: { params: Promise<{ id: string
           ))}
         </ul>
       )}
-      <Link href={`/trainers/${id}`} className="underline">
+      <Link href={`/campaigns/${campaignId}/trainers/${id}`} className="underline">
         Back to {trainer.name}
       </Link>
     </main>

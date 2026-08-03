@@ -159,7 +159,7 @@ export default async function CampaignNpcsPage({
           <p className="text-sm text-muted">No NPCs match.</p>
         ) : (
           npcs.map((n) => (
-            <Link key={n.id} href={`/trainers/${n.id}`} className="flex flex-col gap-1 rounded border p-3 hover:bg-surface-subtle">
+            <Link key={n.id} href={`/campaigns/${id}/npcs/${n.id}`} className="flex flex-col gap-1 rounded border p-3 hover:bg-surface-subtle">
               <div className="flex items-center justify-between">
                 <span className="font-semibold">{n.name}</span>
                 <span className="text-sm text-muted">

@@ -3,10 +3,10 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { computePokemonLevelsBulk } from '@/lib/pta3/pokemonLevel'
 import { fetchPokedexFilterOptions } from '@/lib/pta3/pokedexFilter'
-import { PcBoard, type PcPokemon } from './PcBoard'
+import { PcBoard, type PcPokemon } from '@/app/(authenticated)/trainers/[id]/pc/PcBoard'
 
-export default async function PCPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
+export default async function CampaignTrainerPcPage({ params }: { params: Promise<{ id: string; trainerId: string }> }) {
+  const { id: campaignId, trainerId: id } = await params
   const supabase = await createClient()
 
   const {
@@ -21,7 +21,7 @@ export default async function PCPage({ params }: { params: Promise<{ id: string 
   // reasoning as the Trainer page.
   const { data: trainer } = await supabase
     .from('trainers')
-    .select('id, name, user_id, campaign_id, campaigns(gm_user_id)')
+    .select('id, name, user_id, campaign_id, is_npc, campaigns(gm_user_id)')
     .eq('id', id)
     .single()
 
@@ -29,8 +29,7 @@ export default async function PCPage({ params }: { params: Promise<{ id: string 
     redirect('/dashboard')
   }
 
-  // Any Trainer belonging to a Campaign (NPC or player) lives under /campaigns/[id]/.../pc now.
-  if (trainer.campaign_id) {
+  if (trainer.is_npc || trainer.campaign_id !== campaignId) {
     notFound()
   }
 
@@ -99,14 +98,14 @@ export default async function PCPage({ params }: { params: Promise<{ id: string 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-6xl">
-        <Link href={`/trainers/${id}`} className="text-sm underline">
+        <Link href={`/campaigns/${campaignId}/trainers/${id}`} className="text-sm underline">
           ← Back to {trainer.name}
         </Link>
       </div>
 
       <h1 className="w-full max-w-6xl text-2xl font-bold">{trainer.name}&apos;s PC</h1>
 
-      <PcBoard trainerId={id} campaignId={null} canManage={canManage} initialTeam={team} initialPc={pc} types={types} />
+      <PcBoard trainerId={id} campaignId={campaignId} canManage={canManage} initialTeam={team} initialPc={pc} types={types} />
     </main>
   )
 }

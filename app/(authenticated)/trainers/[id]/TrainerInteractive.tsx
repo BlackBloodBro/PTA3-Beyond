@@ -76,6 +76,7 @@ type InfoSnapshot = {
 
 type TrainerContextValue = TrainerState & {
   trainerId: string
+  basePath: string
   isOwner: boolean
   isGM: boolean
   applyInfoSnapshot: (snapshot: InfoSnapshot, classId: number, originId: number) => void
@@ -93,6 +94,7 @@ function useTrainerState() {
 
 export function TrainerStateProvider({
   trainerId,
+  basePath,
   isOwner,
   isGM,
   initialName,
@@ -114,6 +116,7 @@ export function TrainerStateProvider({
   children,
 }: {
   trainerId: string
+  basePath: string
   isOwner: boolean
   isGM: boolean
   initialName: string
@@ -156,6 +159,7 @@ export function TrainerStateProvider({
   const value: TrainerContextValue = {
     ...state,
     trainerId,
+    basePath,
     isOwner,
     isGM,
     applyInfoSnapshot: (snapshot, classId, originId) =>
@@ -199,13 +203,13 @@ export function TrainerNameHeading() {
 // Reactive replacement for the old server-rendered-once "Resolve now" banner -- hasPendingMilestone
 // now comes from context, since editing Level or Class from the Info section below can create (or
 // clear) a pending milestone without a page reload to recompute it.
-export function PendingMilestoneBanner({ trainerId }: { trainerId: string }) {
-  const { hasPendingMilestone, nextMilestoneLevel } = useTrainerState()
+export function PendingMilestoneBanner() {
+  const { basePath, hasPendingMilestone, nextMilestoneLevel } = useTrainerState()
   if (!hasPendingMilestone) return null
   return (
     <div className="flex w-full max-w-6xl items-center justify-between rounded border border-accent bg-accent/10 p-4 text-accent">
       <span>Level {nextMilestoneLevel} unlocked a stat increase and advanced class choice.</span>
-      <Link href={`/trainers/${trainerId}/level-up`} className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground">
+      <Link href={`${basePath}/level-up`} className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground">
         Resolve now
       </Link>
     </div>
@@ -235,7 +239,7 @@ export function TrainerInfoSection({
   classes: ClassOption[]
   origins: OriginOption[]
 }) {
-  const { name, level, advancedClasses, className, originName, lifestyle, classId, originId, isOwner, isGM, applyInfoSnapshot } =
+  const { basePath, name, level, advancedClasses, className, originName, lifestyle, classId, originId, isOwner, isGM, applyInfoSnapshot } =
     useTrainerState()
 
   const [isEditing, setIsEditing] = useState(false)
@@ -403,7 +407,7 @@ export function TrainerInfoSection({
                   <li key={ac.grantedAtLevel}>
                     {ac.name}
                     {canEdit && (
-                      <Link href={`/trainers/${trainerId}/level-up/${ac.grantedAtLevel}`} className="ml-2 text-xs text-muted underline">
+                      <Link href={`${basePath}/level-up/${ac.grantedAtLevel}`} className="ml-2 text-xs text-muted underline">
                         Edit
                       </Link>
                     )}

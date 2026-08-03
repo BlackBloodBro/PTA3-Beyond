@@ -6,6 +6,9 @@ import { ConfirmButton } from '@/components/ConfirmButton'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
 import { MAX_TEAM_SIZE } from '@/lib/pta3/pokemonTeam'
+import { pokemonHref } from '@/lib/pta3/pokemonPaths'
+import { NpcLabelsSection } from '@/app/(authenticated)/trainers/[id]/NpcLabelsSection'
+import type { LabelColor } from '@/lib/pta3/labelColors'
 import { loadTrainerDerived, loadPendingMilestone, loadQualifyingMilestones, computeEffectiveStats, computeMaxHp } from '@/lib/pta3/trainerFeatures'
 import {
   TrainerStateProvider,
@@ -18,7 +21,7 @@ import {
   ActiveFeaturesSection,
   PassiveFeaturesSection,
   type StatBreakdown,
-} from './TrainerInteractive'
+} from '@/app/(authenticated)/trainers/[id]/TrainerInteractive'
 
 const STAT_FIELDS = ['attack', 'defense', 'special_attack', 'special_defense', 'speed'] as const
 
@@ -31,14 +34,19 @@ function hpColorClass(current: number, max: number): string {
   return 'text-danger'
 }
 
-export default async function TrainerPage({
+// Mirrors trainers/[id]/page.tsx almost exactly -- same shared TrainerInteractive components and
+// derivation helpers, just under a campaign-scoped path so the sidebar highlights "Campaigns"
+// instead of "Trainers" (see [[Give NPCs their own campaign-scoped page]]). Deliberately not
+// deduplicated further than this: the two pages differ in params shape, the guard below, the back
+// link, and basePath, which isn't enough shared surface to be worth a generic wrapper.
+export default async function NpcPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ id: string }>
+  params: Promise<{ id: string; trainerId: string }>
   searchParams: Promise<{ error?: string; message?: string }>
 }) {
-  const { id } = await params
+  const { id: campaignId, trainerId: id } = await params
   const { error, message } = await searchParams
   const supabase = await createClient()
 
@@ -57,12 +65,13 @@ export default async function TrainerPage({
     .from('trainers')
     .select(
       `
-      id, name, level, current_hp, temporary_hp, user_id, campaign_id,
+      id, name, level, current_hp, temporary_hp, user_id, campaign_id, is_npc,
       base_attack, base_defense, base_special_attack, base_special_defense, base_speed,
       class_id, origin_id,
       classes(name),
       origins(name, lifestyle),
-      campaigns(id, name, gm_user_id)
+      campaigns(id, name, gm_user_id),
+      trainer_labels(campaign_labels(id, name, color))
     `,
     )
     .eq('id', id)
@@ -72,18 +81,26 @@ export default async function TrainerPage({
     redirect('/dashboard')
   }
 
-  // Any Trainer belonging to a Campaign (NPC or player) lives under /campaigns/[id]/... now -- this
-  // generic path no longer resolves for them (see [[Give NPCs their own campaign-scoped page]]), so
-  // any stale link/bookmark surfaces as a real 404 rather than silently rendering the wrong nav
-  // context. A campaign-less Trainer is the only case this page still serves, so the GM-tier
-  // authority below is structurally always the owner (no GM to defer to).
-  if (trainer.campaign_id) {
+  // A non-NPC (or an NPC belonging to a different campaign than the URL claims) doesn't resolve
+  // here -- this namespace is exclusively for this campaign's own NPCs.
+  if (!trainer.is_npc || trainer.campaign_id !== campaignId) {
     notFound()
   }
+
+  const basePath = `/campaigns/${campaignId}/npcs/${id}`
 
   const isOwner = trainer.user_id === user.id
   const isGM = trainer.campaigns?.gm_user_id === user.id
   const campaign = trainer.campaign_id && trainer.campaigns ? { id: trainer.campaigns.id, name: trainer.campaigns.name } : null
+
+  // Only fetched when actually needed to render the Labels section below.
+  const { data: campaignLabels } =
+    isGM && trainer.campaign_id
+      ? await supabase.from('campaign_labels').select('id, name, color').eq('campaign_id', trainer.campaign_id).order('name')
+      : { data: null }
+  const selectedLabelIds = (trainer.trainer_labels ?? [])
+    .map((tl) => tl.campaign_labels?.id)
+    .filter((v): v is string => Boolean(v))
 
   // The one query everything derived below is built from -- see lib/pta3/trainerFeatures.ts for why
   // this replaces the old raw-column approach (stats/advanced-classes/max-HP are never stored as a
@@ -146,9 +163,7 @@ export default async function TrainerPage({
 
   const usesRemainingByFeature = Object.fromEntries((featureUses ?? []).map((fu) => [fu.feature_id, fu.uses_remaining]))
 
-  // Team only -- a Trainer's off-Team Pokemon (party_slot null) live in the PC page instead. Since
-  // the PC system introduced party_slot, this query now covers only the subset actually on the
-  // Team, ordered by slot rather than insertion order.
+  // Team only -- an NPC's off-Team Pokemon (party_slot null) live in the PC page instead.
   const { data: trainersPokemon } = await supabase
     .from('trainers_pokemon')
     .select(
@@ -189,8 +204,8 @@ export default async function TrainerPage({
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-6xl">
-        <Link href="/trainers" className="text-sm underline">
-          ← Trainers
+        <Link href={`/campaigns/${campaignId}/npcs`} className="text-sm underline">
+          ← NPCs
         </Link>
       </div>
 
@@ -199,7 +214,7 @@ export default async function TrainerPage({
 
       <TrainerStateProvider
         trainerId={id}
-        basePath={`/trainers/${id}`}
+        basePath={basePath}
         isOwner={isOwner}
         isGM={isGM}
         initialName={trainer.name}
@@ -227,10 +242,10 @@ export default async function TrainerPage({
           {!isOwner && <span className="ml-2 text-sm font-normal text-muted">(GM view)</span>}
         </h1>
         <div className="flex gap-2">
-          <Link href={`/trainers/${id}/pc`} className="rounded border px-4 py-2 text-sm">
+          <Link href={`${basePath}/pc`} className="rounded border px-4 py-2 text-sm">
             PC
           </Link>
-          <Link href={`/trainers/${id}/bag`} className="rounded border px-4 py-2 text-sm">
+          <Link href={`${basePath}/bag`} className="rounded border px-4 py-2 text-sm">
             Bag
           </Link>
           {isOwner && (
@@ -245,6 +260,15 @@ export default async function TrainerPage({
           )}
         </div>
       </div>
+
+      {isGM && (
+        <NpcLabelsSection
+          trainerId={id}
+          campaignId={campaignId}
+          initialLabels={(campaignLabels ?? []).map((l) => ({ id: l.id, name: l.name, color: l.color as LabelColor }))}
+          initialSelectedLabelIds={selectedLabelIds}
+        />
+      )}
 
       <div className="flex w-full max-w-6xl items-start gap-4">
         <aside className="flex w-64 shrink-0 flex-col gap-4">
@@ -316,7 +340,7 @@ export default async function TrainerPage({
                   <li key={i} className="flex items-center gap-2 rounded border p-2">
                     <PokemonSprite spriteCode={p.pokedex!.sprite_code} shiny={p.is_shiny} alt={p.pokedex!.name} size={40} />
                     <div className="min-w-0 flex-1 text-sm">
-                      <Link href={`/pokemon/${p.id}`} className="block truncate font-medium underline">
+                      <Link href={pokemonHref({ id: p.id, hasOwner: true, campaignId })} className="block truncate font-medium underline">
                         {p.nickname ? `${p.nickname} (${p.pokedex!.name})` : p.pokedex!.name}
                       </Link>
                       <p className="text-xs text-muted">

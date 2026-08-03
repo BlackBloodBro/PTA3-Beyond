@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { assignPokemon, assignPokemonToCampaign, unassignPokemon } from './actions'
+import { trainerHref } from '@/lib/pta3/trainerPaths'
 
 export type Trainer = { id: string; name: string; is_npc: boolean; campaignName: string | null }
 type Campaign = { id: string; name: string }
@@ -37,6 +38,8 @@ export function PokemonAssignmentPanel({
   pokemonId,
   initialTrainerId,
   initialTrainerName,
+  initialTrainerIsNpc,
+  initialTrainerCampaignId,
   initialCampaignId,
   assignableTrainers,
   assignableCampaigns,
@@ -44,12 +47,16 @@ export function PokemonAssignmentPanel({
   pokemonId: string
   initialTrainerId: string | null
   initialTrainerName: string | null
+  initialTrainerIsNpc: boolean | null
+  initialTrainerCampaignId: string | null
   initialCampaignId: string | null
   assignableTrainers: Trainer[]
   assignableCampaigns: Campaign[]
 }) {
   const [trainerId, setTrainerId] = useState(initialTrainerId)
   const [trainerName, setTrainerName] = useState(initialTrainerName)
+  const [trainerIsNpc, setTrainerIsNpc] = useState(initialTrainerIsNpc)
+  const [trainerCampaignId, setTrainerCampaignId] = useState(initialTrainerCampaignId)
   const [campaignId, setCampaignId] = useState(initialCampaignId)
   const [selectedTrainer, setSelectedTrainer] = useState('')
   const [selectedCampaign, setSelectedCampaign] = useState(initialCampaignId ?? '')
@@ -66,6 +73,8 @@ export function PokemonAssignmentPanel({
     }
     setTrainerId(result.trainerId)
     setTrainerName(result.trainerName)
+    setTrainerIsNpc(result.trainerIsNpc)
+    setTrainerCampaignId(result.trainerCampaignId)
   }
 
   async function handleUnassign() {
@@ -77,6 +86,8 @@ export function PokemonAssignmentPanel({
     }
     setTrainerId(null)
     setTrainerName(null)
+    setTrainerIsNpc(null)
+    setTrainerCampaignId(null)
   }
 
   async function handleSavePool() {
@@ -96,7 +107,7 @@ export function PokemonAssignmentPanel({
       <div className="flex flex-col gap-1">
         <p className="text-xs text-muted">
           Trainer:{' '}
-          <Link href={`/trainers/${trainerId}`} className="underline">
+          <Link href={trainerHref({ id: trainerId, is_npc: trainerIsNpc ?? false, campaign_id: trainerCampaignId })} className="underline">
             {trainerName}
           </Link>{' '}
           <button type="button" onClick={handleUnassign} className="ml-1 rounded border px-2 py-0.5 text-xs">

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { updatePokemonDetails } from '../actions'
+import { updatePokemonDetails } from '@/app/(authenticated)/pokemon/actions'
 import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
@@ -18,7 +18,7 @@ import {
   type KnownMoveEntry,
   type LearnsetEntry,
   type AfflictionInfo,
-} from './PokemonInteractive'
+} from '@/app/(authenticated)/pokemon/[pokemonId]/PokemonInteractive'
 
 const GENDER_LABELS: Record<string, string> = {
   male: 'Male',
@@ -26,14 +26,19 @@ const GENDER_LABELS: Record<string, string> = {
   genderless: 'Genderless',
 }
 
-export default async function PokemonPage({
+// Mirrors pokemon/[pokemonId]/page.tsx almost exactly -- same shared PokemonInteractive components
+// and data-fetching, just under a campaign-scoped path for a Trainer/NPC-owned Pokemon whose owning
+// Trainer belongs to a Campaign. Sibling of campaigns/[id]/wild-pokemon/[pokemonId] (that one covers
+// ownerless Pokemon); see [[Give Wild Pokemon their own campaign-scoped page]] for the original
+// reasoning this extends.
+export default async function CampaignPokemonPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ pokemonId: string }>
+  params: Promise<{ id: string; pokemonId: string }>
   searchParams: Promise<{ error?: string; editMoves?: string; editInfo?: string }>
 }) {
-  const { pokemonId } = await params
+  const { id: campaignId, pokemonId } = await params
   const { error, editMoves, editInfo } = await searchParams
   const isEditingMoves = editMoves === '1'
   const isEditingInfo = editInfo === '1'
@@ -109,22 +114,18 @@ export default async function PokemonPage({
   // campaign's pool is this in" tag from the Wild Pokemon list / /pokemon/new).
   const poolCampaign = pokemon.campaign as unknown as { id: string; name: string; gm_user_id: string } | null
   const campaign = trainer ? trainer.campaigns : poolCampaign
-  // Extracted into a plain `string | null` before the guard below (rather than checking `campaign`
-  // itself) so TS's aliased-condition narrowing has nothing but a primitive to narrow -- checking
-  // `campaign` directly collapsed its type to `never` for every later `campaign.id`/`campaign.name`
-  // access, same false-positive documented on the sibling campaign-scoped pages.
-  const effectiveCampaignId = campaign?.id ?? null
 
-  // Any Pokemon with an effective Campaign (a Wild/pool Pokemon's own tag, or a Trainer-owned
-  // Pokemon's owning Trainer's campaign) lives under /campaigns/[id]/pokemon or /wild-pokemon now --
-  // see [[Give Wild Pokemon their own campaign-scoped page]] and its sibling FR for owned Pokemon.
-  // This generic path no longer resolves for either, so any stale link/bookmark surfaces as a real
-  // 404 rather than silently rendering the wrong nav context.
-  if (effectiveCampaignId) {
+  // An ownerless Pokemon (or one owned by a Trainer belonging to a different campaign than the URL
+  // claims) doesn't resolve here -- this namespace is exclusively for this campaign's own
+  // Trainer/NPC-owned Pokemon. Checked via the raw `pokemon.trainers_pokemon` (not the manually-cast
+  // `ownerLink`) so TS's aliased-condition narrowing has no binding back to `ownerLink` -- it stays
+  // its declared `{...} | null` type for every `ownerLink?.` access below instead of collapsing to
+  // `never`.
+  if (!pokemon.trainers_pokemon || campaign?.id !== campaignId) {
     notFound()
   }
 
-  const basePath = pokemonHref({ id: pokemonId, hasOwner: !!ownerLink, campaignId: effectiveCampaignId })
+  const basePath = pokemonHref({ id: pokemonId, hasOwner: true, campaignId })
   // A Wild/pool Pokemon has no trainers_pokemon row at all -- its GM-tier authority is the real GM of
   // whatever campaign it's tagged to, or its creator if it isn't tagged to one at all (see
   // resolveWildPokemonAuthority) -- both isOwner and isGM collapse to that same check here rather
@@ -302,17 +303,9 @@ export default async function PokemonPage({
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="flex w-full max-w-6xl items-center gap-3">
-        <Link href="/pokemon" className="text-sm underline">
-          ← Pokémon
+        <Link href={trainerLinkHref!} className="text-sm underline">
+          ← {trainer?.name ?? 'Trainer'}
         </Link>
-        {trainerId && (
-          <>
-            <span className="text-sm text-muted">·</span>
-            <Link href={trainerLinkHref!} className="text-sm underline">
-              {trainer?.name ?? 'Trainer'}
-            </Link>
-          </>
-        )}
       </div>
 
       {error && <p className="w-full max-w-6xl text-danger">{error}</p>}

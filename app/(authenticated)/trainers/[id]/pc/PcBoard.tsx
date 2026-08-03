@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { MAX_TEAM_SIZE } from '@/lib/pta3/pokemonTeam'
+import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { assignToTeam, sendToPC, swapTeamSlot } from './actions'
 
 export type PcPokemon = {
@@ -65,12 +66,14 @@ function sortPokemon(list: PcPokemon[], sortBy: SortBy, sortDir: SortDir): PcPok
 
 export function PcBoard({
   trainerId,
+  campaignId,
   canManage,
   initialTeam,
   initialPc,
   types,
 }: {
   trainerId: string
+  campaignId: string | null
   canManage: boolean
   initialTeam: PcPokemon[]
   initialPc: PcPokemon[]
@@ -227,7 +230,7 @@ export function PcBoard({
               <div key={p.id} className="flex items-center gap-2 rounded border p-2">
                 <PokemonSprite spriteCode={p.spriteCode} shiny={p.isShiny} alt={p.speciesName} size={40} />
                 <div className="min-w-0 flex-1 text-sm">
-                  <Link href={`/pokemon/${p.id}`} className="block truncate font-medium underline">
+                  <Link href={pokemonHref({ id: p.id, hasOwner: true, campaignId })} className="block truncate font-medium underline">
                     {p.nickname ? `${p.nickname} (${p.speciesName})` : p.speciesName}
                   </Link>
                   <p className="text-xs text-muted">
@@ -274,7 +277,7 @@ export function PcBoard({
                 <li key={p.id} className="flex items-center gap-2 rounded border p-2">
                   <PokemonSprite spriteCode={p.spriteCode} shiny={p.isShiny} alt={p.speciesName} size={40} />
                   <div className="min-w-0 flex-1 text-sm">
-                    <Link href={`/pokemon/${p.id}`} className="block truncate font-medium underline">
+                    <Link href={pokemonHref({ id: p.id, hasOwner: true, campaignId })} className="block truncate font-medium underline">
                       {p.nickname ? `${p.nickname} (${p.speciesName})` : p.speciesName}
                     </Link>
                     <p className="text-xs text-muted">
