@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { deleteTrainer, restPokemonCenter, restSleep } from '@/app/(authenticated)/trainers/actions'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { PokemonSprite } from '@/components/PokemonSprite'
+import { BookmarkToggle } from '@/components/BookmarkToggle'
+import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
 import { MAX_TEAM_SIZE } from '@/lib/pta3/pokemonTeam'
 import { loadTrainerDerived, loadPendingMilestone, loadQualifyingMilestones, computeEffectiveStats, computeMaxHp } from '@/lib/pta3/trainerFeatures'
@@ -84,6 +86,7 @@ export default async function TrainerPage({
   const isOwner = trainer.user_id === user.id
   const isGM = trainer.campaigns?.gm_user_id === user.id
   const campaign = trainer.campaign_id && trainer.campaigns ? { id: trainer.campaigns.id, name: trainer.campaigns.name } : null
+  const bookmarked = await isBookmarked(supabase, user.id, 'trainer', id)
 
   // The one query everything derived below is built from -- see lib/pta3/trainerFeatures.ts for why
   // this replaces the old raw-column approach (stats/advanced-classes/max-HP are never stored as a
@@ -222,9 +225,10 @@ export default async function TrainerPage({
       <PendingMilestoneBanner />
 
       <div className="flex w-full max-w-6xl items-center justify-between">
-        <h1 className="text-2xl font-bold">
+        <h1 className="flex items-center gap-2 text-2xl font-bold">
           <TrainerNameHeading />
-          {!isOwner && <span className="ml-2 text-sm font-normal text-muted">(GM view)</span>}
+          {!isOwner && <span className="text-sm font-normal text-muted">(GM view)</span>}
+          <BookmarkToggle entityType="trainer" entityId={id} initialBookmarked={bookmarked} />
         </h1>
         <div className="flex gap-2">
           <Link href={`/trainers/${id}/pc`} className="rounded border px-4 py-2 text-sm">

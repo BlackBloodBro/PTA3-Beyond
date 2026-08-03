@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { loadBookmarksForSidebar } from '@/lib/pta3/bookmarks'
 import { Sidebar } from './Sidebar'
 
 // Shared shell for every authenticated route (Dashboard/Campaigns/Trainers/Pokemon/Settings) --
@@ -23,6 +24,8 @@ export default async function AuthenticatedLayout({ children }: { children: Reac
   // flash-of-wrong-theme -- the HTML that reaches the browser already carries the right attributes.
   const { data: profile } = await supabase.from('users').select('theme_mode, theme_accent').eq('id', user.id).single()
 
+  const bookmarks = await loadBookmarksForSidebar(supabase, user.id)
+
   return (
     <div
       data-theme={profile?.theme_mode === 'dark' ? 'dark' : undefined}
@@ -38,7 +41,7 @@ export default async function AuthenticatedLayout({ children }: { children: Reac
         </Link>
       </header>
       <div className="flex">
-        <Sidebar />
+        <Sidebar bookmarks={bookmarks} />
         <div className="flex-1">{children}</div>
       </div>
     </div>
