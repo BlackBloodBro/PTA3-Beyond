@@ -6,7 +6,17 @@ import { statModifier } from '@/lib/pta3/pointBuy'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { ClickTooltip } from '@/components/ClickTooltip'
-import { adjustPokemonHp, addPokemonExp, assignPokemonEv, setPokemonEvs, setMoveUsesRemaining, learnMove, forgetMove } from '../actions'
+import {
+  adjustPokemonHp,
+  addPokemonExp,
+  assignPokemonEv,
+  setPokemonEvs,
+  setMoveUsesRemaining,
+  learnMove,
+  forgetMove,
+  addAffliction,
+  removeAffliction,
+} from '../actions'
 
 const MAX_KNOWN_MOVES = 6
 
@@ -43,6 +53,13 @@ export type LearnsetEntry = {
   move: MoveInfo
 }
 
+export type AfflictionInfo = {
+  id: number
+  name: string
+  description: string | null
+  stats: { modifier: number; statName: string }[]
+}
+
 type SpeciesStats = {
   base_hp: number
   base_atk: number
@@ -58,6 +75,7 @@ function computeStatRows(
   natureIncreasedName: string | null,
   natureDecreasedName: string | null,
   passiveBonusByStat: Record<string, number>,
+  afflictionBonusByStat: Record<string, number>,
 ) {
   return (
     [
@@ -70,9 +88,10 @@ function computeStatRows(
   ).map((s) => {
     const natureAdjust = natureIncreasedName === s.label ? 1 : natureDecreasedName === s.label ? -1 : 0
     const passiveBonus = passiveBonusByStat[s.label] ?? 0
+    const afflictionBonus = afflictionBonusByStat[s.label] ?? 0
     const inBattle = 0 // No in-combat temporary-modifier tracking exists yet; always displayed as 0.
-    const value = s.base + s.ev + natureAdjust + passiveBonus + inBattle
-    return { ...s, natureAdjust, passiveBonus, inBattle, value, modifier: statModifier(value) }
+    const value = s.base + s.ev + natureAdjust + passiveBonus + afflictionBonus + inBattle
+    return { ...s, natureAdjust, passiveBonus, afflictionBonus, inBattle, value, modifier: statModifier(value) }
   })
 }
 
@@ -105,6 +124,8 @@ type PokemonStateValue = {
   knownMoves: KnownMoveEntry[]
   fullLearnset: LearnsetEntry[]
   isEditingMoves: boolean
+  allAfflictions: AfflictionInfo[]
+  activeAfflictionIds: number[]
   species: SpeciesStats
   growthRateName: string | null
   growthRateModifier: number
@@ -123,6 +144,7 @@ type PokemonStateValue = {
   addKnownMove: (entry: KnownMoveEntry) => void
   removeKnownMove: (moveId: number) => void
   updateMoveUses: (moveId: number, usesRemaining: number) => void
+  setAfflictionActive: (afflictionId: number, isActive: boolean) => void
 }
 
 const PokemonStateContext = createContext<PokemonStateValue | null>(null)
@@ -159,6 +181,8 @@ export function PokemonStateProvider(props: {
   initialKnownMoves: KnownMoveEntry[]
   fullLearnset: LearnsetEntry[]
   isEditingMoves: boolean
+  allAfflictions: AfflictionInfo[]
+  initialActiveAfflictionIds: number[]
   growthRateName: string | null
   growthRateModifier: number
   obtainMethodName: string | null
@@ -174,8 +198,27 @@ export function PokemonStateProvider(props: {
   const [currentHp, setCurrentHpState] = useState(props.initialCurrentHp)
   const [evs, setEvsState] = useState(props.initialEvs)
   const [knownMoves, setKnownMoves] = useState(props.initialKnownMoves)
+  const [activeAfflictionIds, setActiveAfflictionIds] = useState(props.initialActiveAfflictionIds)
 
-  const statRows = computeStatRows(props.species, evs, props.natureIncreasedName, props.natureDecreasedName, props.passiveBonusByStat)
+  // Recomputed from the live activeAfflictionIds set (not a static server-computed map) so toggling
+  // an affliction updates the Stats section immediately, same as an EV change already does -- no
+  // reload, no re-fetch.
+  const afflictionBonusByStat: Record<string, number> = {}
+  for (const a of props.allAfflictions) {
+    if (!activeAfflictionIds.includes(a.id)) continue
+    for (const s of a.stats) {
+      afflictionBonusByStat[s.statName] = (afflictionBonusByStat[s.statName] ?? 0) + s.modifier
+    }
+  }
+
+  const statRows = computeStatRows(
+    props.species,
+    evs,
+    props.natureIncreasedName,
+    props.natureDecreasedName,
+    props.passiveBonusByStat,
+    afflictionBonusByStat,
+  )
   const evsAvailable = Math.floor(level / 8)
   const evsSpent = Object.values(evs).reduce((a, b) => a + b, 0)
 
@@ -194,6 +237,8 @@ export function PokemonStateProvider(props: {
     knownMoves,
     fullLearnset: props.fullLearnset,
     isEditingMoves: props.isEditingMoves,
+    allAfflictions: props.allAfflictions,
+    activeAfflictionIds,
     species: props.species,
     growthRateName: props.growthRateName,
     growthRateModifier: props.growthRateModifier,
@@ -217,6 +262,8 @@ export function PokemonStateProvider(props: {
     removeKnownMove: (moveId) => setKnownMoves((prev) => prev.filter((km) => km.move_id !== moveId)),
     updateMoveUses: (moveId, usesRemaining) =>
       setKnownMoves((prev) => prev.map((km) => (km.move_id === moveId ? { ...km, uses_remaining: usesRemaining } : km))),
+    setAfflictionActive: (afflictionId, isActive) =>
+      setActiveAfflictionIds((prev) => (isActive ? [...prev, afflictionId] : prev.filter((id) => id !== afflictionId))),
   }
 
   return <PokemonStateContext.Provider value={value}>{props.children}</PokemonStateContext.Provider>
@@ -470,6 +517,7 @@ export function StatsSection() {
                       ...(s.ev !== 0 ? [`EV: ${formatSigned(s.ev)}`] : []),
                       ...(s.natureAdjust !== 0 ? [`Nature: ${formatSigned(s.natureAdjust)}`] : []),
                       ...(s.passiveBonus !== 0 ? [`Passive: ${formatSigned(s.passiveBonus)}`] : []),
+                      ...(s.afflictionBonus !== 0 ? [`Affliction: ${formatSigned(s.afflictionBonus)}`] : []),
                       ...(s.inBattle !== 0 ? [`In battle: ${formatSigned(s.inBattle)}`] : []),
                       `Total: ${s.value}`,
                     ].join('\n')}
@@ -794,6 +842,64 @@ export function MovesSection() {
           )}
         </div>
       )}
+    </section>
+  )
+}
+
+// Free, instant, owner-or-GM toggling -- no eligibility gating and no stacking cap, unlike Moves, so
+// this is a plain checkbox list rather than a separate "known" vs. "available" split.
+export function AfflictionsSection() {
+  const { pokemonId, allAfflictions, activeAfflictionIds, setAfflictionActive } = usePokemonState()
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleToggle(afflictionId: number, isActive: boolean) {
+    setError(null)
+    const result = isActive ? await removeAffliction(pokemonId, afflictionId) : await addAffliction(pokemonId, afflictionId)
+    if (result?.error) {
+      setError(result.error)
+      return
+    }
+    setAfflictionActive(afflictionId, !isActive)
+  }
+
+  const activeCount = activeAfflictionIds.length
+
+  return (
+    <section className="rounded border border-accent bg-accent/10 p-4">
+      <details>
+        <summary className="cursor-pointer font-semibold">
+          Afflictions
+          {activeCount > 0 && <span className="ml-1 text-sm font-normal text-muted">({activeCount} active)</span>}
+        </summary>
+        <div className="mt-2">
+          {allAfflictions.length === 0 ? (
+            <p className="text-sm text-muted">None defined.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {allAfflictions.map((a) => {
+                const isActive = activeAfflictionIds.includes(a.id)
+                const statBonuses = a.stats.map((s) => `${formatSigned(s.modifier)} ${s.statName}`).join(', ')
+                return (
+                  <li key={a.id} className="rounded border p-2 text-sm">
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={isActive} onChange={() => handleToggle(a.id, isActive)} />
+                      <span className="font-medium">{a.name}</span>
+                      {statBonuses && <span className="text-xs text-muted">— {statBonuses}</span>}
+                    </label>
+                    {a.description && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-xs text-muted">Details</summary>
+                        <p className="mt-1 text-xs text-muted">{a.description}</p>
+                      </details>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+        </div>
+      </details>
     </section>
   )
 }

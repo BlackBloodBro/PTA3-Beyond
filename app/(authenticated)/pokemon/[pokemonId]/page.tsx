@@ -11,9 +11,11 @@ import {
   ExperienceSection,
   StatsSection,
   MovesSection,
+  AfflictionsSection,
   HpSection,
   type KnownMoveEntry,
   type LearnsetEntry,
+  type AfflictionInfo,
 } from './PokemonInteractive'
 
 const GENDER_LABELS: Record<string, string> = {
@@ -168,6 +170,26 @@ export default async function PokemonPage({
     }
   }
 
+  // Afflictions aren't species-gated and have no stacking cap (unlike stat-type Passives), so the
+  // full reference list plus a plain set of active ids is all that's needed -- no eligibility query.
+  // Stat modifiers are folded in client-side (see PokemonInteractive) rather than server-computed
+  // here, so toggling an affliction updates the Stats section immediately without a re-fetch.
+  const [{ data: allAfflictionsRaw }, { data: activeAfflictionRows }] = await Promise.all([
+    supabase.from('afflictions').select('id, name, description, afflictions_stats(modifier, stats(name))').order('name'),
+    supabase.from('pokemon_afflictions').select('affliction_id').eq('pokemon_id', pokemonId),
+  ])
+
+  const allAfflictions: AfflictionInfo[] = (allAfflictionsRaw ?? []).map((a) => ({
+    id: a.id,
+    name: a.name,
+    description: a.description,
+    stats: (a.afflictions_stats ?? [])
+      .map((s) => ({ modifier: s.modifier, statName: s.stats?.name ?? null }))
+      .filter((s): s is { modifier: number; statName: string } => s.statName !== null),
+  }))
+
+  const initialActiveAfflictionIds = (activeAfflictionRows ?? []).map((r) => r.affliction_id)
+
   const { data: knownMovesRaw } = await supabase
     .from('pokemon_moves')
     .select('move_id, uses_remaining, resets_on, moves(id, name, range, damage_stat, frequency, damage_dice, description, types(name))')
@@ -305,6 +327,8 @@ export default async function PokemonPage({
         initialKnownMoves={initialKnownMoves}
         fullLearnset={fullLearnset}
         isEditingMoves={isEditingMoves}
+        allAfflictions={allAfflictions}
+        initialActiveAfflictionIds={initialActiveAfflictionIds}
         growthRateName={species.growth_rate?.name ?? null}
         growthRateModifier={species.growth_rate?.exp_modifier ?? 1}
         obtainMethodName={ownerLink?.obtain_method?.name ?? null}
@@ -614,8 +638,9 @@ export default async function PokemonPage({
         </section>
         </div>
 
-        <aside className="w-64 shrink-0">
+        <aside className="w-64 shrink-0 flex flex-col gap-4">
           <HpSection />
+          <AfflictionsSection />
         </aside>
       </div>
       </PokemonStateProvider>
