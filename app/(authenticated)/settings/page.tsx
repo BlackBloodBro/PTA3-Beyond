@@ -19,12 +19,12 @@ export default async function SettingsPage({
     redirect('/login')
   }
 
-  const { data: profile } = await supabase.from('users').select('theme_mode, theme_accent').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('users').select('display_name, theme_mode, theme_accent').eq('id', user.id).single()
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <h1 className="text-2xl font-bold">Settings</h1>
-      <p className="text-muted">Signed in as {user.email}</p>
+      <p className="text-muted">Signed in as {profile?.display_name ?? user.email}</p>
 
       {error && <p className="text-danger">{error}</p>}
 
