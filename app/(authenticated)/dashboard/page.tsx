@@ -29,6 +29,7 @@ export default async function DashboardPage({
     { count: trainerCount },
     { count: assignedPokemonCount },
     { data: poolPokemonRows },
+    { data: profile },
   ] = await Promise.all([
     supabase.from('campaigns').select('id', { count: 'exact', head: true }).eq('gm_user_id', user.id),
     supabase.from('campaign_members').select('campaign_id', { count: 'exact', head: true }).eq('user_id', user.id),
@@ -38,6 +39,7 @@ export default async function DashboardPage({
       .select('trainer_id, trainers!inner(user_id)', { count: 'exact', head: true })
       .eq('trainers.user_id', user.id),
     supabase.from('pokemon').select('id, trainers_pokemon(trainer_id)').eq('created_by_user_id', user.id),
+    supabase.from('users').select('display_name').eq('id', user.id).single(),
   ])
 
   const campaignCount = (gmCampaignCount ?? 0) + (memberCampaignCount ?? 0)
@@ -47,7 +49,7 @@ export default async function DashboardPage({
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <h1 className="text-2xl font-bold">Dashboard</h1>
-      <p className="text-muted">Signed in as {user.email}</p>
+      <p className="text-muted">Signed in as {profile?.display_name ?? user.email}</p>
 
       {error && <p className="text-danger">{error}</p>}
 
