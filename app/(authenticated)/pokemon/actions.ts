@@ -924,6 +924,108 @@ export async function forgetMove(pokemonId: string, moveId: number): Promise<{ e
   return {}
 }
 
+// Player's Handbook rule (README.md:93-94): max 3 active Stat Passives per Pokemon, one per
+// category. Ability-type Passives are untouched by this -- those stay auto-derived from
+// species+level, no learn/unlearn action needed for those.
+const MAX_STAT_PASSIVES = 3
+
+export async function learnPassive(
+  pokemonId: string,
+  passiveId: number,
+): Promise<{ error: string } | { passiveId: number }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  // No ownership filter needed -- same reasoning as learnMove/adjustPokemonHp, RLS on
+  // pokemon_passives already covers both owner and campaign-GM tiers.
+  const { data: pokemon } = await supabase
+    .from('pokemon')
+    .select(
+      'current_exp, is_shiny, loyalty_id, pokedex_id, pokedex(growth_rate_id), trainers_pokemon(obtain_method_id)',
+    )
+    .eq('id', pokemonId)
+    .single()
+
+  if (!pokemon) {
+    return { error: 'Pokemon not found' }
+  }
+
+  const { data: passive } = await supabase.from('passives').select('passive_type, category').eq('id', passiveId).single()
+
+  if (!passive || passive.passive_type !== 'stat') {
+    return { error: 'That Passive is not a Stat Passive' }
+  }
+
+  // trainers_pokemon.pokemon_id is a primary key, so this reverse embed comes back as a single
+  // object at runtime (same quirk documented on the Pokemon page), not the array TS infers.
+  const ownerLink = pokemon.trainers_pokemon as unknown as { obtain_method_id: number | null } | null
+
+  const { level } = await computePokemonLevel(supabase, {
+    currentExp: pokemon.current_exp,
+    isShiny: pokemon.is_shiny,
+    loyaltyId: pokemon.loyalty_id,
+    obtainMethodId: ownerLink?.obtain_method_id ?? null,
+    growthRateId: pokemon.pokedex?.growth_rate_id ?? null,
+  })
+
+  const { data: eligible } = await supabase
+    .from('pokedex_passives')
+    .select('level_learned')
+    .eq('pokedex_id', pokemon.pokedex_id)
+    .eq('passive_id', passiveId)
+    .maybeSingle()
+
+  if (!eligible || (eligible.level_learned !== null && eligible.level_learned > level)) {
+    return { error: 'That Passive is not eligible to learn yet' }
+  }
+
+  const { data: known } = await supabase.from('pokemon_passives').select('passive_id, passives(category)').eq('pokemon_id', pokemonId)
+  const knownPassives = known ?? []
+
+  if (knownPassives.some((k) => k.passive_id === passiveId)) {
+    return { error: 'That Passive is already known' }
+  }
+  if (knownPassives.length >= MAX_STAT_PASSIVES) {
+    return { error: `Already knows ${MAX_STAT_PASSIVES} Stat Passives — remove one first` }
+  }
+  if (passive.category && knownPassives.some((k) => k.passives?.category === passive.category)) {
+    return { error: `Already has a ${passive.category.replace('_', ' ')} Passive` }
+  }
+
+  const { error } = await supabase.from('pokemon_passives').insert({ pokemon_id: pokemonId, passive_id: passiveId })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { passiveId }
+}
+
+export async function unlearnPassive(pokemonId: string, passiveId: number): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { error } = await supabase.from('pokemon_passives').delete().eq('pokemon_id', pokemonId).eq('passive_id', passiveId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return {}
+}
+
 // Owner-or-GM, free and instant -- same reasoning as learnMove/forgetMove: marking a status ailment
 // is bookkeeping of something that already happened in the fiction, not a resource-costed action.
 // No ownership filter needed -- RLS on pokemon_afflictions already covers both tiers directly.

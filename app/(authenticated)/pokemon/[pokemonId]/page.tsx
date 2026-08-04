@@ -16,10 +16,14 @@ import {
   StatsSection,
   MovesSection,
   AfflictionsSection,
+  PassivesSection,
   HpSection,
   type KnownMoveEntry,
   type LearnsetEntry,
   type AfflictionInfo,
+  type PassiveInfo,
+  type KnownPassiveEntry,
+  type PassiveLearnsetEntry,
 } from './PokemonInteractive'
 
 const GENDER_LABELS: Record<string, string> = {
@@ -33,11 +37,12 @@ export default async function PokemonPage({
   searchParams,
 }: {
   params: Promise<{ pokemonId: string }>
-  searchParams: Promise<{ error?: string; editMoves?: string; editInfo?: string }>
+  searchParams: Promise<{ error?: string; editMoves?: string; editInfo?: string; editPassives?: string }>
 }) {
   const { pokemonId } = await params
-  const { error, editMoves, editInfo } = await searchParams
+  const { error, editMoves, editInfo, editPassives } = await searchParams
   const isEditingMoves = editMoves === '1'
+  const isEditingPassives = editPassives === '1'
   const isEditingInfo = editInfo === '1'
   const supabase = await createClient()
 
@@ -174,27 +179,23 @@ export default async function PokemonPage({
   // Stat "Value" = species base + this Pokemon's EV allocation (homebrew: 1 EV per 8 levels, max
   // 2 EVs/stat, +1/EV except HP which is +6/EV) + a +1/-1 nature adjustment on its raised/lowered
   // stat + any active stat-Passive bonus. Stat-type Passives (passive_type = 'stat', e.g. Harden,
-  // Iron defense) are individually chosen per instance via pokemon_passives -- capped elsewhere at
-  // max 3 / 1 per category as application logic, not enforced by this read -- unlike ability-type
-  // Passives (Rock head, Sturdy...) which are simply auto-known once the species+level unlocks
-  // them. Modifier = floor(value / 2), same formula as trainer stats.
+  // Iron defense) are individually chosen per instance via pokemon_passives -- capped at max 3 / 1
+  // per category by learnPassive itself -- unlike ability-type Passives (Rock head, Sturdy...) which
+  // are simply auto-known once the species+level unlocks them. Modifier = floor(value / 2), same
+  // formula as trainer stats. Bonus is folded in client-side (see PokemonInteractive), same as
+  // afflictions, so learning/removing a Passive updates the Stats section immediately.
   const { data: chosenPassiveRows } = await supabase
     .from('pokemon_passives')
-    .select('passives(name, description, passive_type, category, passives_stats(modifier, stats(name)))')
+    .select('passive_id, passives(id, name, description, passive_type, category, passives_stats(modifier, stats(name)))')
     .eq('pokemon_id', pokemonId)
 
-  const chosenStatPassives = (chosenPassiveRows ?? [])
-    .map((r) => r.passives)
-    .filter((p): p is NonNullable<typeof p> => p !== null && p.passive_type === 'stat')
-
-  const statBonusByStatName: Record<string, number> = {}
-  for (const p of chosenStatPassives) {
-    for (const ps of p.passives_stats ?? []) {
-      const statName = ps.stats?.name
-      if (!statName) continue
-      statBonusByStatName[statName] = (statBonusByStatName[statName] ?? 0) + ps.modifier
-    }
-  }
+  // Cast reflects the real runtime shape (a single `passives` object, not the array TS infers once a
+  // nested embed like passives_stats is present) -- same reverse/forward-embed quirk documented
+  // elsewhere on this page.
+  const knownPassiveRows = (chosenPassiveRows ?? []) as unknown as { passive_id: number; passives: (PassiveInfo & { passive_type: string }) | null }[]
+  const initialKnownStatPassives: KnownPassiveEntry[] = knownPassiveRows
+    .filter((r) => r.passives !== null && r.passives.passive_type === 'stat')
+    .map((r) => ({ passive_id: r.passive_id, passives: r.passives! }))
 
   // Afflictions aren't species-gated and have no stacking cap (unlike stat-type Passives), so the
   // full reference list plus a plain set of active ids is all that's needed -- no eligibility query.
@@ -241,28 +242,35 @@ export default async function PokemonPage({
     .select('proficiencies(name)')
     .eq('pokedex_id', pokemon.pokedex_id)
 
-  // Ability-type Passives (Rock head, Sturdy, Sinker...) are auto-derived from the species +
-  // level, mirroring how trainer class features are derived rather than individually picked:
-  // pokedex_passives rows with no level_learned are the curated Handbook-sourced ones (always
-  // known), and rows with a level_learned (imported from PokeAPI, e.g. Growl/Growth) unlock once
-  // the Pokemon reaches it. Stat-type Passives are NOT included here even if the species is
-  // eligible for them -- e.g. Lairon is eligible for both "Harden" and "Iron defense" (both
-  // defense-category), but the 1-per-category cap means only whichever one was actually chosen
-  // (via pokemon_passives, fetched above as chosenStatPassives) should display.
-  const { data: eligiblePassiveRows } = await supabase
+  // Every pokedex_passives row for this species, both Ability- and Stat-type, NOT filtered by level
+  // (unlike the old query) -- split into the two kinds below. Ability-type Passives (Rock head,
+  // Sturdy, Sinker...) are auto-derived from the species + level, mirroring how trainer class
+  // features are derived rather than individually picked: rows with no level_learned are the curated
+  // Handbook-sourced ones (always known), and rows with a level_learned (imported from PokeAPI, e.g.
+  // Growl/Growth) unlock once the Pokemon reaches it -- filtered server-side here since they're
+  // read-only and never need to react to a same-page level-up. Stat-type Passives are NOT
+  // level-filtered here -- level-eligibility now happens client-side in PassivesSection (same
+  // fullLearnset pattern as Moves) so a level-up from Add Exp can reveal newly-learnable Stat
+  // Passives without a fresh request, and so the picker can show/hide by the live client-side level.
+  const { data: allPassiveRows } = await supabase
     .from('pokedex_passives')
-    .select('level_learned, passives(name, description, passive_type, category)')
+    .select('level_learned, passives(id, name, description, passive_type, category, passives_stats(modifier, stats(name)))')
     .eq('pokedex_id', pokemon.pokedex_id)
-    .or(`level_learned.is.null,level_learned.lte.${level}`)
+    .order('level_learned', { nullsFirst: true })
 
-  const abilityPassives = (eligiblePassiveRows ?? [])
-    .map((r) => r.passives)
-    .filter((p): p is NonNullable<typeof p> => p !== null && p.passive_type === 'ability')
+  // Cast reflects the real runtime shape (a single `passives` object, not the array TS infers once a
+  // nested embed like passives_stats is present) -- same reverse/forward-embed quirk documented
+  // elsewhere on this page.
+  const passiveLearnsetRows = (allPassiveRows ?? []) as unknown as { level_learned: number | null; passives: (PassiveInfo & { passive_type: string }) | null }[]
 
-  const passiveRows = [
-    ...abilityPassives.map((p) => ({ passives: { ...p, passives_stats: [] as { modifier: number; stats: { name: string } | null }[] } })),
-    ...chosenStatPassives.map((p) => ({ passives: p })),
-  ]
+  const abilityPassives: PassiveInfo[] = passiveLearnsetRows
+    .filter((r) => r.passives !== null && r.passives.passive_type === 'ability')
+    .filter((r) => r.level_learned === null || r.level_learned <= level)
+    .map((r) => r.passives!)
+
+  const statPassiveLearnset: PassiveLearnsetEntry[] = passiveLearnsetRows
+    .filter((r) => r.passives !== null && r.passives.passive_type === 'stat')
+    .map((r) => ({ level_learned: r.level_learned, passives: r.passives! }))
 
   const { data: habitatRows } = await supabase
     .from('pokedex_habitats')
@@ -350,12 +358,15 @@ export default async function PokemonPage({
         }}
         natureIncreasedName={pokemon.nature?.increased?.name ?? null}
         natureDecreasedName={pokemon.nature?.decreased?.name ?? null}
-        passiveBonusByStat={statBonusByStatName}
         initialKnownMoves={initialKnownMoves}
         fullLearnset={fullLearnset}
         isEditingMoves={isEditingMoves}
         allAfflictions={allAfflictions}
         initialActiveAfflictionIds={initialActiveAfflictionIds}
+        abilityPassives={abilityPassives}
+        initialKnownStatPassives={initialKnownStatPassives}
+        statPassiveLearnset={statPassiveLearnset}
+        isEditingPassives={isEditingPassives}
         growthRateName={species.growth_rate?.name ?? null}
         growthRateModifier={species.growth_rate?.exp_modifier ?? 1}
         obtainMethodName={ownerLink?.obtain_method?.name ?? null}
@@ -632,28 +643,7 @@ export default async function PokemonPage({
           )}
         </section>
 
-        <section className="rounded border border-accent bg-accent/10 p-4">
-          <h2 className="mb-2 font-semibold">Passives / Skills</h2>
-          {(passiveRows ?? []).length === 0 ? (
-            <p className="text-sm text-muted">None yet.</p>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {(passiveRows ?? []).map((pr, i) => {
-                const p = pr.passives
-                if (!p) return null
-                const statBonuses = (p.passives_stats ?? [])
-                  .map((ps) => `${ps.modifier >= 0 ? '+' : ''}${ps.modifier} ${ps.stats?.name ?? ''}`.trim())
-                  .join(', ')
-                return (
-                  <li key={i} className="text-sm">
-                    <span className="font-medium">{p.name}</span>
-                    {statBonuses ? ` — ${statBonuses}` : p.description ? ` — ${p.description}` : ''}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </section>
+        <PassivesSection />
 
         <section className="rounded border border-accent bg-accent/10 p-4">
           <h2 className="mb-2 font-semibold">Biology</h2>
