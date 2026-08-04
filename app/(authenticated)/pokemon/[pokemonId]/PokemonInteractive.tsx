@@ -16,9 +16,14 @@ import {
   forgetMove,
   addAffliction,
   removeAffliction,
+  learnPassive,
+  unlearnPassive,
 } from '../actions'
 
 const MAX_KNOWN_MOVES = 6
+// Player's Handbook rule (README.md:93-94): max 3 active Stat Passives per Pokemon, one per
+// category.
+const MAX_STAT_PASSIVES = 3
 
 function formatSigned(n: number) {
   return `${n >= 0 ? '+' : ''}${n}`
@@ -58,6 +63,24 @@ export type AfflictionInfo = {
   name: string
   description: string | null
   stats: { modifier: number; statName: string }[]
+}
+
+export type PassiveInfo = {
+  id: number
+  name: string
+  description: string | null
+  category: string | null
+  passives_stats: { modifier: number; stats: { name: string } | null }[]
+}
+
+export type KnownPassiveEntry = {
+  passive_id: number
+  passives: PassiveInfo
+}
+
+export type PassiveLearnsetEntry = {
+  level_learned: number | null
+  passives: PassiveInfo
 }
 
 type SpeciesStats = {
@@ -127,6 +150,10 @@ type PokemonStateValue = {
   isEditingMoves: boolean
   allAfflictions: AfflictionInfo[]
   activeAfflictionIds: number[]
+  abilityPassives: PassiveInfo[]
+  knownStatPassives: KnownPassiveEntry[]
+  statPassiveLearnset: PassiveLearnsetEntry[]
+  isEditingPassives: boolean
   species: SpeciesStats
   growthRateName: string | null
   growthRateModifier: number
@@ -146,6 +173,8 @@ type PokemonStateValue = {
   removeKnownMove: (moveId: number) => void
   updateMoveUses: (moveId: number, usesRemaining: number) => void
   setAfflictionActive: (afflictionId: number, isActive: boolean) => void
+  addKnownPassive: (entry: KnownPassiveEntry) => void
+  removeKnownPassive: (passiveId: number) => void
 }
 
 const PokemonStateContext = createContext<PokemonStateValue | null>(null)
@@ -179,12 +208,15 @@ export function PokemonStateProvider(props: {
   species: SpeciesStats
   natureIncreasedName: string | null
   natureDecreasedName: string | null
-  passiveBonusByStat: Record<string, number>
   initialKnownMoves: KnownMoveEntry[]
   fullLearnset: LearnsetEntry[]
   isEditingMoves: boolean
   allAfflictions: AfflictionInfo[]
   initialActiveAfflictionIds: number[]
+  abilityPassives: PassiveInfo[]
+  initialKnownStatPassives: KnownPassiveEntry[]
+  statPassiveLearnset: PassiveLearnsetEntry[]
+  isEditingPassives: boolean
   growthRateName: string | null
   growthRateModifier: number
   obtainMethodName: string | null
@@ -201,6 +233,7 @@ export function PokemonStateProvider(props: {
   const [evs, setEvsState] = useState(props.initialEvs)
   const [knownMoves, setKnownMoves] = useState(props.initialKnownMoves)
   const [activeAfflictionIds, setActiveAfflictionIds] = useState(props.initialActiveAfflictionIds)
+  const [knownStatPassives, setKnownStatPassives] = useState(props.initialKnownStatPassives)
 
   // Recomputed from the live activeAfflictionIds set (not a static server-computed map) so toggling
   // an affliction updates the Stats section immediately, same as an EV change already does -- no
@@ -213,12 +246,24 @@ export function PokemonStateProvider(props: {
     }
   }
 
+  // Same reactive-not-static shape as afflictionBonusByStat, and for the same reason -- learning or
+  // removing a Stat Passive now updates the Stats section immediately, rather than requiring a
+  // reload (which was never even wired up before this fix, since nothing wrote to pokemon_passives).
+  const passiveBonusByStat: Record<string, number> = {}
+  for (const kp of knownStatPassives) {
+    for (const ps of kp.passives.passives_stats) {
+      const statName = ps.stats?.name
+      if (!statName) continue
+      passiveBonusByStat[statName] = (passiveBonusByStat[statName] ?? 0) + ps.modifier
+    }
+  }
+
   const statRows = computeStatRows(
     props.species,
     evs,
     props.natureIncreasedName,
     props.natureDecreasedName,
-    props.passiveBonusByStat,
+    passiveBonusByStat,
     afflictionBonusByStat,
   )
   const evsAvailable = Math.floor(level / 8)
@@ -242,6 +287,10 @@ export function PokemonStateProvider(props: {
     isEditingMoves: props.isEditingMoves,
     allAfflictions: props.allAfflictions,
     activeAfflictionIds,
+    abilityPassives: props.abilityPassives,
+    knownStatPassives,
+    statPassiveLearnset: props.statPassiveLearnset,
+    isEditingPassives: props.isEditingPassives,
     species: props.species,
     growthRateName: props.growthRateName,
     growthRateModifier: props.growthRateModifier,
@@ -267,6 +316,8 @@ export function PokemonStateProvider(props: {
       setKnownMoves((prev) => prev.map((km) => (km.move_id === moveId ? { ...km, uses_remaining: usesRemaining } : km))),
     setAfflictionActive: (afflictionId, isActive) =>
       setActiveAfflictionIds((prev) => (isActive ? [...prev, afflictionId] : prev.filter((id) => id !== afflictionId))),
+    addKnownPassive: (entry) => setKnownStatPassives((prev) => [...prev, entry]),
+    removeKnownPassive: (passiveId) => setKnownStatPassives((prev) => prev.filter((kp) => kp.passive_id !== passiveId)),
   }
 
   return <PokemonStateContext.Provider value={value}>{props.children}</PokemonStateContext.Provider>
@@ -904,6 +955,150 @@ export function AfflictionsSection() {
           {error && <p className="mt-1 text-xs text-danger">{error}</p>}
         </div>
       </details>
+    </section>
+  )
+}
+
+// Ability-type Passives (Rock head, Sturdy...) are read-only here -- auto-derived from species+level,
+// no learn/unlearn action for those. Stat-type Passives are the interactive half this section adds:
+// owner-or-GM, free and instant (same reasoning as Moves -- everyday Pokemon bookkeeping, not a
+// GM-adjudicated fact), capped at MAX_STAT_PASSIVES total and one per category.
+export function PassivesSection() {
+  const {
+    pokemonId,
+    basePath,
+    isEditingPassives,
+    abilityPassives,
+    knownStatPassives,
+    statPassiveLearnset,
+    level,
+    addKnownPassive,
+    removeKnownPassive,
+  } = usePokemonState()
+
+  const [error, setError] = useState<string | null>(null)
+
+  const knownPassiveIds = knownStatPassives.map((kp) => kp.passive_id)
+  const knownCategories = new Set(knownStatPassives.map((kp) => kp.passives.category).filter((c): c is string => c !== null))
+  const atCap = knownStatPassives.length >= MAX_STAT_PASSIVES
+
+  // Unfiltered by level in statPassiveLearnset (same reasoning as fullLearnset for Moves) so a
+  // level-up from Add Exp can reveal newly-eligible Stat Passives here without a fresh request.
+  const learnableStatPassives = statPassiveLearnset.filter(
+    (r) => (r.level_learned === null || r.level_learned <= level) && !knownPassiveIds.includes(r.passives.id),
+  )
+
+  async function handleLearn(passiveId: number) {
+    setError(null)
+    const result = await learnPassive(pokemonId, passiveId)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    const entry = statPassiveLearnset.find((r) => r.passives.id === passiveId)
+    if (!entry) return
+    addKnownPassive({ passive_id: passiveId, passives: entry.passives })
+  }
+
+  async function handleUnlearn(passiveId: number) {
+    setError(null)
+    const result = await unlearnPassive(pokemonId, passiveId)
+    if (result?.error) {
+      setError(result.error)
+      return
+    }
+    removeKnownPassive(passiveId)
+  }
+
+  return (
+    <section className="rounded border border-accent bg-accent/10 p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="font-semibold">Passives / Skills</h2>
+        {isEditingPassives ? (
+          <Link href={basePath} className="rounded border px-3 py-1 text-sm">
+            Done
+          </Link>
+        ) : (
+          <Link href={`${basePath}?editPassives=1`} className="rounded border px-3 py-1 text-sm">
+            Edit
+          </Link>
+        )}
+      </div>
+      {abilityPassives.length === 0 && knownStatPassives.length === 0 ? (
+        <p className="text-sm text-muted">None yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {abilityPassives.map((p) => (
+            <li key={`ability-${p.id}`} className="text-sm">
+              <span className="font-medium">{p.name}</span>
+              {p.description ? ` — ${p.description}` : ''}
+            </li>
+          ))}
+          {knownStatPassives.map((kp) => {
+            const p = kp.passives
+            const statBonuses = p.passives_stats.map((ps) => `${formatSigned(ps.modifier)} ${ps.stats?.name ?? ''}`.trim()).join(', ')
+            return (
+              <li key={kp.passive_id} className="flex items-center justify-between gap-2 text-sm">
+                <span>
+                  <span className="font-medium">{p.name}</span>
+                  {statBonuses ? ` — ${statBonuses}` : p.description ? ` — ${p.description}` : ''}
+                </span>
+                {isEditingPassives && (
+                  <button
+                    type="button"
+                    onClick={() => handleUnlearn(kp.passive_id)}
+                    className="rounded border border-danger px-2 py-0.5 text-xs text-danger"
+                  >
+                    Remove
+                  </button>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <p className="mt-2 text-xs text-muted">
+        {knownStatPassives.length} / {MAX_STAT_PASSIVES} Stat Passives known.
+      </p>
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+
+      {isEditingPassives && (
+        <div className="mt-4 border-t pt-4">
+          <h3 className="mb-2 text-sm font-semibold">Learn a Stat Passive</h3>
+          {learnableStatPassives.length === 0 ? (
+            <p className="text-sm text-muted">No new Stat Passives available to learn right now.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {learnableStatPassives.map(({ level_learned, passives: p }) => {
+                const categoryTaken = p.category !== null && knownCategories.has(p.category)
+                const disabled = atCap || categoryTaken
+                return (
+                  <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-3">
+                    <div>
+                      <p className="font-medium">
+                        {p.name}{' '}
+                        <span className="text-xs font-normal text-muted">
+                          ({level_learned === null ? 'always known' : `level ${level_learned}`})
+                        </span>
+                      </p>
+                      {p.description && <p className="text-xs text-muted">{p.description}</p>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleLearn(p.id)}
+                      disabled={disabled}
+                      title={categoryTaken ? `Already has a ${p.category} Passive` : atCap ? `Already knows ${MAX_STAT_PASSIVES} Stat Passives` : undefined}
+                      className="rounded border px-3 py-1 text-sm disabled:opacity-30"
+                    >
+                      Learn
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   )
 }
