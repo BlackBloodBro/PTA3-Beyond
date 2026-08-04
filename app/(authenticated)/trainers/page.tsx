@@ -76,7 +76,7 @@ export default async function TrainersPage({
           (myTrainers ?? []).map((t) => {
             const pokemonCount = pokemonCountByTrainer.get(t.id) ?? 0
             return (
-              <div key={t.id} className="rounded border p-4">
+              <div key={t.id} className="rounded border-accent bg-accent/10 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <Link href={trainerHref({ id: t.id, is_npc: false, campaign_id: t.campaign_id })} className="text-lg font-semibold underline">
                     {t.name}

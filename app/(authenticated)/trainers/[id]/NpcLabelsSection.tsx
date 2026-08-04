@@ -61,7 +61,7 @@ export function NpcLabelsSection({
   }
 
   return (
-    <section className="w-full max-w-4xl rounded border p-4">
+    <section className="w-full max-w-4xl rounded border-accent bg-accent/10 p-4">
       <h2 className="mb-2 font-semibold">Labels</h2>
       <div className="flex flex-col gap-2">
         {labels.length === 0 ? (
@@ -76,7 +76,7 @@ export function NpcLabelsSection({
             ))}
           </div>
         )}
-        <button type="button" onClick={handleSave} className="w-fit rounded border px-3 py-1 text-sm">
+        <button type="button" onClick={handleSave} className="w-fit rounded bg-accent px-3 py-1 text-sm text-accent-foreground">
           Save labels
         </button>
       </div>
@@ -101,7 +101,7 @@ export function NpcLabelsSection({
             <span className={`h-4 w-4 rounded-full ${LABEL_SWATCH_CLASSES[color]} ring-offset-1 peer-checked:ring-2 peer-checked:ring-black`} />
           </label>
         ))}
-        <button type="button" onClick={handleCreateLabel} className="rounded border px-3 py-1 text-sm">
+        <button type="button" onClick={handleCreateLabel} className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground">
           + Add label
         </button>
       </div>

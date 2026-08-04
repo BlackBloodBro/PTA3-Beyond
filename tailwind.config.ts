@@ -13,12 +13,13 @@ const config: Config = {
         danger: 'var(--color-danger)',
         success: 'var(--color-success)',
         warning: 'var(--color-warning)',
-        'warning-fill': 'var(--color-warning-fill)',
-        'warning-surface': 'var(--color-warning-surface)',
         // rgb(var(...) / <alpha-value>) rather than a plain hex var -- lets bg-accent/10 etc. work
         // for the one existing tinted-card call-site, without a separate tinted-surface token.
         accent: 'rgb(var(--color-accent) / <alpha-value>)',
         'accent-foreground': 'rgb(var(--color-accent-foreground) / <alpha-value>)',
+        // A plain var(...), not the rgb(.../<alpha-value>) pattern -- color-mix() already produces a
+        // full resolved color, not a bare RGB triplet, so it can't compose with an opacity modifier.
+        'accent-dark': 'var(--color-accent-dark)',
       },
       borderColor: {
         // Tailwind's Preflight resets every element's border-color to this -- overriding it here

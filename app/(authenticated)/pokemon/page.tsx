@@ -124,7 +124,7 @@ export default async function PokemonListPage({
           <p className="text-sm text-muted">You don&apos;t have any Pokémon yet.</p>
         ) : (
           allMyPokemon.map((p) => (
-            <div key={p.id} className="flex flex-col gap-2 rounded border p-3">
+            <div key={p.id} className="flex flex-col gap-2 rounded border-accent bg-accent/10 p-3">
               <div className="flex items-center justify-between gap-2">
                 <Link
                   href={pokemonHref({

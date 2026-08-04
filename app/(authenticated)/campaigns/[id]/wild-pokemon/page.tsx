@@ -77,7 +77,7 @@ export default async function CampaignWildPokemonPage({
         </Link>
       </div>
 
-      <form method="get" className="flex w-full max-w-2xl flex-col gap-2 rounded border p-3 text-sm">
+      <form method="get" className="flex w-full max-w-2xl flex-col gap-2 rounded border-accent bg-accent/10 p-3 text-sm">
         <label htmlFor="q" className="font-medium">
           Search by nickname or species
         </label>

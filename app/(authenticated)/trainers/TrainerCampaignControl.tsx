@@ -56,7 +56,7 @@ export function TrainerCampaignControl({
               </option>
             ))}
           </select>
-          <button type="button" onClick={handleSave} className="rounded border px-3 py-1 text-sm">
+          <button type="button" onClick={handleSave} className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground">
             Save
           </button>
           {saved && <span className="text-sm text-success">Saved</span>}

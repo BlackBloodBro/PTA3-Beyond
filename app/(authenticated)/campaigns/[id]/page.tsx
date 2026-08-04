@@ -106,11 +106,11 @@ export default async function CampaignPage({
 
       {isGM && (
         <div className="flex w-full max-w-2xl gap-3">
-          <Link href={`/campaigns/${id}/npcs`} className="flex-1 rounded border p-3 hover:bg-surface-subtle">
+          <Link href={`/campaigns/${id}/npcs`} className="flex-1 rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
             <span className="text-lg font-semibold">{npcCount} NPCs</span>
             <span className="block text-sm text-muted underline">View all</span>
           </Link>
-          <Link href={`/campaigns/${id}/wild-pokemon`} className="flex-1 rounded border p-3 hover:bg-surface-subtle">
+          <Link href={`/campaigns/${id}/wild-pokemon`} className="flex-1 rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
             <span className="text-lg font-semibold">{wildPokemonCount} Wild Pokémon</span>
             <span className="block text-sm text-muted underline">View all</span>
           </Link>
@@ -132,7 +132,7 @@ export default async function CampaignPage({
             const isGMsTrainer = t.user_id === campaign.gm_user_id
 
             return (
-              <div key={t.id} className="rounded border p-4">
+              <div key={t.id} className="rounded border-accent bg-accent/10 p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold">
                     <Link href={trainerHref({ id: t.id, is_npc: false, campaign_id: id })} className="underline">

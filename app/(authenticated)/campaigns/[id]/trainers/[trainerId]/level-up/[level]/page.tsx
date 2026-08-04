@@ -79,7 +79,7 @@ export default async function CampaignTrainerEditMilestonePage({
       {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
 
       <form action={editMilestone.bind(null, id, level)} className="flex w-full max-w-2xl flex-col gap-4">
-        <section className="rounded border p-4">
+        <section className="rounded border-accent bg-accent/10 p-4">
           <h2 className="mb-2 font-semibold">Stat increase</h2>
           <p className="mb-2 text-sm text-muted">Choose two different stats. Each increases by 1.</p>
           <div className="flex gap-4">
@@ -106,7 +106,7 @@ export default async function CampaignTrainerEditMilestonePage({
           </div>
         </section>
 
-        <section className="rounded border p-4">
+        <section className="rounded border-accent bg-accent/10 p-4">
           <h2 className="mb-2 font-semibold">Advanced class</h2>
           <AdvancedClassPicker
             subclassOptions={subclassOptions}
