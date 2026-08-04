@@ -148,7 +148,7 @@ export function PcBoard({
       <div className="flex flex-1 flex-col gap-4">
         {error && <p className="text-danger">{error}</p>}
 
-        <form onSubmit={(e) => e.preventDefault()} className="flex flex-wrap items-end gap-2 rounded border p-3 text-sm">
+        <form onSubmit={(e) => e.preventDefault()} className="flex flex-wrap items-end gap-2 rounded border-accent bg-accent/10 p-3 text-sm">
           <div className="flex flex-col gap-1">
             <label htmlFor="pcSearch">Search</label>
             <input
@@ -227,7 +227,7 @@ export function PcBoard({
             <p className="text-sm text-muted">No Pokémon match.</p>
           ) : (
             filteredPc.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 rounded border p-2">
+              <div key={p.id} className="flex items-center gap-2 rounded border-accent bg-accent/10 p-2">
                 <PokemonSprite spriteCode={p.spriteCode} shiny={p.isShiny} alt={p.speciesName} size={40} />
                 <div className="min-w-0 flex-1 text-sm">
                   <Link href={pokemonHref({ id: p.id, hasOwner: true, campaignId })} className="block truncate font-medium underline">
@@ -249,7 +249,11 @@ export function PcBoard({
                       </button>
                     </div>
                   ) : (
-                    <button type="button" onClick={() => handleAddToTeam(p)} className="shrink-0 rounded border px-3 py-1 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => handleAddToTeam(p)}
+                      className="shrink-0 rounded bg-accent px-3 py-1 text-sm text-accent-foreground"
+                    >
                       Add to Team
                     </button>
                   ))}
@@ -260,7 +264,7 @@ export function PcBoard({
       </div>
 
       <aside className="sticky top-4 w-64 shrink-0">
-        <section className="rounded border p-4">
+        <section className="rounded border-accent bg-accent/10 p-4">
           <h2 className="mb-2 font-semibold">
             Team ({team.length}/{MAX_TEAM_SIZE})
           </h2>
@@ -292,7 +296,7 @@ export function PcBoard({
                       <button
                         type="button"
                         onClick={() => handleConfirmSwap(p)}
-                        className="shrink-0 rounded border px-2 py-1 text-xs"
+                        className="shrink-0 rounded bg-accent px-2 py-1 text-xs text-accent-foreground"
                       >
                         Bench
                       </button>

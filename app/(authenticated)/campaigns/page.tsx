@@ -47,12 +47,12 @@ export default async function CampaignsPage() {
         ) : (
           <>
             {(gmCampaigns ?? []).map((c) => (
-              <Link key={c.id} href={`/campaigns/${c.id}`} className="rounded border p-3 underline">
+              <Link key={c.id} href={`/campaigns/${c.id}`} className="rounded border-accent bg-accent/10 p-3 underline">
                 {c.name} <span className="text-sm font-normal text-muted">(GM)</span>
               </Link>
             ))}
             {memberCampaigns.map((c) => (
-              <Link key={c.id} href={`/campaigns/${c.id}`} className="rounded border p-3 underline">
+              <Link key={c.id} href={`/campaigns/${c.id}`} className="rounded border-accent bg-accent/10 p-3 underline">
                 {c.name}
               </Link>
             ))}

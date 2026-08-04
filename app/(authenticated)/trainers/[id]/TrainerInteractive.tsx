@@ -600,10 +600,16 @@ export function ActiveFeaturesSection({ trainerId }: { trainerId: string }) {
           {activeFeatures.map((f) => {
             const usesRemaining = usesRemainingByFeature[f.id] ?? f.max_uses
             return (
-              <li key={f.id} className="rounded border border-warning-fill bg-warning-surface p-3">
+              // bg-accent/10, not bg-accent-dark/10 -- accent-dark is a plain var(), not the
+              // rgb(.../<alpha-value>) pattern, so it can't take an opacity modifier. The darker
+              // border alone is enough to read as distinct from a plain border-accent section.
+              <li key={f.id} className="rounded border border-accent-dark bg-accent/10 p-3">
                 <details>
                   <summary className="cursor-pointer font-medium">
-                    {f.name} <span className="rounded bg-warning-fill px-1.5 py-0.5 text-xs font-semibold text-accent-foreground">ACTIVE</span>{' '}
+                    {/* text-white, not text-accent-foreground -- accent-dark is always mixed toward
+                        black regardless of theme/mode, so a light-on-dark badge is reliably readable
+                        here even though accent-foreground (paired with the un-darkened accent) isn't. */}
+                    {f.name} <span className="rounded bg-accent-dark px-1.5 py-0.5 text-xs font-semibold text-white">ACTIVE</span>{' '}
                     <span className="text-sm font-normal text-muted">(level {f.level_required})</span>
                   </summary>
                   <p className="mt-1 text-sm text-muted">{f.description}</p>

@@ -133,7 +133,7 @@ function WildPokemonRow({
   const currentLabels = labels.filter((l) => pokemon.labelIds.includes(l.id))
 
   return (
-    <div className="rounded border p-3">
+    <div className="rounded border-accent bg-accent/10 p-3">
       <div className="flex items-center justify-between gap-2">
         <Link href={pokemonHref({ id: pokemon.id, hasOwner: false, campaignId })} className="flex items-center gap-2 underline">
           {pokemon.pokedex && (
@@ -158,7 +158,7 @@ function WildPokemonRow({
                 </option>
               ))}
             </select>
-            <button type="button" onClick={handleAssign} className="rounded border px-3 py-1 text-sm">
+            <button type="button" onClick={handleAssign} className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground">
               Assign
             </button>
           </span>
@@ -187,7 +187,7 @@ function WildPokemonRow({
               </label>
             ))}
           </div>
-          <button type="button" onClick={handleSaveLabels} className="w-fit rounded border px-3 py-1 text-xs">
+          <button type="button" onClick={handleSaveLabels} className="w-fit rounded bg-accent px-3 py-1 text-xs text-accent-foreground">
             Save labels
           </button>
         </div>
@@ -212,7 +212,7 @@ function WildPokemonRow({
               <span className={`h-4 w-4 rounded-full ${LABEL_SWATCH_CLASSES[color]} ring-offset-1 peer-checked:ring-2 peer-checked:ring-black`} />
             </label>
           ))}
-          <button type="button" onClick={handleCreateLabel} className="rounded border px-2 py-1 text-xs">
+          <button type="button" onClick={handleCreateLabel} className="rounded bg-accent px-2 py-1 text-xs text-accent-foreground">
             + Add label
           </button>
         </div>

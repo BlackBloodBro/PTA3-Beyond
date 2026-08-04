@@ -139,7 +139,7 @@ export function PokemonAssignmentPanel({
                 </optgroup>
               ))}
             </select>
-            <button type="button" onClick={handleAssign} className="rounded border px-2 py-1">
+            <button type="button" onClick={handleAssign} className="rounded bg-accent px-2 py-1 text-accent-foreground">
               Assign
             </button>
           </span>
@@ -161,7 +161,7 @@ export function PokemonAssignmentPanel({
                 </option>
               ))}
             </select>
-            <button type="button" onClick={handleSavePool} className="rounded border px-2 py-1">
+            <button type="button" onClick={handleSavePool} className="rounded bg-accent px-2 py-1 text-accent-foreground">
               Save pool
             </button>
             {savedPool && <span className="text-success">Saved</span>}

@@ -95,7 +95,7 @@ export default async function CampaignNpcsPage({
       {(convertibleTrainers ?? []).length > 0 && (
         <form
           action={convertTrainerToNpc.bind(null, id)}
-          className="flex w-full max-w-2xl flex-wrap items-center gap-2 rounded border p-3 text-sm"
+          className="flex w-full max-w-2xl flex-wrap items-center gap-2 rounded border-accent bg-accent/10 p-3 text-sm"
         >
           <label htmlFor="trainerId" className="font-medium">
             Turn an existing trainer into an NPC here
@@ -119,7 +119,7 @@ export default async function CampaignNpcsPage({
         </form>
       )}
 
-      <form method="get" className="flex w-full max-w-2xl flex-col gap-2 rounded border p-3 text-sm">
+      <form method="get" className="flex w-full max-w-2xl flex-col gap-2 rounded border-accent bg-accent/10 p-3 text-sm">
         <label htmlFor="q" className="font-medium">
           Search by name
         </label>
@@ -159,7 +159,7 @@ export default async function CampaignNpcsPage({
           <p className="text-sm text-muted">No NPCs match.</p>
         ) : (
           npcs.map((n) => (
-            <Link key={n.id} href={`/campaigns/${id}/npcs/${n.id}`} className="flex flex-col gap-1 rounded border p-3 hover:bg-surface-subtle">
+            <Link key={n.id} href={`/campaigns/${id}/npcs/${n.id}`} className="flex flex-col gap-1 rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
               <div className="flex items-center justify-between">
                 <span className="font-semibold">{n.name}</span>
                 <span className="text-sm text-muted">

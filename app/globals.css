@@ -14,10 +14,15 @@
   --color-danger: #dc2626;
   --color-success: #16a34a;
   --color-warning: #d97706;
-  --color-warning-fill: #f59e0b;
-  --color-warning-surface: #fffbeb;
   --color-accent: 0 0 0;
   --color-accent-foreground: 255 255 255;
+  /* Derived, not a literal -- but var() inside a custom property resolves relative to where that
+     property is DECLARED, not where it's used, so this formula has to be repeated in every block
+     below that also sets --color-accent (rather than declared once here), or it would permanently
+     freeze on this block's own --color-accent instead of picking up the accent override. Used where
+     something needs to read as "tied to the theme" but still distinct from a plain accent-colored
+     element (e.g. the Active Feature state indicator). */
+  --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black);
 }
 
 [data-theme="dark"] {
@@ -30,40 +35,40 @@
   --color-danger: #f87171;
   --color-success: #4ade80;
   --color-warning: #fbbf24;
-  --color-warning-surface: #451a03;
   --color-accent: 245 245 245;
   --color-accent-foreground: 23 23 23;
-  /* --color-warning-fill intentionally NOT overridden -- it's a self-contained fill+text pair (the
-     "ACTIVE" badge, active-feature card border) whose own contrast doesn't depend on page mode. */
+  --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black);
 }
 
 /* Accent overrides: 13 light (-600 shade) + 13 dark (-400 shade, lighter so it reads against a
    dark page), RGB triplets for the rgb(var(...) / <alpha-value>) pattern in tailwind.config.ts.
-   The 2-attribute dark selectors beat the single-attribute light ones whenever both are present. */
-[data-accent="red"]    { --color-accent: 220 38 38; }
-[data-accent="orange"] { --color-accent: 234 88 12; }
-[data-accent="amber"]  { --color-accent: 217 119 6; }
-[data-accent="yellow"] { --color-accent: 202 138 4; }
-[data-accent="lime"]   { --color-accent: 101 163 13; }
-[data-accent="green"]  { --color-accent: 22 163 74; }
-[data-accent="teal"]   { --color-accent: 13 148 136; }
-[data-accent="cyan"]   { --color-accent: 8 145 178; }
-[data-accent="blue"]   { --color-accent: 37 99 235; }
-[data-accent="indigo"] { --color-accent: 79 70 229; }
-[data-accent="violet"] { --color-accent: 124 58 237; }
-[data-accent="pink"]   { --color-accent: 219 39 119; }
-[data-accent="gray"]   { --color-accent: 75 85 99; }
+   The 2-attribute dark selectors beat the single-attribute light ones whenever both are present.
+   --color-accent-dark repeats the color-mix() formula alongside each --color-accent -- see the
+   note on it in :root for why it can't just be declared once there. */
+[data-accent="red"]    { --color-accent: 220 38 38; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="orange"] { --color-accent: 234 88 12; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="amber"]  { --color-accent: 217 119 6; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="yellow"] { --color-accent: 202 138 4; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="lime"]   { --color-accent: 101 163 13; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="green"]  { --color-accent: 22 163 74; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="teal"]   { --color-accent: 13 148 136; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="cyan"]   { --color-accent: 8 145 178; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="blue"]   { --color-accent: 37 99 235; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="indigo"] { --color-accent: 79 70 229; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="violet"] { --color-accent: 124 58 237; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="pink"]   { --color-accent: 219 39 119; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-accent="gray"]   { --color-accent: 75 85 99; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
 
-[data-theme="dark"][data-accent="red"]    { --color-accent: 248 113 113; }
-[data-theme="dark"][data-accent="orange"] { --color-accent: 251 146 60; }
-[data-theme="dark"][data-accent="amber"]  { --color-accent: 251 191 36; }
-[data-theme="dark"][data-accent="yellow"] { --color-accent: 250 204 21; }
-[data-theme="dark"][data-accent="lime"]   { --color-accent: 163 230 53; }
-[data-theme="dark"][data-accent="green"]  { --color-accent: 74 222 128; }
-[data-theme="dark"][data-accent="teal"]   { --color-accent: 45 212 191; }
-[data-theme="dark"][data-accent="cyan"]   { --color-accent: 34 211 238; }
-[data-theme="dark"][data-accent="blue"]   { --color-accent: 96 165 250; }
-[data-theme="dark"][data-accent="indigo"] { --color-accent: 129 140 248; }
-[data-theme="dark"][data-accent="violet"] { --color-accent: 167 139 250; }
-[data-theme="dark"][data-accent="pink"]   { --color-accent: 244 114 182; }
-[data-theme="dark"][data-accent="gray"]   { --color-accent: 156 163 175; }
+[data-theme="dark"][data-accent="red"]    { --color-accent: 248 113 113; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="orange"] { --color-accent: 251 146 60; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="amber"]  { --color-accent: 251 191 36; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="yellow"] { --color-accent: 250 204 21; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="lime"]   { --color-accent: 163 230 53; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="green"]  { --color-accent: 74 222 128; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="teal"]   { --color-accent: 45 212 191; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="cyan"]   { --color-accent: 34 211 238; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="blue"]   { --color-accent: 96 165 250; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="indigo"] { --color-accent: 129 140 248; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="violet"] { --color-accent: 167 139 250; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="pink"]   { --color-accent: 244 114 182; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
+[data-theme="dark"][data-accent="gray"]   { --color-accent: 156 163 175; --color-accent-dark: color-mix(in srgb, rgb(var(--color-accent)) 65%, black); }
