@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { assignPokemon } from '@/app/(authenticated)/pokemon/actions'
 import { createLabel, setPokemonLabels } from '@/app/(authenticated)/campaigns/[id]/actions'
 import { PokemonSprite } from '@/components/PokemonSprite'
@@ -10,11 +10,15 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 
 type Label = { id: string; name: string; color: LabelColor }
 type Trainer = { id: string; name: string; is_npc: boolean }
+type PokedexType = { id: number; name: string }
 export type WildPokemon = {
   id: string
   nickname: string | null
   is_shiny: boolean
   pokedex: { name: string; sprite_code: string } | null
+  level: number
+  type1Id: number
+  type2Id: number | null
   labelIds: string[]
 }
 
@@ -27,36 +31,175 @@ export function WildPokemonList({
   initialPokemon,
   initialLabels,
   trainers,
+  types,
 }: {
   campaignId: string
   initialPokemon: WildPokemon[]
   initialLabels: Label[]
   trainers: Trainer[]
+  types: PokedexType[]
 }) {
   const [pokemonList, setPokemonList] = useState(initialPokemon)
   const [labels, setLabels] = useState(initialLabels)
+  const [searchText, setSearchText] = useState('')
+  const [selectedFilterLabelIds, setSelectedFilterLabelIds] = useState<Set<string>>(new Set())
+  const [typeId, setTypeId] = useState('')
+  const [levelMin, setLevelMin] = useState('')
+  const [levelMax, setLevelMax] = useState('')
 
-  if (pokemonList.length === 0) {
-    return <p className="text-sm text-muted">No wild Pokémon match.</p>
+  function toggleFilterLabel(labelId: string) {
+    setSelectedFilterLabelIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(labelId)) {
+        next.delete(labelId)
+      } else {
+        next.add(labelId)
+      }
+      return next
+    })
   }
 
+  const visiblePokemon = useMemo(() => {
+    const needle = searchText.trim().toLowerCase()
+    return pokemonList.filter((p) => {
+      if (needle) {
+        const nickname = p.nickname?.toLowerCase() ?? ''
+        const speciesName = p.pokedex?.name?.toLowerCase() ?? ''
+        if (!nickname.includes(needle) && !speciesName.includes(needle)) return false
+      }
+      if (selectedFilterLabelIds.size > 0 && !p.labelIds.some((id) => selectedFilterLabelIds.has(id))) {
+        return false
+      }
+      if (typeId) {
+        const id = Number(typeId)
+        if (p.type1Id !== id && p.type2Id !== id) return false
+      }
+      if (levelMin && p.level < Number(levelMin)) return false
+      if (levelMax && p.level > Number(levelMax)) return false
+      return true
+    })
+  }, [pokemonList, searchText, selectedFilterLabelIds, typeId, levelMin, levelMax])
+
   return (
-    <div className="flex w-full max-w-2xl flex-col gap-2">
-      {pokemonList.map((p) => (
-        <WildPokemonRow
-          key={p.id}
-          pokemon={p}
-          campaignId={campaignId}
-          trainers={trainers}
-          labels={labels}
-          onAssigned={() => setPokemonList((prev) => prev.filter((row) => row.id !== p.id))}
-          onLabelsSaved={(labelIds) =>
-            setPokemonList((prev) => prev.map((row) => (row.id === p.id ? { ...row, labelIds } : row)))
-          }
-          onLabelCreated={(label) => setLabels((prev) => [...prev, label].sort((a, b) => a.name.localeCompare(b.name)))}
+    <>
+      <form onSubmit={(e) => e.preventDefault()} className="flex w-full max-w-2xl flex-col gap-2 rounded border-accent bg-accent/10 p-3 text-sm">
+        <label htmlFor="wild-pokemon-search" className="font-medium">
+          Search by nickname or species
+        </label>
+        <input
+          id="wild-pokemon-search"
+          type="text"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          className="bg-surface-subtle rounded border px-3 py-2"
         />
-      ))}
-    </div>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="wild-pokemon-type" className="font-medium">
+              Type
+            </label>
+            <select
+              id="wild-pokemon-type"
+              value={typeId}
+              onChange={(e) => setTypeId(e.target.value)}
+              className="bg-surface-subtle rounded border px-2 py-1"
+            >
+              <option value="">Any type</option>
+              {types.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="wild-pokemon-level-min" className="font-medium">
+              Min level
+            </label>
+            <input
+              id="wild-pokemon-level-min"
+              type="number"
+              min={1}
+              value={levelMin}
+              onChange={(e) => setLevelMin(e.target.value)}
+              className="bg-surface-subtle w-20 rounded border px-2 py-1"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="wild-pokemon-level-max" className="font-medium">
+              Max level
+            </label>
+            <input
+              id="wild-pokemon-level-max"
+              type="number"
+              min={1}
+              value={levelMax}
+              onChange={(e) => setLevelMax(e.target.value)}
+              className="bg-surface-subtle w-20 rounded border px-2 py-1"
+            />
+          </div>
+        </div>
+
+        {labels.length > 0 && (
+          <>
+            <p className="mt-1 font-medium">Labels</p>
+            <div className="flex flex-wrap gap-2">
+              {labels.map((label) => (
+                <label
+                  key={label.id}
+                  className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs ${LABEL_CHIP_CLASSES[label.color]}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedFilterLabelIds.has(label.id)}
+                    onChange={() => toggleFilterLabel(label.id)}
+                  />
+                  {label.name}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+
+        {(searchText || selectedFilterLabelIds.size > 0 || typeId || levelMin || levelMax) && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearchText('')
+              setSelectedFilterLabelIds(new Set())
+              setTypeId('')
+              setLevelMin('')
+              setLevelMax('')
+            }}
+            className="mt-1 w-fit text-xs underline"
+          >
+            Clear filters
+          </button>
+        )}
+      </form>
+
+      <div className="flex w-full max-w-2xl flex-col gap-2">
+        {visiblePokemon.length === 0 ? (
+          <p className="text-sm text-muted">No wild Pokémon match.</p>
+        ) : (
+          visiblePokemon.map((p) => (
+            <WildPokemonRow
+              key={p.id}
+              pokemon={p}
+              campaignId={campaignId}
+              trainers={trainers}
+              labels={labels}
+              onAssigned={() => setPokemonList((prev) => prev.filter((row) => row.id !== p.id))}
+              onLabelsSaved={(labelIds) =>
+                setPokemonList((prev) => prev.map((row) => (row.id === p.id ? { ...row, labelIds } : row)))
+              }
+              onLabelCreated={(label) => setLabels((prev) => [...prev, label].sort((a, b) => a.name.localeCompare(b.name)))}
+            />
+          ))
+        )}
+      </div>
+    </>
   )
 }
 
@@ -139,7 +282,10 @@ function WildPokemonRow({
           {pokemon.pokedex && (
             <PokemonSprite spriteCode={pokemon.pokedex.sprite_code} shiny={pokemon.is_shiny} alt={pokemon.pokedex.name} size={32} />
           )}
-          {pokemon.nickname ? `${pokemon.nickname} (${pokemon.pokedex?.name})` : pokemon.pokedex?.name}
+          <span>
+            {pokemon.nickname ? `${pokemon.nickname} (${pokemon.pokedex?.name})` : pokemon.pokedex?.name}
+            <span className="ml-2 text-xs text-muted">Level {pokemon.level}</span>
+          </span>
         </Link>
         {trainers.length > 0 && (
           <span className="flex items-center gap-2">
