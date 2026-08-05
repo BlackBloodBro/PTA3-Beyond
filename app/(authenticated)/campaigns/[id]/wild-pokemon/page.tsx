@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { LABEL_CHIP_CLASSES, type LabelColor } from '@/lib/pta3/labelColors'
+import { type LabelColor } from '@/lib/pta3/labelColors'
+import { computePokemonLevelsBulk } from '@/lib/pta3/pokemonLevel'
+import { fetchPokedexFilterOptions } from '@/lib/pta3/pokedexFilter'
 import { WildPokemonList, type WildPokemon } from './WildPokemonList'
 
 export default async function CampaignWildPokemonPage({
@@ -9,11 +11,10 @@ export default async function CampaignWildPokemonPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ error?: string; q?: string; labelIds?: string | string[] }>
+  searchParams: Promise<{ error?: string }>
 }) {
   const { id } = await params
-  const { error, q, labelIds: labelIdsRaw } = await searchParams
-  const labelIds = !labelIdsRaw ? [] : Array.isArray(labelIdsRaw) ? labelIdsRaw : [labelIdsRaw]
+  const { error } = await searchParams
   const supabase = await createClient()
 
   const {
@@ -30,7 +31,7 @@ export default async function CampaignWildPokemonPage({
     redirect(`/campaigns/${id}`)
   }
 
-  const [{ data: allLabels }, { data: poolRaw }, { data: trainers }] = await Promise.all([
+  const [{ data: allLabels }, { data: poolRaw }, { data: trainers }, { types }] = await Promise.all([
     supabase.from('campaign_labels').select('id, name, color').eq('campaign_id', id).order('name'),
     // Same unassigned-pool pattern as the dashboard: created_by_user_id is what actually grants
     // access (matches "Creator manages their own unassigned pokemon" RLS), scoped here to this
@@ -38,27 +39,46 @@ export default async function CampaignWildPokemonPage({
     supabase
       .from('pokemon')
       .select(
-        'id, nickname, is_shiny, pokedex(name, sprite_code), trainers_pokemon(trainer_id), pokemon_labels(campaign_labels(id, name, color))',
+        `id, nickname, is_shiny, current_exp, loyalty_id,
+        pokedex(name, sprite_code, growth_rate_id, type_1_id, type_2_id),
+        trainers_pokemon(trainer_id), pokemon_labels(campaign_labels(id, name, color))`,
       )
       .eq('campaign_id', id)
       .eq('created_by_user_id', user.id),
     // Assignable targets: every trainer (player or NPC) in this campaign.
     supabase.from('trainers').select('id, name, is_npc').eq('campaign_id', id).order('name'),
+    fetchPokedexFilterOptions(supabase),
   ])
 
-  const searchLower = (q ?? '').trim().toLowerCase()
-  const wildPokemon = (poolRaw ?? [])
-    .filter((p) => !p.trainers_pokemon)
-    .filter((p) => {
-      if (!searchLower) return true
-      const nickname = p.nickname?.toLowerCase() ?? ''
-      const speciesName = p.pokedex?.name?.toLowerCase() ?? ''
-      return nickname.includes(searchLower) || speciesName.includes(searchLower)
-    })
-    .filter((p) => {
-      if (labelIds.length === 0) return true
-      return (p.pokemon_labels ?? []).some((pl) => pl.campaign_labels && labelIds.includes(String(pl.campaign_labels.id)))
-    })
+  // Search/label filtering happens live, client-side, in WildPokemonList -- this only applies the
+  // structural "is this actually still wild" filter, not the user-facing search/label filters.
+  // Cast here (not at the final prop) to sidestep the reverse-embed quirk where PostgREST's
+  // single-object `pokedex` embed still infers as an array in TS -- see pokemonLevel.ts/WildPokemonList.tsx.
+  type PoolRow = {
+    id: string
+    nickname: string | null
+    is_shiny: boolean
+    current_exp: number
+    loyalty_id: number | null
+    pokedex: { name: string; sprite_code: string; growth_rate_id: number | null; type_1_id: number; type_2_id: number | null } | null
+    trainers_pokemon: { trainer_id: string } | null
+    pokemon_labels: { campaign_labels: { id: string; name: string; color: string } | null }[]
+  }
+  const wildPokemon = ((poolRaw ?? []) as unknown as PoolRow[]).filter((p) => !p.trainers_pokemon)
+
+  // Wild Pokemon have no trainers_pokemon row (unowned), so obtainMethodId is always null here --
+  // computePokemonLevelsBulk defaults that modifier to 1, same as an "unset" obtain method anywhere else.
+  const levelsByPokemonId = await computePokemonLevelsBulk(
+    supabase,
+    wildPokemon.map((p) => ({
+      pokemonId: p.id,
+      currentExp: p.current_exp,
+      isShiny: p.is_shiny,
+      loyaltyId: p.loyalty_id,
+      obtainMethodId: null,
+      growthRateId: p.pokedex!.growth_rate_id,
+    })),
+  )
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -77,54 +97,23 @@ export default async function CampaignWildPokemonPage({
         </Link>
       </div>
 
-      <form method="get" className="flex w-full max-w-2xl flex-col gap-2 rounded border-accent bg-accent/10 p-3 text-sm">
-        <label htmlFor="q" className="font-medium">
-          Search by nickname or species
-        </label>
-        <input id="q" name="q" type="text" defaultValue={q ?? ''} className="bg-surface-subtle rounded border px-3 py-2" />
-
-        {(allLabels ?? []).length > 0 && (
-          <>
-            <p className="mt-1 font-medium">Labels</p>
-            <div className="flex flex-wrap gap-2">
-              {(allLabels ?? []).map((label) => (
-                <label
-                  key={label.id}
-                  className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs ${LABEL_CHIP_CLASSES[label.color as LabelColor]}`}
-                >
-                  <input type="checkbox" name="labelIds" value={label.id} defaultChecked={labelIds.includes(label.id)} />
-                  {label.name}
-                </label>
-              ))}
-            </div>
-          </>
-        )}
-
-        <div className="mt-1 flex items-center gap-3">
-          <button type="submit" className="rounded border px-3 py-2">
-            Apply filters
-          </button>
-          {(q || labelIds.length > 0) && (
-            <a href={`/campaigns/${id}/wild-pokemon`} className="text-xs underline">
-              Clear filters
-            </a>
-          )}
-        </div>
-      </form>
-
       <WildPokemonList
         campaignId={id}
-        initialPokemon={
-          wildPokemon.map((p) => ({
+        initialPokemon={wildPokemon.map(
+          (p): WildPokemon => ({
             id: p.id,
             nickname: p.nickname,
             is_shiny: p.is_shiny,
             pokedex: p.pokedex,
+            level: levelsByPokemonId.get(p.id)?.level ?? 1,
+            type1Id: p.pokedex!.type_1_id,
+            type2Id: p.pokedex!.type_2_id,
             labelIds: (p.pokemon_labels ?? []).map((pl) => pl.campaign_labels?.id).filter((v): v is string => Boolean(v)),
-          })) as unknown as WildPokemon[]
-        }
+          }),
+        )}
         initialLabels={(allLabels ?? []).map((l) => ({ id: l.id, name: l.name, color: l.color as LabelColor }))}
         trainers={trainers ?? []}
+        types={types}
       />
     </main>
   )

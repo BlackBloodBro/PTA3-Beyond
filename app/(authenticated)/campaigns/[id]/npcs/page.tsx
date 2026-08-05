@@ -3,18 +3,18 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { convertTrainerToNpc } from '@/app/(authenticated)/campaigns/[id]/actions'
 import { ConfirmButton } from '@/components/ConfirmButton'
-import { LABEL_CHIP_CLASSES, type LabelColor } from '@/lib/pta3/labelColors'
+import { type LabelColor } from '@/lib/pta3/labelColors'
+import { NpcList, type Npc } from './NpcList'
 
 export default async function CampaignNpcsPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ error?: string; q?: string; labelIds?: string | string[] }>
+  searchParams: Promise<{ error?: string }>
 }) {
   const { id } = await params
-  const { error, q, labelIds: labelIdsRaw } = await searchParams
-  const labelIds = !labelIdsRaw ? [] : Array.isArray(labelIdsRaw) ? labelIdsRaw : [labelIdsRaw]
+  const { error } = await searchParams
   const supabase = await createClient()
 
   const {
@@ -46,34 +46,13 @@ export default async function CampaignNpcsPage({
     .eq('is_npc', false)
     .order('name')
 
-  let query = supabase
+  // Search/label filtering happens live, client-side, in NpcList -- fetch the full NPC roster here.
+  const { data: npcs } = await supabase
     .from('trainers')
     .select('id, name, level, classes(name), trainer_labels(campaign_labels(id, name, color))')
     .eq('campaign_id', id)
     .eq('is_npc', true)
     .order('name')
-
-  if (q) {
-    query = query.ilike('name', `%${q}%`)
-  }
-
-  const { data: npcsRaw } = await query
-
-  // Label filtering (OR semantics -- "has any of the checked labels") happens here rather than as
-  // a PostgREST embedded-resource filter -- simpler than the join-filter syntax for what's expected
-  // to be at most dozens of rows per campaign.
-  const npcs = (npcsRaw ?? []).filter((n) => {
-    if (labelIds.length === 0) return true
-    return (n.trainer_labels ?? []).some((tl) => tl.campaign_labels && labelIds.includes(String(tl.campaign_labels.id)))
-  })
-
-  function buildFilterUrl(nextLabelIds: string[]) {
-    const sp = new URLSearchParams()
-    if (q) sp.set('q', q)
-    nextLabelIds.forEach((lid) => sp.append('labelIds', lid))
-    const qs = sp.toString()
-    return `/campaigns/${id}/npcs${qs ? `?${qs}` : ''}`
-  }
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -119,72 +98,11 @@ export default async function CampaignNpcsPage({
         </form>
       )}
 
-      <form method="get" className="flex w-full max-w-2xl flex-col gap-2 rounded border-accent bg-accent/10 p-3 text-sm">
-        <label htmlFor="q" className="font-medium">
-          Search by name
-        </label>
-        <input id="q" name="q" type="text" defaultValue={q ?? ''} className="bg-surface-subtle rounded border px-3 py-2" />
-
-        {(allLabels ?? []).length > 0 && (
-          <>
-            <p className="mt-1 font-medium">Labels</p>
-            <div className="flex flex-wrap gap-2">
-              {(allLabels ?? []).map((label) => (
-                <label
-                  key={label.id}
-                  className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs ${LABEL_CHIP_CLASSES[label.color as LabelColor]}`}
-                >
-                  <input type="checkbox" name="labelIds" value={label.id} defaultChecked={labelIds.includes(label.id)} />
-                  {label.name}
-                </label>
-              ))}
-            </div>
-          </>
-        )}
-
-        <div className="mt-1 flex items-center gap-3">
-          <button type="submit" className="rounded border px-3 py-2">
-            Apply filters
-          </button>
-          {(q || labelIds.length > 0) && (
-            <a href={`/campaigns/${id}/npcs`} className="text-xs underline">
-              Clear filters
-            </a>
-          )}
-        </div>
-      </form>
-
-      <div className="flex w-full max-w-2xl flex-col gap-2">
-        {npcs.length === 0 ? (
-          <p className="text-sm text-muted">No NPCs match.</p>
-        ) : (
-          npcs.map((n) => (
-            <Link key={n.id} href={`/campaigns/${id}/npcs/${n.id}`} className="flex flex-col gap-1 rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold">{n.name}</span>
-                <span className="text-sm text-muted">
-                  Level {n.level} {n.classes?.name}
-                </span>
-              </div>
-              {(n.trainer_labels ?? []).length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {(n.trainer_labels ?? []).map(
-                    (tl, i) =>
-                      tl.campaign_labels && (
-                        <span
-                          key={i}
-                          className={`rounded-full px-2 py-0.5 text-xs ${LABEL_CHIP_CLASSES[tl.campaign_labels.color as LabelColor]}`}
-                        >
-                          {tl.campaign_labels.name}
-                        </span>
-                      ),
-                  )}
-                </div>
-              )}
-            </Link>
-          ))
-        )}
-      </div>
+      <NpcList
+        campaignId={id}
+        initialNpcs={(npcs ?? []) as unknown as Npc[]}
+        initialLabels={(allLabels ?? []).map((l) => ({ id: l.id, name: l.name, color: l.color as LabelColor }))}
+      />
     </main>
   )
 }
