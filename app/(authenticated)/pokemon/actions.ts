@@ -773,6 +773,24 @@ export async function learnMove(
     return { error: 'That move is not eligible to learn yet' }
   }
 
+  // TM/tutor-eligible (level_learned null) additionally requires overlap between the species'
+  // Proficiencies and the move's -- a move with zero tagged Proficiencies is unrestricted. Natural
+  // level-up moves (level_learned set) were never gated by Proficiency, so this only applies here.
+  if (eligible.level_learned === null) {
+    const [{ data: moveProficiencies }, { data: pokedexProficiencies }] = await Promise.all([
+      supabase.from('moves_proficiencies').select('proficiency_id').eq('move_id', moveId),
+      supabase.from('pokedex_proficiencies').select('proficiency_id').eq('pokedex_id', pokemon.pokedex_id),
+    ])
+
+    const requiredProficiencyIds = (moveProficiencies ?? []).map((p) => p.proficiency_id)
+    if (requiredProficiencyIds.length > 0) {
+      const heldProficiencyIds = new Set((pokedexProficiencies ?? []).map((p) => p.proficiency_id))
+      if (!requiredProficiencyIds.some((id) => heldProficiencyIds.has(id))) {
+        return { error: 'This Pokémon does not have a matching Proficiency for that move' }
+      }
+    }
+  }
+
   const { maxUses, resetsOn } = parseMoveFrequency(eligible.moves?.frequency ?? '')
 
   const { error } = await supabase
