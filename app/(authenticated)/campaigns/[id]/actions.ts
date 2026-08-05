@@ -78,11 +78,11 @@ export async function createNpc(campaignId: string, formData: FormData) {
       origin_id: originId,
       campaign_id: campaignId,
       is_npc: true,
-      attack: stats.attack,
-      defense: stats.defense,
-      special_attack: stats.specialAttack,
-      special_defense: stats.specialDefense,
-      speed: stats.speed,
+      base_attack: stats.attack,
+      base_defense: stats.defense,
+      base_special_attack: stats.specialAttack,
+      base_special_defense: stats.specialDefense,
+      base_speed: stats.speed,
     })
     .select('id')
     .single()
