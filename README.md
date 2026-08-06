@@ -2198,3 +2198,182 @@ stayed editable); the `/pokemon` list's assignment dropdown no longer offered th
 and clicking "Unassign" on a Pokémon already assigned to it returned "Only that campaign's GM can
 unassign this Pokemon" instead of succeeding. Test fixtures (the temporary campaign membership, the
 throwaway pool Pokémon, and the trainer's campaign assignment) were all reverted afterward.
+
+### Pokédex expansion, imported from PokeAPI (batched by primary type)
+
+The "Fill out the Pokedex more" FR's Design pass established that most per-species data (base stats,
+types, catch rate, egg hatch rate, growth rate, sprite code, and -- reusing the original learnset
+import's own methodology -- level-up learnset and Passive eligibility) is reliably derivable from
+PokeAPI, the same source as the original 351-species import. Move Proficiencies, Size/Weight tiers,
+Habitats, and Diets have no PokeAPI equivalent and stay PDF/manual-only (unchanged from Design).
+
+Batches are split by primary type, matching how the sourcebook PDF itself sorts species -- per the
+user, Fire and Ice were already fully hand-entered in the original 351, so batching started with
+**Ground** instead. Shared mechanics across every batch, not repeated per-batch below: `round(real_stat
+/ 10)` (ties round up) for all 6 base stats, `base_hp` the same formula ×6; `catch_rate` = direct copy
+of `capture_rate`; `egg_hatch_rate` = `floor(hatch_counter / 2) + " days"`; `growth_rate_id` name-mapped
+from PokeAPI's slug; `sprite_code` = PokeAPI's own species slug; `size_id`/`weight_id`/`description`
+left null and Proficiencies/Habitats/Diets get no rows (no reliable PokeAPI derivation, confirmed
+during Design -- see that section's writeup); two-phase migration each time (`pokedex` rows first, then
+the new real serial ids fetched back to generate the `pokedex_moves`/`pokedex_passives` migrations).
+
+**Batch 1: Ground.**
+- **Coverage**: 28 of 41 species with any Ground-type membership matched as *primary*-type Ground
+  (the other 13 -- Nidoqueen/Nidoking/Clodsire, Larvitar/Pupitar, Nincada, Gastrodon, Gible/Gabite/
+  Garchomp, Diggersby, Sandygast/Palossand -- have Ground as their secondary type and are left for
+  their own primary-type batch instead of being force-fit here). Hyphenated PokeAPI slugs (regional
+  forms etc.) were excluded from candidates entirely, same as the original import's precedent of not
+  guessing at form-slug mappings.
+- **Migration files**: `20260805130000` (species), `20260805130100`/`20260805130200`
+  (moves/passives) -- 420 learnset rows + 63 Passive rows.
+- **Verification**: spot-checked Diglett's full imported record (stats, types, learnset, passives)
+  against its known real data -- exact match. Confirmed safe against existing app code: every read of
+  `pokedex.size`/`.weight` already uses optional chaining with a `?? '—'` fallback (e.g.
+  `species.size?.name`), so the null `size_id`/`weight_id` render correctly rather than crashing. No
+  interactive browser click-through -- no test account credentials available in this environment. `npx
+  tsc --noEmit` unaffected (pure data migration, no app code touched).
+- **15 unmatched move slugs** aren't in the 632-move table yet (same known-gap category as the original
+  import's 52): Magnitude, Mud slap, False swipe, Fling, Natural gift, Last resort, Feint, Precipice
+  blades, Torment, Embargo, Foul play, Power trip, Guard split, Power split, Baby doll eyes.
+- **No growth-rate gap hit** -- none of the 28 species report PokeAPI's `fast-then-very-slow`
+  (Fluctuating), the one growth-rate tier this game's `growth_rates` table doesn't have a row for yet.
+
+**Batch 2: Electric.**
+- **Coverage**: 36 of 39 Electric-type-membership candidates matched as primary-type Electric --
+  Joltik/Galvantula (Bug) and Zekrom (Dragon) excluded as secondary-type-only.
+- **Migration files**: `20260805140000` (species), `20260805140100`/`20260805140200`
+  (moves/passives) -- 446 learnset rows + 63 Passive rows.
+- **Verification**: spot-checked Zapdos's full imported record (dual-type, legendary catch
+  rate/hatch cycle) against known real data -- exact match. Same code-safety and typecheck result as
+  batch 1.
+- **20 unmatched move slugs**: Pluck, Magnetic flux, Baton pass, Skill swap, Copycat, Last resort,
+  Entrainment, Bestow, Trump card, Volt switch, Baby doll eyes, Acid, Mud slap, Quick guard, Power up
+  punch, Plasma fists, Freeze dry, Lock on, Thunder cage, Electro drift.
+- **No growth-rate gap hit** this batch either.
+
+**Bug found while generating batches 3+**: the growth-rate slug map used the wrong PokeAPI value for
+Erratic (`"erratic"` instead of the real slug `"slow-then-very-fast"`), which would have silently
+treated every real-Erratic species as an unmapped gap. Caught before any further migrations were
+generated (Ground and Electric happened not to include any Erratic-growth species, so neither needed
+retroactive fixing) -- fixed in the generator script and confirmed correct against
+`GET /api/v2/growth-rate`, which lists all 6 real slugs directly.
+
+**Real growth-rate gap confirmed**: once corrected, 14 species across batches 3+ (Fighting, Poison,
+Bug, Ghost, Water, Grass) still hit PokeAPI's `fast-then-very-slow`, confirming Fluctuating is a
+genuinely missing 6th tier (not a mapping bug) -- added via `20260805150000`. Its `exp_modifier` (0.6)
+is an *estimate*, not sourced from the PDF -- the other 5 rows' modifiers don't reduce to one exact
+formula against real Pokémon's total-exp-to-level-100 figures, so there's no formula to extend
+precisely; 0.6 is calibrated loosely against the same rough ratio pattern the other 5 follow (see the
+migration's own comment for the full reasoning). Flagged for the user to confirm against the real
+sourcebook value later, not blocking.
+
+**Batches 3-16: every remaining primary type.** Same methodology and per-field sourcing as batches 1-2
+throughout; per-type detail (excluded secondary-type species, unmatched move slugs) lives in each
+batch's own migration file header rather than repeated here. Fire and Ice were skipped (already
+hand-entered by the user in the original 351).
+
+| Type | Species | Learnset rows | Passive rows | Species migration | Moves/Passives migrations |
+|---|---|---|---|---|---|
+| Normal | 98 | 1367 | 280 | `20260805160000` | `20260805170000`/`170100` |
+| Fighting | 34 | 515 | 92 | `20260805160100` | `20260805170200`/`170300` |
+| Flying | 5 | 66 | 10 | `20260805160200` | `20260805170400`/`170500` |
+| Poison | 35 | 521 | 65 | `20260805160300` | `20260805170600`/`170700` |
+| Rock | 37 | 536 | 101 | `20260805160400` | `20260805170800`/`170900` |
+| Bug | 62 | 823 | 140 | `20260805160500` | `20260805171000`/`171100` |
+| Ghost | 22 | 304 | 37 | `20260805160600` | `20260805171200`/`171300` |
+| Steel | 28 | 317 | 82 | `20260805160700` | `20260805171400`/`171500` |
+| Water | 61 | 876 | 116 | `20260805160800` | `20260805171600`/`171700` |
+| Grass | 60 | 890 | 95 | `20260805160900` | `20260805171800`/`171900` |
+| Psychic | 44 | 534 | 67 | `20260805161000` | `20260805172000`/`172100` |
+| Dragon | 30 | 417 | 61 | `20260805161100` | `20260805172200`/`172300` |
+| Dark | 30 | 426 | 89 | `20260805161200` | `20260805172400`/`172500` |
+| Fairy | 25 | 374 | 60 | `20260805161300` | `20260805172600`/`172700` |
+
+**Totals across batches 3-16**: 571 species, 7966 learnset rows, 1295 Passive rows. Flying's tiny
+count (5) is real, not an error -- most Flying-type-membership Pokémon have Flying as their
+*secondary* type (67 of 72 candidates), which matches how few pure-Flying-primary species exist in
+the real Pokédex too.
+
+**Combined with batches 1-2**: `pokedex` grew from 351 to **986** species in this session (28 Ground +
+36 Electric + 571 across the other 14 types = 635 new species). The remaining ~39-species gap against
+PokeAPI's full 1025 is the same known-gap category documented throughout (hyphenated regional-form
+slugs deliberately excluded from candidates, plus a handful of edge cases like the original import's
+34-species gap).
+
+**Verification for batches 3-16**: spot-checked Gengar's full imported record (dual-type Ghost/Poison,
+Medium Slow growth) against known real data after all 28 phase-B migrations landed -- exact match on
+stats, types, growth rate, learnset, and Passives. Same code-safety reasoning and unaffected `npx tsc
+--noEmit` result as batches 1-2; no interactive browser click-through this session (no test account
+credentials available in this environment).
+
+**Migration-ordering pitfall hit and fixed**: the first attempt at copying the moves/passives
+migrations used timestamps only 100 apart from each type's own species-migration timestamp (e.g.
+Normal's moves file landed at the same minute as Fighting's species file), which `supabase db push`
+correctly refused to apply out of order. Fixed by moving all moves/passives files into their own later
+timestamp block (`20260805170000` onward) instead of interleaving them with the species files'
+timestamps -- no migrations were partially applied, the push simply failed atomically and was retried
+after the rename.
+
+### Size/Weight/Habitat/Diet/Proficiencies for the expansion species, extracted from the Pokedex PDF
+
+The Design pass confirmed these four fields have no PokeAPI equivalent -- they're genuinely
+sourcebook-only. Turned out the actual `PTA3Pokedex.pdf` (814 pages, sorted by primary type -- same
+axis the species batches above used) prints exactly these fields per species, in a fairly consistent
+per-family block: `Type - Size (Size), Weight (Weight)`, then later `Biology: ... Diet - X, Habitat -
+Y1 / Y2`, then `Proficiencies: A / B / C (StageException)`. Cross-checked immediately against Bulbasaur
+and the (pre-existing, not part of this session's import) Rhyhorn/Rhydon/Rhyperior line -- the PDF's
+values matched this game's already-stored data exactly on every field, confirming it as the real
+source and that automated extraction was worth building rather than hand-transcribing ~540 species.
+
+**Extraction approach**: `pdftotext -layout` on the full PDF, then a parser that:
+- Splits each physical line on 2+-space runs before anything else. The PDF's two-column layout
+  regularly merges an unrelated left-column flavor-text line and a right-column species-name/stat line
+  onto the same physical text row (e.g. a species' own name landing mid-paragraph of the previous
+  entry's biology text) -- without this, exact-line name matching missed roughly 40% of species
+  outright.
+- For each `Size (Size), Weight (Weight)` line found, searches backward (up to 60 logical lines) for
+  every nearby candidate that's an exact match (accent/apostrophe/spacing-normalized) against a known
+  `pokedex` species name, then **cross-validates each candidate against this game's own base stats**
+  (already known independently from the PokeAPI import earlier in this FR) -- the PDF also prints Hit
+  Points/Defense/Special Defense/Speed/Attack/Special Attack right after the Size/Weight line, so a
+  candidate is only accepted if those 6 numbers match what's already stored for that species. This
+  caught real misattributions (nearest-name-only would have wrongly credited stat blocks to whichever
+  species happened to be textually closest) and is what makes this data trustworthy rather than a
+  best-effort guess.
+- Diet/Habitat/Proficiencies are parsed per-family (a family = every species stat-block found since the
+  previous `Biology:` block closed) and, like the name-matching above, **every extracted token is
+  validated against the real reference tables** (`diets`, `habitats`, `proficiencies`) before being
+  trusted -- a token that doesn't match a known value is dropped rather than written, since the same
+  column-interleaving that broke name-matching can also run a field's join window past its real end
+  into unrelated text. Proficiency exceptions (`ProficiencyName (SpeciesName)`, meaning that
+  proficiency applies only to the named evolution stage, not the whole family -- e.g. Rhyperior alone
+  gets Munition within the Rhyhorn line) are parsed and applied per-stage, not family-wide.
+
+**Coverage** (this session's 635 new species only -- the original 351 already have this data from the
+prior sheet import and were deliberately left untouched):
+- **543 of 635 (85.5%) matched** a PDF stat-block at all. The ~92 that didn't are overwhelmingly
+  Legendaries, Mythicals, Ultra Beasts, and the newest Paradox-type species (Arceus, Mewtwo, Mew, the
+  weather trio, the creation trio, Ultra Beasts, box legendaries, etc.) -- this PDF appears to
+  deliberately exclude them from normal per-species stat-blocks, a real gap in the source material
+  itself, not a parser miss. A handful of ordinary species (e.g. Heracross, Scyther, Miltank) were also
+  missed where the two-column layout defeated safe extraction.
+- Of those 543: **Size/Weight populated for all 543 (100%)** -- the field that most needed a real
+  source rather than a formula. **Diet: 393 (72%)**. **Habitats: species with at least one habitat
+  row, covering 632 total rows**. **Proficiencies: species with at least one row, covering 1255 total
+  rows**. The gaps within these three are all "validation rejected an unsafe extraction," never wrong
+  data written -- left null/absent rather than guessed, matching this FR's practice throughout.
+- Applied via 4 migrations: `20260805180000` (Size/Weight, 543 `update` statements), `20260805180100`
+  (Diets, 393 rows), `20260805180200` (Habitats, 632 rows), `20260805180300` (Proficiencies, 1255
+  rows).
+
+**Verification**: spot-checked Sandile/Krokorok/Krookodile (confirmed the family-wide Dark/Ground/
+Fangs proficiencies plus Krookodile's own Stampeding exception applied correctly and only to
+Krookodile) and Diglett against the live database post-migration -- exact match on every field. `npx
+tsc --noEmit` unaffected (pure data migrations). No interactive browser click-through this session --
+no test account credentials available in this environment.
+
+**Remaining scope**: the ~92 unmatched species (mostly Legendaries/Mythicals/UBs) and the partial Diet/
+Habitat/Proficiencies gaps within the matched 543 are a real, documented residual -- filling them
+further would need either improving the parser's handling of the PDF's most complex layout cases, or
+falling back to manual entry for the specific species/fields that didn't resolve. Not attempted this
+session; flagged as follow-up work rather than guessed at.
