@@ -37,6 +37,8 @@ const PRESETS: number[][] = [
 
 type Option = { id: number; name: string; lifestyle?: string | null }
 type CampaignOption = { id: string; name: string }
+type SkillOption = { id: number; name: string }
+type OriginSkillTalentGroup = { pickCount: number; skills: SkillOption[] }
 
 export function TrainerForm({
   classes,
@@ -45,6 +47,8 @@ export function TrainerForm({
   variant = 'player',
   campaignId,
   defaultCampaignId,
+  classTalentOptions,
+  originTalentGroups,
 }: {
   classes: Option[]
   origins: Option[]
@@ -56,6 +60,12 @@ export function TrainerForm({
   // 'player' mode only -- preselects (but doesn't lock) the optional campaign dropdown, e.g. when
   // arriving via "Create a trainer for this campaign" from a specific campaign's own page.
   defaultCampaignId?: string
+  // Every Class's flat Skill Talent list and every Origin's pick-groups, loaded in full upfront
+  // (small reference data) so picking a Class/Origin can react instantly client-side instead of a
+  // server round-trip -- same "load everything, filter client-side" shape as the level-up page's
+  // Advanced Class picker.
+  classTalentOptions: Record<number, SkillOption[]>
+  originTalentGroups: Record<number, OriginSkillTalentGroup[]>
 }) {
   const [stats, setStats] = useState<Record<StatKey, number>>({
     attack: 1,
@@ -67,6 +77,56 @@ export function TrainerForm({
 
   const cost = useMemo(() => pointBuyCost(stats), [stats])
   const remaining = POINT_BUY_BUDGET - cost
+
+  const [classId, setClassId] = useState('')
+  const [originId, setOriginId] = useState('')
+  const [classTalentSkillIds, setClassTalentSkillIds] = useState<Set<number>>(new Set())
+  // Origin groups are independent of each other, so picks are tracked per group index rather than
+  // one flat set -- picking a skill in group 0 shouldn't count against group 1's own cap even if
+  // (hypothetically) the same skill id appeared in both.
+  const [originGroupPicks, setOriginGroupPicks] = useState<Set<number>[]>([])
+
+  const classSkillOptions = classId ? (classTalentOptions[Number(classId)] ?? []) : []
+  const originGroups = originId ? (originTalentGroups[Number(originId)] ?? []) : []
+
+  function handleClassChange(value: string) {
+    setClassId(value)
+    setClassTalentSkillIds(new Set())
+  }
+
+  function handleOriginChange(value: string) {
+    setOriginId(value)
+    setOriginGroupPicks([])
+  }
+
+  function toggleClassTalent(skillId: number) {
+    setClassTalentSkillIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(skillId)) {
+        next.delete(skillId)
+      } else if (next.size < 2) {
+        next.add(skillId)
+      }
+      return next
+    })
+  }
+
+  function toggleOriginTalent(groupIndex: number, pickCount: number, skillId: number) {
+    setOriginGroupPicks((prev) => {
+      const next = [...prev]
+      const current = new Set(next[groupIndex] ?? [])
+      if (current.has(skillId)) {
+        current.delete(skillId)
+      } else if (current.size < pickCount) {
+        current.add(skillId)
+      }
+      next[groupIndex] = current
+      return next
+    })
+  }
+
+  const classTalentsSatisfied = classSkillOptions.length === 0 || classTalentSkillIds.size === 2
+  const originTalentsSatisfied = originGroups.every((g, i) => (originGroupPicks[i]?.size ?? 0) === g.pickCount)
 
   function applyPreset(values: number[]) {
     setStats(() => {
@@ -100,7 +160,14 @@ export function TrainerForm({
 
       <div className="flex flex-col gap-1">
         <label htmlFor="classId">Class</label>
-        <select id="classId" name="classId" required defaultValue="" className="bg-surface-subtle rounded border px-3 py-2">
+        <select
+          id="classId"
+          name="classId"
+          required
+          value={classId}
+          onChange={(e) => handleClassChange(e.target.value)}
+          className="bg-surface-subtle rounded border px-3 py-2"
+        >
           <option value="" disabled>
             Select a class
           </option>
@@ -112,9 +179,38 @@ export function TrainerForm({
         </select>
       </div>
 
+      {classSkillOptions.length > 0 && (
+        <fieldset className="flex flex-col gap-2 rounded border p-3 text-sm">
+          <legend className="px-1 font-medium">Class Skill Talents (choose 2)</legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {classSkillOptions.map((s) => (
+              <label key={s.id} className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  name="classTalentSkillIds"
+                  value={s.id}
+                  checked={classTalentSkillIds.has(s.id)}
+                  disabled={!classTalentSkillIds.has(s.id) && classTalentSkillIds.size >= 2}
+                  onChange={() => toggleClassTalent(s.id)}
+                />
+                {s.name}
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-muted">{classTalentSkillIds.size} / 2 picked</p>
+        </fieldset>
+      )}
+
       <div className="flex flex-col gap-1">
         <label htmlFor="originId">Origin</label>
-        <select id="originId" name="originId" required defaultValue="" className="bg-surface-subtle rounded border px-3 py-2">
+        <select
+          id="originId"
+          name="originId"
+          required
+          value={originId}
+          onChange={(e) => handleOriginChange(e.target.value)}
+          className="bg-surface-subtle rounded border px-3 py-2"
+        >
           <option value="" disabled>
             Select an origin
           </option>
@@ -126,6 +222,33 @@ export function TrainerForm({
           ))}
         </select>
       </div>
+
+      {originGroups.map((group, i) => (
+        <fieldset key={i} className="flex flex-col gap-2 rounded border p-3 text-sm">
+          <legend className="px-1 font-medium">
+            Origin Skill Talents (choose {group.pickCount}
+            {originGroups.length > 1 ? ` -- group ${i + 1}` : ''})
+          </legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {group.skills.map((s) => (
+              <label key={s.id} className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  name="originTalentSkillIds"
+                  value={s.id}
+                  checked={originGroupPicks[i]?.has(s.id) ?? false}
+                  disabled={!(originGroupPicks[i]?.has(s.id) ?? false) && (originGroupPicks[i]?.size ?? 0) >= group.pickCount}
+                  onChange={() => toggleOriginTalent(i, group.pickCount, s.id)}
+                />
+                {s.name}
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-muted">
+            {originGroupPicks[i]?.size ?? 0} / {group.pickCount} picked
+          </p>
+        </fieldset>
+      ))}
 
       {variant === 'player' && campaigns.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -199,7 +322,7 @@ export function TrainerForm({
 
       <button
         type="submit"
-        disabled={remaining !== 0}
+        disabled={remaining !== 0 || !classTalentsSatisfied || !originTalentsSatisfied}
         className="rounded bg-accent px-4 py-2 text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
       >
         {variant === 'npc' ? 'Create NPC' : 'Create trainer'}

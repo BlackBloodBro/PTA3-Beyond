@@ -1,4 +1,5 @@
 import type { createClient } from '@/lib/supabase/server'
+import { loadSubclassSkillTalentOptions, type SkillOption } from '@/lib/pta3/skillTalents'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -24,6 +25,11 @@ export async function loadAdvancedClassOptions(
   statOptions: { value: string; label: string }[]
   typeAceId: number | null
   typeOptions: { id: number; name: string }[]
+  // Skill Talent options keyed by the exact same `subclassChoice` value the picker's <select> uses
+  // ('stat_ace' or a specific subclass id as a string) -- all 5 Stat ace rows share one identical
+  // Skill Talent list, so this collapses them to the single 'stat_ace' key the picker already has,
+  // rather than making the picker resolve "which of the 5 rows" itself.
+  skillTalentOptionsByChoice: Record<string, SkillOption[]>
 }> {
   const { data: eligibleSubclasses } = await supabase
     .from('subclasses')
@@ -58,5 +64,19 @@ export async function loadAdvancedClassOptions(
     typeOptions = data ?? []
   }
 
-  return { subclassOptions, statOptions, typeAceId: typeAce?.id ?? null, typeOptions }
+  const bySubclassId = await loadSubclassSkillTalentOptions(
+    supabase,
+    (eligibleSubclasses ?? []).map((s) => s.id),
+  )
+  const skillTalentOptionsByChoice: Record<string, SkillOption[]> = {}
+  for (const s of otherSubclasses) {
+    if (bySubclassId[s.id]) skillTalentOptionsByChoice[String(s.id)] = bySubclassId[s.id]
+  }
+  if (statAceRows.length > 0) {
+    // Identical list across all 5 rows (confirmed during Design -- eligibility doesn't vary by
+    // which stat was picked), so any one of them stands in for the combined 'stat_ace' choice.
+    skillTalentOptionsByChoice.stat_ace = bySubclassId[statAceRows[0].id] ?? []
+  }
+
+  return { subclassOptions, statOptions, typeAceId: typeAce?.id ?? null, typeOptions, skillTalentOptionsByChoice }
 }

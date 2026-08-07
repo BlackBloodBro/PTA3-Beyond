@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { TrainerForm } from '@/app/(authenticated)/trainers/new/TrainerForm'
+import { loadCreationSkillTalentOptions } from '@/lib/pta3/skillTalents'
 
 export default async function NewNpcPage({
   params,
@@ -28,9 +29,10 @@ export default async function NewNpcPage({
     redirect(`/campaigns/${id}`)
   }
 
-  const [{ data: classes }, { data: origins }] = await Promise.all([
+  const [{ data: classes }, { data: origins }, skillTalentOptions] = await Promise.all([
     supabase.from('classes').select('id, name').order('name'),
     supabase.from('origins').select('id, name, lifestyle').order('name'),
+    loadCreationSkillTalentOptions(supabase),
   ])
 
   return (
@@ -42,7 +44,15 @@ export default async function NewNpcPage({
       </div>
       <h1 className="text-2xl font-bold">Create an NPC for {campaign.name}</h1>
       {error && <p className="text-danger">{error}</p>}
-      <TrainerForm variant="npc" campaignId={id} classes={classes ?? []} origins={origins ?? []} campaigns={[]} />
+      <TrainerForm
+        variant="npc"
+        campaignId={id}
+        classes={classes ?? []}
+        origins={origins ?? []}
+        campaigns={[]}
+        classTalentOptions={skillTalentOptions.classOptions}
+        originTalentGroups={skillTalentOptions.originGroups}
+      />
     </main>
   )
 }

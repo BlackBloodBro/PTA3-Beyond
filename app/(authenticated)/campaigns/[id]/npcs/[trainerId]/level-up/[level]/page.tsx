@@ -112,6 +112,10 @@ export default async function NpcEditMilestonePage({
             statOptions={statOptions}
             typeAceId={typeAceId}
             typeOptions={typeOptions}
+            // Editing an already-resolved milestone never re-grants or reverses a Skill Talent pick
+            // -- see editMilestone's own comment for why.
+            skillTalentOptionsByChoice={{}}
+            heldSkillTalents={{}}
             initialChoice={initialChoice}
             initialChosenStat={milestone.chosen_stat ?? ''}
             initialChosenTypeId={milestone.chosen_type_id ? String(milestone.chosen_type_id) : ''}

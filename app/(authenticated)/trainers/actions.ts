@@ -17,6 +17,7 @@ import {
   type TrainerFeature,
   type TrainerAdvancedClass,
 } from '@/lib/pta3/trainerFeatures'
+import { validateCreationSkillTalentPicks, applySkillTalentPicks } from '@/lib/pta3/skillTalents'
 
 export async function createTrainer(formData: FormData) {
   const supabase = await createClient()
@@ -65,6 +66,11 @@ export async function createTrainer(formData: FormData) {
     )
   }
 
+  const talentResult = await validateCreationSkillTalentPicks(supabase, classId, originId, formData)
+  if ('error' in talentResult) {
+    redirect(`/trainers/new?error=${encodeURIComponent(talentResult.error)}`)
+  }
+
   let campaignId: string | null = null
   if (campaignIdRaw) {
     // Verify the user is actually the GM or a joined member of this campaign before assigning it --
@@ -105,6 +111,8 @@ export async function createTrainer(formData: FormData) {
   if (error || !trainer) {
     redirect(`/trainers/new?error=${encodeURIComponent(error?.message ?? 'Could not create trainer')}`)
   }
+
+  await applySkillTalentPicks(supabase, trainer.id, talentResult.skillIds)
 
   redirect(`/trainers/${trainer.id}/starter`)
 }
@@ -465,6 +473,13 @@ export async function resolveMilestone(trainerId: string, formData: FormData) {
     redirect(`${base}?error=${encodeURIComponent(milestoneError.message)}`)
   }
 
+  // Optional -- absent when every skill this Advanced Class could offer was already at the 2-pick
+  // cap from an earlier source, in which case the picker shows no Skill Talent field at all.
+  const talentSkillIdRaw = formData.get('talentSkillId') as string
+  if (talentSkillIdRaw) {
+    await applySkillTalentPicks(supabase, trainerId, [Number(talentSkillIdRaw)])
+  }
+
   redirect(base)
 }
 
@@ -472,7 +487,11 @@ export async function resolveMilestone(trainerId: string, formData: FormData) {
 // without needing to level all the way back down and up through it again. Deliberately scoped to
 // editing the CHOICE a specific, already-earned milestone made (same row, same level, same HP
 // grant) rather than reintroducing a freeform override -- HP is untouched here since the milestone
-// count isn't changing, only which subclass/stats it points at.
+// count isn't changing, only which subclass/stats it points at. Skill Talents follow the same rule
+// and aren't touched here either: trainer_skill_talents only tracks a per-skill total count, not
+// which source granted which pick, so there's no clean way to reverse a specific earlier grant if
+// the Advanced Class choice changes -- the edit page deliberately doesn't offer a Skill Talent
+// picker at all (see its skillTalentOptionsByChoice={{}}), consistent with HP staying fixed too.
 export async function editMilestone(trainerId: string, level: number, formData: FormData) {
   const supabase = await createClient()
   const {

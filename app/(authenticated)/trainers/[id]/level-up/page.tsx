@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { resolveMilestone } from '@/app/(authenticated)/trainers/actions'
 import { loadPendingMilestone, loadQualifyingMilestones } from '@/lib/pta3/trainerFeatures'
 import { STAT_OPTIONS, loadAdvancedClassOptions } from '@/lib/pta3/advancedClassOptions'
+import { loadTrainerSkillTalents } from '@/lib/pta3/skillTalents'
 import { AdvancedClassPicker } from './AdvancedClassPicker'
 
 export default async function LevelUpPage({
@@ -52,7 +53,10 @@ export default async function LevelUpPage({
   }
 
   const filledIds = (await loadQualifyingMilestones(supabase, id, trainer.level)).map((m) => m.subclass_id)
-  const { subclassOptions, statOptions, typeAceId, typeOptions } = await loadAdvancedClassOptions(supabase, trainer.class_id, filledIds)
+  const [{ subclassOptions, statOptions, typeAceId, typeOptions, skillTalentOptionsByChoice }, heldSkillTalents] = await Promise.all([
+    loadAdvancedClassOptions(supabase, trainer.class_id, filledIds),
+    loadTrainerSkillTalents(supabase, id),
+  ])
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -101,7 +105,14 @@ export default async function LevelUpPage({
 
         <section className="rounded border-accent bg-accent/10 p-4">
           <h2 className="mb-2 font-semibold">Advanced class</h2>
-          <AdvancedClassPicker subclassOptions={subclassOptions} statOptions={statOptions} typeAceId={typeAceId} typeOptions={typeOptions} />
+          <AdvancedClassPicker
+            subclassOptions={subclassOptions}
+            statOptions={statOptions}
+            typeAceId={typeAceId}
+            typeOptions={typeOptions}
+            skillTalentOptionsByChoice={skillTalentOptionsByChoice}
+            heldSkillTalents={Object.fromEntries(heldSkillTalents)}
+          />
         </section>
 
         <button type="submit" className="rounded bg-accent px-4 py-2 text-accent-foreground">

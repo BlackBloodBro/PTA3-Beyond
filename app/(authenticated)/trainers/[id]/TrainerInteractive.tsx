@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { statModifier } from '@/lib/pta3/pointBuy'
+import { talentBonus } from '@/lib/pta3/skillTalents'
 import { adjustTrainerHp, updateTrainerInfo, useFeatureCharge, resetFeatureUses } from '@/app/(authenticated)/trainers/actions'
 import type { TrainerFeature, TrainerAdvancedClass } from '@/lib/pta3/trainerFeatures'
 import { ClickTooltip } from '@/components/ClickTooltip'
@@ -543,7 +544,13 @@ export function StatsSection({ breakdown }: { breakdown: StatBreakdown }) {
   )
 }
 
-export function SkillsSection({ skills }: { skills: { name: string; stats: { name: string } | null }[] }) {
+export function SkillsSection({
+  skills,
+  talents,
+}: {
+  skills: { id: number; name: string; stats: { name: string } | null }[]
+  talents: Record<number, number>
+}) {
   const { attack, defense, special_attack, special_defense, speed } = useTrainerState()
   const stats = { attack, defense, special_attack, special_defense, speed }
   return (
@@ -552,11 +559,13 @@ export function SkillsSection({ skills }: { skills: { name: string; stats: { nam
       <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
         {skills.map((s) => {
           const field = STAT_FIELD_BY_NAME[s.stats!.name]
-          const mod = statModifier(stats[field])
+          const pickedCount = talents[s.id] ?? 0
+          const mod = statModifier(stats[field]) + (pickedCount > 0 ? talentBonus(pickedCount) : 0)
           return (
             <p key={s.name} className="text-sm">
               {s.name}: {mod >= 0 ? '+' : ''}
               {mod}
+              {pickedCount > 0 && <span className="text-muted"> ({pickedCount >= 2 ? 'Expert' : 'Talented'})</span>}
             </p>
           )
         })}
