@@ -2377,3 +2377,59 @@ Habitat/Proficiencies gaps within the matched 543 are a real, documented residua
 further would need either improving the parser's handling of the PDF's most complex layout cases, or
 falling back to manual entry for the specific species/fields that didn't resolve. Not attempted this
 session; flagged as follow-up work rather than guessed at.
+
+### Skill Talents: Class/Advanced Class/Origin picks grant +2 (Talented) / +5 (Expert) on a Skill
+
+Implements the Skill Talented/Expert system: at creation, a Trainer picks 2 Skill Talents from their
+Class's fixed list and however many their Origin's option groups require; at every Advanced Class
+grant (level-up), they pick 1 more from that Advanced Class's own 2-skill list. The first pick on a
+given Skill grants Talented (+2); a *second* pick on the same Skill -- from any other source -- upgrades
+it to Expert (+5), capped at 2 picks total per Skill across the Trainer's whole career.
+
+**Data source**: transcribed directly from `PTA3PlayersHandbook.pdf` (242 pages) -- 5 Classes' flat
+6-skill (pick 2) lists, 25 Advanced Classes' flat 2-skill (pick 1) lists (Stat Ace's 5 stat-variant rows
+in `subclasses` all share the same list, since the eligible Skills don't vary by which stat was picked),
+and 15 Origins' option lists. Small enough (30 + 58 + ~112 rows) to hand-transcribe rather than build a
+PDF parser for, unlike the Pokedex biology data above -- verified afterward with spot-checks against the
+live DB (Ace trainer, Type ace, Entertainer, and the Sandile/Krokorok/Krookodile family) rather than
+re-deriving it a second way.
+
+**Origins don't all fit "choose N from one list"**: Entertainer and Doctor each have a mandatory Skill
+plus a separate "choose 1 more" from a different list; Athlete has two independent 1-of-N picks from two
+different lists; Raring to go is "choose any 1 of all 18"; Trust funded grants none. Modeled as
+**pick-groups** instead of special-casing: `origins_skill_talent_groups` (one row per group, each with
+its own `pick_count`) plus `origins_skill_talent_group_options` (that group's eligible Skills) --
+a mandatory Skill is just a group of size 1, an ordinary Origin is one group, Athlete is two groups,
+Trust funded has zero. `classes_skill_talents` and `subclasses_skill_talents` stay flat (Class/Advanced
+Class picks are always "pick N from one list"), and `trainer_skill_talents` stores only the aggregate
+`(trainer_id, skill_id) -> picked_count`, never which source granted which pick -- Talented/Expert is
+purely a function of the count (`talentBonus()` in `lib/pta3/skillTalents.ts`), so there's nothing else
+to reconstruct.
+
+**Validation happens server-side, not just in the picker UI**: `validateCreationSkillTalentPicks`
+re-derives the real eligible lists from the DB and checks the submitted Class picks (exactly 2, both
+eligible) and every one of the Origin's groups (`pick_count` satisfied, nothing outside that group's own
+list) before `applySkillTalentPicks` folds them into `trainer_skill_talents` -- a client-side cap can
+always be bypassed, so the picker's own disabled-checkbox logic is a UX nicety, not the actual gate. The
+same `applySkillTalentPicks` is reused for a single level-up pick (`resolveMilestone`'s `talentSkillId`
+field), folding one more Skill into the existing counts.
+
+**Editing an already-resolved milestone never touches Skill Talents** -- same reasoning as HP staying
+fixed on edit (see `editMilestone`): `trainer_skill_talents` only tracks a per-Skill aggregate, not which
+milestone granted which pick, so there's no clean way to reverse one specific earlier grant if the
+Advanced Class choice changes on edit. The edit-variant `AdvancedClassPicker` calls simply pass empty
+option/held maps so that field doesn't render there at all.
+
+**UI**: `TrainerForm` gained a "Class Skill Talents (choose 2)" checkbox group and one checkbox-group
+fieldset per Origin pick-group, both gating the submit button until satisfied; `AdvancedClassPicker`
+gained a conditional "Skill Talent (choose 1)" `<select>` that only lists Skills still under the 2-pick
+cap for that Trainer, labeling any Skill already at 1 pick as "(upgrades to Expert)". `SkillsSection` on
+the Trainer sheet now folds each Skill's derived Talented/Expert bonus directly into the displayed
+modifier and tags it `(Talented)` / `(Expert)`.
+
+**Verification**: `npx tsc --noEmit` unchanged at the existing 335-error baseline throughout. Full
+browser click-through using the project's throwaway test account -- created a Trainer as Ace trainer +
+Doctor, picking Diplomacy from both the Class list and Doctor's "choose 1 more" group (plus History from
+Class and the mandatory Medicine from Doctor): the Trainer sheet correctly showed **Diplomacy: +6
+(Expert)**, **History: +3 (Talented)**, and **Medicine: +3 (Talented)**, confirming the pick-groups
+model, the cross-source Expert upgrade, and the derived-bonus display all work end-to-end.

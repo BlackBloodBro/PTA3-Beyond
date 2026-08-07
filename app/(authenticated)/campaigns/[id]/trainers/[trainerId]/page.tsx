@@ -10,6 +10,7 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { loadTrainerDerived, loadPendingMilestone, loadQualifyingMilestones, computeEffectiveStats, computeMaxHp } from '@/lib/pta3/trainerFeatures'
+import { loadTrainerSkillTalents } from '@/lib/pta3/skillTalents'
 import {
   TrainerStateProvider,
   TrainerNameHeading,
@@ -114,7 +115,10 @@ export default async function CampaignTrainerPage({
     loadPendingMilestone(supabase, { trainerId: id, classId: trainer.class_id, level: trainer.level }),
   ])
 
-  const { data: skills } = await supabase.from('skills').select('name, stats(name)').order('name')
+  const [{ data: skills }, skillTalents] = await Promise.all([
+    supabase.from('skills').select('id, name, stats(name)').order('name'),
+    loadTrainerSkillTalents(supabase, id),
+  ])
 
   // Powers the Stats section's tooltip breakdown -- base is now the true point-buy base (base_attack
   // etc. are never mutated after creation), so no reconstruction is needed; increases come straight
@@ -289,7 +293,10 @@ export default async function CampaignTrainerPage({
         <div className="flex flex-1 flex-col gap-4">
         <StatsSection breakdown={statBreakdown} />
 
-        <SkillsSection skills={(skills ?? []) as unknown as { name: string; stats: { name: string } | null }[]} />
+        <SkillsSection
+          skills={(skills ?? []) as unknown as { id: number; name: string; stats: { name: string } | null }[]}
+          talents={Object.fromEntries(skillTalents)}
+        />
 
         <ActiveFeaturesSection trainerId={id} />
 

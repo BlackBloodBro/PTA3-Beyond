@@ -111,6 +111,11 @@ export default async function EditMilestonePage({
             statOptions={statOptions}
             typeAceId={typeAceId}
             typeOptions={typeOptions}
+            // Editing an already-resolved milestone never re-grants or reverses a Skill Talent pick
+            // (same reasoning as HP staying fixed on edit -- see editMilestone's own comment) -- an
+            // empty options map means the picker simply doesn't render that field here.
+            skillTalentOptionsByChoice={{}}
+            heldSkillTalents={{}}
             initialChoice={initialChoice}
             initialChosenStat={milestone.chosen_stat ?? ''}
             initialChosenTypeId={milestone.chosen_type_id ? String(milestone.chosen_type_id) : ''}

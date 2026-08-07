@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { POINT_BUY_BUDGET, STAT_KEYS, pointBuyCost, type StatKey } from '@/lib/pta3/pointBuy'
 import { isLabelColor, type LabelColor } from '@/lib/pta3/labelColors'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
+import { validateCreationSkillTalentPicks, applySkillTalentPicks } from '@/lib/pta3/skillTalents'
 
 // Mirrors createTrainer (app/trainers/actions.ts) -- same name/class/origin/25-point stat-budget
 // validation -- but is deliberately its own function, not a shared refactor: campaignId here is
@@ -58,6 +59,11 @@ export async function createNpc(campaignId: string, formData: FormData) {
     )
   }
 
+  const talentResult = await validateCreationSkillTalentPicks(supabase, classId, originId, formData)
+  if ('error' in talentResult) {
+    redirect(`${npcNewUrl}?error=${encodeURIComponent(talentResult.error)}`)
+  }
+
   const { data: campaign } = await supabase
     .from('campaigns')
     .select('id')
@@ -90,6 +96,8 @@ export async function createNpc(campaignId: string, formData: FormData) {
   if (error || !trainer) {
     redirect(`${npcNewUrl}?error=${encodeURIComponent(error?.message ?? 'Could not create NPC')}`)
   }
+
+  await applySkillTalentPicks(supabase, trainer.id, talentResult.skillIds)
 
   redirect(trainerHref({ id: trainer.id, is_npc: true, campaign_id: campaignId }))
 }
