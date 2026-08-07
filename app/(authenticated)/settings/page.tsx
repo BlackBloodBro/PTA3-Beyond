@@ -81,11 +81,11 @@ export default async function SettingsPage({
         <fieldset className="flex gap-4">
           <legend className="mb-1 text-sm font-semibold">Mode</legend>
           <label className="flex items-center gap-1 text-sm">
-            <input type="radio" name="mode" value="light" defaultChecked={profile?.theme_mode !== 'dark'} />
+            <input type="radio" name="mode" value="light" defaultChecked={profile?.theme_mode === 'light'} />
             Light
           </label>
           <label className="flex items-center gap-1 text-sm">
-            <input type="radio" name="mode" value="dark" defaultChecked={profile?.theme_mode === 'dark'} />
+            <input type="radio" name="mode" value="dark" defaultChecked={profile?.theme_mode !== 'light'} />
             Dark
           </label>
         </fieldset>

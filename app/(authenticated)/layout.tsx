@@ -28,7 +28,7 @@ export default async function AuthenticatedLayout({ children }: { children: Reac
 
   return (
     <div
-      data-theme={profile?.theme_mode === 'dark' ? 'dark' : undefined}
+      data-theme={profile?.theme_mode === 'light' ? 'light' : undefined}
       data-accent={profile?.theme_accent ?? undefined}
       className="min-h-screen bg-page text-foreground"
     >
