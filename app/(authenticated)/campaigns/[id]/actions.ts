@@ -99,7 +99,7 @@ export async function createNpc(campaignId: string, formData: FormData) {
 
   await applySkillTalentPicks(supabase, trainer.id, talentResult.skillIds)
 
-  redirect(trainerHref({ id: trainer.id, is_npc: true, campaign_id: campaignId }))
+  redirect(`${trainerHref({ id: trainer.id, is_npc: true, campaign_id: campaignId })}/build`)
 }
 
 // Promotes an existing trainer (created the normal way, anywhere -- no campaign, or a different

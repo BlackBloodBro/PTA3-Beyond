@@ -20,20 +20,6 @@ const STAT_LABELS: Record<StatKey, string> = {
   speed: 'Speed',
 }
 
-// The only 5-stat combinations that spend exactly the 25-point budget (there are 9 total),
-// sorted from most extreme (min-maxed) to most balanced. Applying one sets stats in STAT_KEYS
-// order as a starting point -- fine-tune from there with the +/- buttons.
-const PRESETS: number[][] = [
-  [6, 6, 1, 1, 1],
-  [6, 4, 4, 1, 1],
-  [6, 5, 3, 2, 1],
-  [5, 5, 4, 2, 1],
-  [4, 4, 4, 4, 1],
-  [6, 5, 2, 2, 2],
-  [6, 4, 3, 3, 2],
-  [5, 4, 4, 3, 2],
-  [5, 5, 3, 3, 3],
-]
 
 type Option = { id: number; name: string; lifestyle?: string | null }
 type CampaignOption = { id: string; name: string }
@@ -132,16 +118,6 @@ export function TrainerForm({
 
   const classTalentsSatisfied = classSkillOptions.length === 0 || classTalentSkillIds.size === 2
   const originTalentsSatisfied = originGroups.every((g, i) => (originGroupPicks[i]?.size ?? 0) === g.pickCount)
-
-  function applyPreset(values: number[]) {
-    setStats(() => {
-      const next = {} as Record<StatKey, number>
-      STAT_KEYS.forEach((key, i) => {
-        next[key] = values[i]
-      })
-      return next
-    })
-  }
 
   function adjust(key: StatKey, delta: number) {
     setStats((s) => {
@@ -279,18 +255,9 @@ export function TrainerForm({
           )}
         </legend>
 
-        <div className="flex flex-wrap gap-2 pb-2">
-          {PRESETS.map((values) => (
-            <button
-              key={values.join('')}
-              type="button"
-              onClick={() => applyPreset(values)}
-              className="rounded border px-2 py-1 text-sm hover:bg-surface-muted"
-            >
-              {[...values].sort((a, b) => b - a).join('')}
-            </button>
-          ))}
-        </div>
+        <p className="pb-2 text-xs text-muted">
+          Point cost per value, for reference: {[1, 2, 3, 4, 5, 6].map((v) => `${v}=${POINT_BUY_COSTS[v]}pt`).join(' · ')}
+        </p>
 
         {STAT_KEYS.map((key) => (
           <div key={key} className="flex items-center justify-between gap-4">

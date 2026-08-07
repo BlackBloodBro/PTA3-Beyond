@@ -87,7 +87,7 @@ type TrainerContextValue = TrainerState & {
 
 const TrainerStateContext = createContext<TrainerContextValue | null>(null)
 
-function useTrainerState() {
+export function useTrainerState() {
   const ctx = useContext(TrainerStateContext)
   if (!ctx) throw new Error('useTrainerState must be used within TrainerStateProvider')
   return ctx
@@ -210,7 +210,7 @@ export function PendingMilestoneBanner() {
   return (
     <div className="flex w-full max-w-6xl items-center justify-between rounded border border-accent bg-accent/10 p-4 text-accent">
       <span>Level {nextMilestoneLevel} unlocked a stat increase and advanced class choice.</span>
-      <Link href={`${basePath}/level-up`} className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground">
+      <Link href={`${basePath}/build?level=${nextMilestoneLevel}`} className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground">
         Resolve now
       </Link>
     </div>
@@ -224,7 +224,7 @@ type OriginOption = { id: number; name: string; lifestyle: string | null }
 // levels), Subclasses (names only), Background, Lifestyle, and a Campaign link. Edit mode
 // (owner-or-GM, matching the old level +/- control's own permission) turns Class/Level/Background
 // into a single form; Name is owner-only within it, same scoping renameTrainer had. Deliberately no
-// Subclass picker here -- Subclasses are only ever granted through resolveMilestone on the level-up
+// Subclass picker here -- Subclasses are only ever granted through saveMilestone on the Class Builder
 // page now (the choice lives inside the level-gated feature, not as a freeform override outside it),
 // so Level dropping below a milestone always has something real to lose. Level moving through a
 // milestone, or a Class change, can flip hasPendingMilestone -- context carries that so the banner
@@ -408,7 +408,7 @@ export function TrainerInfoSection({
                   <li key={ac.grantedAtLevel}>
                     {ac.name}
                     {canEdit && (
-                      <Link href={`${basePath}/level-up/${ac.grantedAtLevel}`} className="ml-2 text-xs text-muted underline">
+                      <Link href={`${basePath}/build?level=${ac.grantedAtLevel}`} className="ml-2 text-xs text-muted underline">
                         Edit
                       </Link>
                     )}
@@ -499,7 +499,7 @@ export function TrainerHpSection({ trainerId, temporaryHp }: { trainerId: string
 // breakdown is static per page load (it only ever changes via resolveMilestone, a real navigation
 // back to this page) -- unlike the reactive stat values themselves, it doesn't need to live in
 // context, just be passed down fresh each render.
-export function StatsSection({ breakdown }: { breakdown: StatBreakdown }) {
+export function StatsSection({ breakdown, favoredStatNames }: { breakdown: StatBreakdown; favoredStatNames?: Set<string> }) {
   const { attack, defense, special_attack, special_defense, speed } = useTrainerState()
   const stats: Record<StatField, number> = { attack, defense, special_attack, special_defense, speed }
   const fields: StatField[] = ['attack', 'defense', 'special_attack', 'special_defense', 'speed']
@@ -527,7 +527,14 @@ export function StatsSection({ breakdown }: { breakdown: StatBreakdown }) {
             ].join('\n')
             return (
               <tr key={field}>
-                <td className="py-0.5 pr-4">{STAT_LABELS[field]}</td>
+                <td className="py-0.5 pr-4">
+                  {STAT_LABELS[field]}
+                  {favoredStatNames?.has(STAT_LABELS[field]) && (
+                    <span className="ml-1 text-accent" title="Favored stat for this Class">
+                      ★
+                    </span>
+                  )}
+                </td>
                 <td className="py-0.5 pr-4">
                   <ClickTooltip label={String(value)} tooltip={tooltip} />
                 </td>
