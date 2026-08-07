@@ -9,6 +9,7 @@ import {
   loadTrainerDerived,
   loadPendingMilestone,
   loadQualifyingMilestones,
+  loadClassBuilderData,
   computeEffectiveStats,
   computeMaxHp,
   STAT_COLUMNS,
@@ -16,8 +17,9 @@ import {
   type StatColumn,
   type TrainerFeature,
   type TrainerAdvancedClass,
+  type ClassBuilderCard,
 } from '@/lib/pta3/trainerFeatures'
-import { validateCreationSkillTalentPicks, applySkillTalentPicks } from '@/lib/pta3/skillTalents'
+import { validateCreationSkillTalentPicks, applySkillTalentPicks, loadTrainerSkillTalents } from '@/lib/pta3/skillTalents'
 
 export async function createTrainer(formData: FormData) {
   const supabase = await createClient()
@@ -114,7 +116,10 @@ export async function createTrainer(formData: FormData) {
 
   await applySkillTalentPicks(supabase, trainer.id, talentResult.skillIds)
 
-  redirect(`/trainers/${trainer.id}/starter`)
+  // Unlike /starter (one unified route for every trainer regardless of campaign), /build is split
+  // into the same 3 campaign-aware paths the sheet itself uses -- a campaigned trainer has to land on
+  // its own campaign-scoped build page, not the campaign-less one (which 404s for it).
+  redirect(campaignId ? `/campaigns/${campaignId}/trainers/${trainer.id}/build` : `/trainers/${trainer.id}/build`)
 }
 
 export async function deleteTrainer(trainerId: string) {
@@ -232,13 +237,18 @@ export async function updateTrainerInfo(
     return { error: 'Not authorized to edit this trainer' }
   }
 
-  // "Campaign membership hands GM-tier control to the GM alone" -- Class/Level/Background are
-  // GM-tier fields: a campaign-less trainer's owner has full control (no GM to defer to), but once a
-  // trainer joins a campaign, changing these requires being that campaign's actual GM, even for the
-  // trainer's own owner. Name stays owner-only regardless of this gate (see below).
+  // "Campaign membership hands GM-tier control to the GM alone" -- Class/Background are GM-tier
+  // fields: a campaign-less trainer's owner has full control (no GM to defer to), but once a trainer
+  // joins a campaign, changing these requires being that campaign's actual GM, even for the trainer's
+  // own owner. Name stays owner-only regardless of this gate (see below). Level used to be grouped in
+  // here too, but moved out (2026-08) to match every other build-related action (stat picks, Advanced
+  // Class choice, Skill Talent picks on the Class Builder page) -- those were already freely
+  // owner-or-GM editable via RLS alone with no extra app-level gate, so Level staying GM-locked was
+  // the odd one out, not the rule; a campaign player can now raise their own trainer's Level exactly
+  // like they can already resolve their own milestones.
   const canEditGmTier = current.campaign_id ? isGM : isOwner
 
-  const level = canEditGmTier ? Math.max(1, Math.floor(input.level)) : current.level
+  const level = Math.max(1, Math.floor(input.level))
   const classId = canEditGmTier ? input.classId : current.class_id
   const originId = canEditGmTier ? input.originId : current.origin_id
 
@@ -389,110 +399,24 @@ async function resolveSubclassChoice(
   return { subclass, chosenStat, chosenTypeId }
 }
 
-export async function resolveMilestone(trainerId: string, formData: FormData) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
-  const statA = formData.get('statA') as string
-  const statB = formData.get('statB') as string
-  const subclassChoice = formData.get('subclassChoice') as string
-
-  const { data: trainer } = await supabase.from('trainers').select('class_id, level, current_hp, is_npc, campaign_id').eq('id', trainerId).single()
-
-  if (!trainer) {
-    redirect('/dashboard')
-  }
-
-  const base = trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaign_id })
-
-  if (!STAT_COLUMNS.includes(statA as StatColumn) || !STAT_COLUMNS.includes(statB as StatColumn) || statA === statB) {
-    redirect(`${base}/level-up?error=${encodeURIComponent('Choose two different stats')}`)
-  }
-  if (!subclassChoice) {
-    redirect(`${base}/level-up?error=${encodeURIComponent('Choose an advanced class')}`)
-  }
-
-  // Recompute the pending milestone server-side rather than trusting the level-up page's own gate --
-  // same "first features.level_required <= trainer.level with no existing trainer_milestones row"
-  // check, keyed by (trainer_id, level) so a milestone already resolved before (then temporarily
-  // uncounted by a level-down/up) is never re-offered here either.
-  const { hasPendingMilestone, nextMilestoneLevel: milestoneLevel } = await loadPendingMilestone(supabase, {
-    trainerId,
-    classId: trainer.class_id,
-    level: trainer.level,
-  })
-
-  if (!hasPendingMilestone || !milestoneLevel) {
-    redirect(`${base}?error=${encodeURIComponent('No pending milestone to resolve')}`)
-  }
-
-  const heldSubclassIds = (await loadQualifyingMilestones(supabase, trainerId, trainer.level)).map((m) => m.subclass_id)
-
-  const resolved = await resolveSubclassChoice(supabase, trainer.class_id, subclassChoice, formData)
-  if ('error' in resolved) {
-    redirect(`${base}/level-up?error=${encodeURIComponent(resolved.error)}`)
-  }
-  const { subclass, chosenStat, chosenTypeId } = resolved
-
-  if (heldSubclassIds.includes(subclass.id)) {
-    redirect(`${base}/level-up?error=${encodeURIComponent('That advanced class is already chosen')}`)
-  }
-
-  // HP gain lives here now rather than in a separate "level up" step -- the Info section's Level
-  // field is a plain override with no side effects of its own (see updateTrainerInfo), so resolving
-  // a milestone is the one place left that actually grants it. Max HP itself is no longer written --
-  // it's fully derived from trainer_milestones (see computeMaxHp) and will pick up this row the
-  // moment it's inserted below; only current_hp is genuine stored state that needs bumping to match.
-  const { error } = await supabase
-    .from('trainers')
-    .update({ current_hp: trainer.current_hp + MILESTONE_HP_GAIN })
-    .eq('id', trainerId)
-
-  if (error) {
-    redirect(`${base}/level-up?error=${encodeURIComponent(error.message)}`)
-  }
-
-  const { error: milestoneError } = await supabase.from('trainer_milestones').insert({
-    trainer_id: trainerId,
-    level: milestoneLevel,
-    subclass_id: subclass.id,
-    stat_a: statA,
-    stat_b: statB,
-    hp_gain: MILESTONE_HP_GAIN,
-    chosen_stat: chosenStat,
-    chosen_type_id: chosenTypeId,
-  })
-
-  if (milestoneError) {
-    redirect(`${base}?error=${encodeURIComponent(milestoneError.message)}`)
-  }
-
-  // Optional -- absent when every skill this Advanced Class could offer was already at the 2-pick
-  // cap from an earlier source, in which case the picker shows no Skill Talent field at all.
-  const talentSkillIdRaw = formData.get('talentSkillId') as string
-  if (talentSkillIdRaw) {
-    await applySkillTalentPicks(supabase, trainerId, [Number(talentSkillIdRaw)])
-  }
-
-  redirect(base)
+export type ClassBuilderSnapshot = TrainerInfoSnapshot & {
+  cards: ClassBuilderCard[]
+  higherLevelPreview: { name: string; levelRequired: number }[]
+  pendingMilestoneLevels: number[]
+  talents: Record<number, number>
 }
 
-// Lets an owner/GM change which subclass and which 2 stats an already-resolved milestone granted,
-// without needing to level all the way back down and up through it again. Deliberately scoped to
-// editing the CHOICE a specific, already-earned milestone made (same row, same level, same HP
-// grant) rather than reintroducing a freeform override -- HP is untouched here since the milestone
-// count isn't changing, only which subclass/stats it points at. Skill Talents follow the same rule
-// and aren't touched here either: trainer_skill_talents only tracks a per-skill total count, not
-// which source granted which pick, so there's no clean way to reverse a specific earlier grant if
-// the Advanced Class choice changes -- the edit page deliberately doesn't offer a Skill Talent
-// picker at all (see its skillTalentOptionsByChoice={{}}), consistent with HP staying fixed too.
-export async function editMilestone(trainerId: string, level: number, formData: FormData) {
+// Called directly from a MilestoneCard on the Class Builder page (no <form action>, no redirect) --
+// upserts the trainer_milestones row at (trainer_id, level), covering both granting a brand-new
+// milestone and editing an already-resolved one, since the card renders identically either way (same
+// form, pre-filled when resolved). HP gain and the Skill Talent pick only apply on the INSERT branch
+// (this exact milestone didn't already exist) -- editing an already-resolved card's choice later never
+// re-grants HP or moves a Talent pick: trainer_skill_talents only tracks a per-skill aggregate count,
+// not which source granted which pick, so there's no clean way to reverse-then-reapply if the Advanced
+// Class choice changes. No owner/GM check here, same as the two actions this replaces had none --
+// resolving/editing a milestone (stat picks, Advanced Class choice, Skill Talent pick) has always been
+// freely owner-or-GM editable via RLS alone, campaign or not.
+export async function saveMilestone(trainerId: string, level: number, formData: FormData): Promise<{ error: string } | ClassBuilderSnapshot> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -506,19 +430,17 @@ export async function editMilestone(trainerId: string, level: number, formData: 
   const statB = formData.get('statB') as string
   const subclassChoice = formData.get('subclassChoice') as string
 
-  const { data: trainer } = await supabase.from('trainers').select('class_id, is_npc, campaign_id').eq('id', trainerId).single()
+  const { data: trainer } = await supabase.from('trainers').select('class_id, origin_id, current_hp').eq('id', trainerId).single()
 
   if (!trainer) {
-    redirect('/dashboard')
+    return { error: 'Trainer not found' }
   }
-
-  const base = trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaign_id })
 
   if (!STAT_COLUMNS.includes(statA as StatColumn) || !STAT_COLUMNS.includes(statB as StatColumn) || statA === statB) {
-    redirect(`${base}/level-up/${level}?error=${encodeURIComponent('Choose two different stats')}`)
+    return { error: 'Choose two different stats' }
   }
   if (!subclassChoice) {
-    redirect(`${base}/level-up/${level}?error=${encodeURIComponent('Choose an advanced class')}`)
+    return { error: 'Choose an advanced class' }
   }
 
   const { data: existing } = await supabase
@@ -528,34 +450,178 @@ export async function editMilestone(trainerId: string, level: number, formData: 
     .eq('level', level)
     .maybeSingle()
 
-  if (!existing) {
-    redirect(`${base}?error=${encodeURIComponent('No milestone at that level to edit')}`)
-  }
-
   const { data: allMilestones } = await supabase.from('trainer_milestones').select('subclass_id').eq('trainer_id', trainerId)
-  const heldSubclassIds = (allMilestones ?? []).map((m) => m.subclass_id).filter((subclassId) => subclassId !== existing.subclass_id)
+  const heldSubclassIds = (allMilestones ?? []).map((m) => m.subclass_id).filter((subclassId) => subclassId !== existing?.subclass_id)
 
   const resolved = await resolveSubclassChoice(supabase, trainer.class_id, subclassChoice, formData)
   if ('error' in resolved) {
-    redirect(`${base}/level-up/${level}?error=${encodeURIComponent(resolved.error)}`)
+    return { error: resolved.error }
   }
   const { subclass, chosenStat, chosenTypeId } = resolved
 
   if (heldSubclassIds.includes(subclass.id)) {
-    redirect(`${base}/level-up/${level}?error=${encodeURIComponent('That advanced class is already chosen')}`)
+    return { error: 'That advanced class is already chosen' }
   }
 
-  const { error } = await supabase
-    .from('trainer_milestones')
-    .update({ subclass_id: subclass.id, stat_a: statA, stat_b: statB, chosen_stat: chosenStat, chosen_type_id: chosenTypeId })
-    .eq('trainer_id', trainerId)
-    .eq('level', level)
+  if (existing) {
+    const { error } = await supabase
+      .from('trainer_milestones')
+      .update({ subclass_id: subclass.id, stat_a: statA, stat_b: statB, chosen_stat: chosenStat, chosen_type_id: chosenTypeId })
+      .eq('trainer_id', trainerId)
+      .eq('level', level)
+    if (error) {
+      return { error: error.message }
+    }
+  } else {
+    // HP gain lives here now rather than in a separate "level up" step -- Level itself is a plain
+    // override with no side effects of its own (see updateTrainerInfo), so resolving a milestone is
+    // the one place left that actually grants it. Max HP itself is never written -- it's fully derived
+    // from trainer_milestones (see computeMaxHp) and will pick up this row the moment it's inserted
+    // below; only current_hp is genuine stored state that needs bumping to match.
+    const { error: hpError } = await supabase
+      .from('trainers')
+      .update({ current_hp: trainer.current_hp + MILESTONE_HP_GAIN })
+      .eq('id', trainerId)
+    if (hpError) {
+      return { error: hpError.message }
+    }
 
+    const { error: insertError } = await supabase.from('trainer_milestones').insert({
+      trainer_id: trainerId,
+      level,
+      subclass_id: subclass.id,
+      stat_a: statA,
+      stat_b: statB,
+      hp_gain: MILESTONE_HP_GAIN,
+      chosen_stat: chosenStat,
+      chosen_type_id: chosenTypeId,
+    })
+    if (insertError) {
+      return { error: insertError.message }
+    }
+
+    // Optional -- absent when every skill this Advanced Class could offer was already at the 2-pick
+    // cap from an earlier source, in which case the picker shows no Skill Talent field at all.
+    const talentSkillIdRaw = formData.get('talentSkillId') as string
+    if (talentSkillIdRaw) {
+      await applySkillTalentPicks(supabase, trainerId, [Number(talentSkillIdRaw)])
+    }
+  }
+
+  return buildClassBuilderSnapshot(supabase, trainerId)
+}
+
+// Shared tail for saveMilestone and updateBuilderLevel -- both end by re-reading the trainer fresh and
+// recomputing every derived value (stats/maxHp/advancedClasses/features/pending+card list) from
+// scratch, since nothing is stored as a running total. Re-reading rather than trusting the caller's
+// own in-memory values keeps this correct regardless of which write path got here.
+async function buildClassBuilderSnapshot(supabase: SupabaseClient, trainerId: string): Promise<{ error: string } | ClassBuilderSnapshot> {
+  const { data: updated } = await supabase
+    .from('trainers')
+    .select(
+      `
+      name, level, current_hp, origin_id,
+      base_attack, base_defense, base_special_attack, base_special_defense, base_speed,
+      class_id, classes(name), origins(name, lifestyle)
+    `,
+    )
+    .eq('id', trainerId)
+    .single()
+
+  if (!updated) {
+    return { error: 'Trainer not found' }
+  }
+
+  const milestones = await loadQualifyingMilestones(supabase, trainerId, updated.level)
+  const maxHp = computeMaxHp(milestones)
+  const effectiveStats = computeEffectiveStats(
+    {
+      attack: updated.base_attack,
+      defense: updated.base_defense,
+      special_attack: updated.base_special_attack,
+      special_defense: updated.base_special_defense,
+      speed: updated.base_speed,
+    },
+    milestones,
+  )
+
+  const [{ advancedClasses, activeFeatures, passiveFeatures }, { hasPendingMilestone, nextMilestoneLevel }, builderData, skillTalents] =
+    await Promise.all([
+      loadTrainerDerived(supabase, trainerId, { classId: updated.class_id, level: updated.level }),
+      loadPendingMilestone(supabase, { trainerId, classId: updated.class_id, level: updated.level }),
+      loadClassBuilderData(supabase, trainerId, { classId: updated.class_id, originId: updated.origin_id, level: updated.level }),
+      loadTrainerSkillTalents(supabase, trainerId),
+    ])
+
+  return {
+    name: updated.name,
+    level: updated.level,
+    currentHp: updated.current_hp,
+    maxHp,
+    attack: effectiveStats.attack,
+    defense: effectiveStats.defense,
+    specialAttack: effectiveStats.special_attack,
+    specialDefense: effectiveStats.special_defense,
+    speed: effectiveStats.speed,
+    advancedClasses,
+    activeFeatures,
+    passiveFeatures,
+    className: updated.classes?.name ?? '',
+    originName: updated.origins?.name ?? '',
+    lifestyle: updated.origins?.lifestyle ?? null,
+    hasPendingMilestone,
+    nextMilestoneLevel,
+    cards: builderData.cards,
+    higherLevelPreview: builderData.higherLevelPreview,
+    pendingMilestoneLevels: builderData.pendingMilestoneLevels,
+    talents: Object.fromEntries(skillTalents),
+  }
+}
+
+// The Class Builder page's own Level control -- distinct from updateTrainerInfo (which also handles
+// Class/Origin/Name and returns the narrower TrainerInfoSnapshot the Info section already renders):
+// this one only ever touches Level, and returns the richer ClassBuilderSnapshot so the page can
+// re-render its card list (newly-unlocked milestones, higher-level preview) without a full reload.
+// Owner-or-GM, same permission floor as everything else build-related -- see the comment on
+// updateTrainerInfo's canEditGmTier for why Level itself no longer needs GM-tier specifically.
+export async function updateBuilderLevel(trainerId: string, level: number): Promise<{ error: string } | ClassBuilderSnapshot> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: current } = await supabase
+    .from('trainers')
+    .select('current_hp, user_id, campaign_id, campaigns(gm_user_id)')
+    .eq('id', trainerId)
+    .single()
+
+  if (!current) {
+    return { error: 'Trainer not found' }
+  }
+
+  const isOwner = current.user_id === user.id
+  const isGM = !!current.campaign_id && current.campaigns?.gm_user_id === user.id
+  if (!isOwner && !isGM) {
+    return { error: 'Not authorized to edit this trainer' }
+  }
+
+  const newLevel = Math.max(1, Math.floor(level))
+  const milestones = await loadQualifyingMilestones(supabase, trainerId, newLevel)
+  const maxHp = computeMaxHp(milestones)
+  // Current HP is only ever clamped down to fit a lower Max HP, never auto-healed up.
+  const currentHp = Math.min(current.current_hp, maxHp)
+
+  const { error } = await supabase.from('trainers').update({ level: newLevel, current_hp: currentHp }).eq('id', trainerId)
   if (error) {
-    redirect(`${base}/level-up/${level}?error=${encodeURIComponent(error.message)}`)
+    return { error: error.message }
   }
 
-  redirect(base)
+  return buildClassBuilderSnapshot(supabase, trainerId)
 }
 
 // Called directly from a client component (no <form action>, no redirect) -- mirrors

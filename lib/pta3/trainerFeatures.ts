@@ -1,4 +1,6 @@
 import type { createClient } from '@/lib/supabase/server'
+import { loadAdvancedClassOptions } from '@/lib/pta3/advancedClassOptions'
+import { loadTrainerSkillTalents, type SkillOption } from '@/lib/pta3/skillTalents'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -198,4 +200,157 @@ export async function loadPendingMilestone(
   }
 
   return { hasPendingMilestone: false, nextMilestoneLevel: null }
+}
+
+export type ClassBuilderCard =
+  | { kind: 'feature'; feature: TrainerFeature; subclassName: string | null }
+  | {
+      kind: 'milestone'
+      name: string
+      description: string
+      triggerLevel: number
+      resolved: boolean
+      // present only when resolved -- lets the card pre-fill AdvancedClassPicker + the 2 stat selects.
+      current: {
+        subclassId: number
+        chosenStat: StatColumn | null
+        chosenTypeId: number | null
+        statA: StatColumn
+        statB: StatColumn
+      } | null
+      // Computed server-side per card (not shared/filtered client-side) since eligibility genuinely
+      // differs per milestone -- excludes every OTHER milestone's already-chosen subclass, same as
+      // resolveMilestone/editMilestone always scoped it, so e.g. a Stat Ace stat already taken by
+      // another card's resolved choice is correctly missing from this card's own sub-picker too.
+      // Resolved cards get an empty skillTalentOptionsByChoice, same "no talent editing on edit"
+      // precedent editMilestone always had.
+      options: {
+        subclassOptions: { value: string; label: string }[]
+        statOptions: { value: string; label: string }[]
+        typeAceId: number | null
+        typeOptions: { id: number; name: string }[]
+        skillTalentOptionsByChoice: Record<string, SkillOption[]>
+        heldSkillTalents: Record<number, number>
+      }
+    }
+
+// The /build page's data source -- a sibling of loadTrainerDerived/loadPendingMilestone rather than a
+// replacement, since the trainer sheet and updateTrainerInfo only ever need the current-level view and
+// shouldn't pay for the extra higher-level query on every save. Unlike loadTrainerDerived (which drops
+// anything above the trainer's current level), this fetches every base-Class feature unconditionally
+// and partitions it into "unlocked" cards vs. a higher-level preview -- and unlike loadPendingMilestone
+// (which stops at the single earliest pending level), this surfaces every pending milestone at once,
+// since the Class Builder can have several simultaneously-pending "!" cards (e.g. a trainer jumped
+// straight from level 1 to 11).
+export async function loadClassBuilderData(
+  supabase: SupabaseClient,
+  trainerId: string,
+  params: { classId: number; originId: number; level: number },
+): Promise<{
+  cards: ClassBuilderCard[]
+  higherLevelPreview: { name: string; levelRequired: number }[]
+  pendingMilestoneLevels: number[]
+  originFeatures: TrainerFeature[]
+}> {
+  const [{ data: baseFeaturesData }, { data: allMilestonesData }, { data: originFeaturesData }] = await Promise.all([
+    supabase
+      .from('features')
+      .select('id, name, description, level_required, requires_activation, max_uses, uses_reset_on')
+      .eq('class_id', params.classId)
+      .is('subclass_id', null)
+      .order('level_required'),
+    // ALL of this trainer's milestones, not just qualifying ones -- a milestone trigger at level 7
+    // with the trainer currently at level 5 is neither resolved nor pending yet, it just doesn't
+    // render as a card at all until level reaches 7.
+    supabase.from('trainer_milestones').select('level, subclass_id, stat_a, stat_b, chosen_stat, chosen_type_id').eq('trainer_id', trainerId),
+    supabase
+      .from('features')
+      .select('id, name, description, level_required, requires_activation, max_uses, uses_reset_on')
+      .eq('origin_id', params.originId),
+  ])
+
+  const baseFeatures = (baseFeaturesData ?? []) as TrainerFeature[]
+  const allMilestones = (allMilestonesData ?? []) as TrainerMilestoneRow[]
+  const milestoneByLevel = new Map(allMilestones.map((m) => [m.level, m]))
+  const triggerRows = baseFeatures.filter((f) => f.name === 'Advanced class')
+  const qualifyingMilestones = allMilestones.filter((m) => m.level <= params.level)
+
+  const higherLevelPreview = baseFeatures
+    .filter((f) => f.level_required > params.level)
+    .map((f) => ({ name: f.name, levelRequired: f.level_required }))
+
+  const pendingMilestoneLevels = triggerRows
+    .filter((f) => f.level_required <= params.level && !milestoneByLevel.has(f.level_required))
+    .map((f) => f.level_required)
+
+  const heldSkillTalents = Object.fromEntries(await loadTrainerSkillTalents(supabase, trainerId))
+
+  const unlocked: { card: ClassBuilderCard; unlockLevel: number }[] = []
+
+  for (const f of baseFeatures) {
+    if (f.level_required > params.level || f.name === 'Advanced class') continue
+    unlocked.push({ card: { kind: 'feature', feature: f, subclassName: null }, unlockLevel: f.level_required })
+  }
+
+  await Promise.all(
+    triggerRows
+      .filter((trigger) => trigger.level_required <= params.level)
+      .map(async (trigger) => {
+        const m = milestoneByLevel.get(trigger.level_required)
+        // Excludes every OTHER milestone's chosen subclass (not this card's own, if resolved) --
+        // same scoping resolveMilestone/editMilestone always used.
+        const heldSubclassIds = qualifyingMilestones.filter((q) => q.level !== trigger.level_required).map((q) => q.subclass_id)
+        const options = await loadAdvancedClassOptions(supabase, params.classId, heldSubclassIds)
+        unlocked.push({
+          card: {
+            kind: 'milestone',
+            name: trigger.name,
+            description: trigger.description,
+            triggerLevel: trigger.level_required,
+            resolved: !!m,
+            current: m ? { subclassId: m.subclass_id, chosenStat: m.chosen_stat, chosenTypeId: m.chosen_type_id, statA: m.stat_a, statB: m.stat_b } : null,
+            options: {
+              ...options,
+              skillTalentOptionsByChoice: m ? {} : options.skillTalentOptionsByChoice,
+              heldSkillTalents: m ? {} : heldSkillTalents,
+            },
+          },
+          unlockLevel: trigger.level_required,
+        })
+      }),
+  )
+
+  // Subclass features for every qualifying milestone, gated by the subclass's own relative level --
+  // same math loadTrainerDerived already uses -- sorted by the trainer level they actually unlock at
+  // (grantedAtLevel + relativeLevel - 1), not the subclass's own relative level number.
+  if (qualifyingMilestones.length > 0) {
+    const subclassIds = qualifyingMilestones.map((m) => m.subclass_id)
+    const { data: subclasses } = await supabase.from('subclasses').select('id, name').in('id', subclassIds)
+    const nameById = new Map((subclasses ?? []).map((s) => [s.id, s.name]))
+
+    const perSubclass = await Promise.all(
+      qualifyingMilestones.map(async (m) => {
+        const subclassLevel = params.level - m.level + 1
+        const { data } = await supabase
+          .from('features')
+          .select('id, name, description, level_required, requires_activation, max_uses, uses_reset_on')
+          .eq('subclass_id', m.subclass_id)
+          .lte('level_required', subclassLevel)
+        return (data ?? []).map((f) => ({
+          card: { kind: 'feature' as const, feature: f as TrainerFeature, subclassName: nameById.get(m.subclass_id) ?? null },
+          unlockLevel: m.level + f.level_required - 1,
+        }))
+      }),
+    )
+    unlocked.push(...perSubclass.flat())
+  }
+
+  unlocked.sort((a, b) => a.unlockLevel - b.unlockLevel)
+
+  return {
+    cards: unlocked.map((u) => u.card),
+    higherLevelPreview,
+    pendingMilestoneLevels,
+    originFeatures: (originFeaturesData ?? []) as TrainerFeature[],
+  }
 }

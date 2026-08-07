@@ -2455,3 +2455,77 @@ player can still put points anywhere.
 **Verification**: `npx tsc --noEmit` unchanged at the 335-error baseline. Browser-verified: selecting
 Ace trainer showed ★ on Attack and Special Attack; switching to Breeder correctly moved the ★ to
 Defense and Special Defense with no reload.
+
+### Class Builder: unified trainer creation/level-editing page, D&D Beyond-style
+
+[[Improve Trainer creation]]'s original "one combined page" idea got a concrete shape from a D&D
+Beyond reference: a Level selector at top, a scrollable list of level-gated feature cards (plain cards
+for flavor/passive features, "!"-badged cards for choices with inline dropdowns), and a collapsed
+"Available at Higher Levels" preview at the bottom -- with Stats/Skills kept in a fixed panel above the
+scroll, never buried under a long feature list. Shipped as `/trainers/[id]/build` (+
+`/campaigns/[id]/trainers/[trainerId]/build` and `/campaigns/[id]/npcs/[trainerId]/build`), replacing
+all 6 old `/level-up`/`/level-up/[level]` pages entirely.
+
+**Data**: `loadClassBuilderData()` (`lib/pta3/trainerFeatures.ts`) is a sibling of
+`loadTrainerDerived`/`loadPendingMilestone`, not a replacement -- those two stay exactly as they are for
+the trainer sheet's own needs. Unlike `loadTrainerDerived` (drops anything above current level), it
+fetches a Class's full feature list unconditionally and partitions it into unlocked cards vs. a
+higher-level preview. Unlike `loadPendingMilestone` (stops at the single earliest pending level), it
+surfaces every pending "Advanced class" milestone at once, since the Class Builder can have several
+simultaneously-pending "!" cards (e.g. a trainer jumped straight from level 1 to 11). Each milestone
+card carries its own server-computed `AdvancedClassPicker` options (`loadAdvancedClassOptions`, excluding
+every *other* milestone's already-chosen subclass) rather than filtering a shared list client-side, so a
+Stat Ace stat already taken by another card is correctly missing from this card's own sub-picker too --
+same scoping `resolveMilestone`/`editMilestone` always used, just computed for N cards instead of one.
+
+**Actions**: `resolveMilestone` + `editMilestone` collapsed into one `saveMilestone(trainerId, level,
+formData)` (`app/trainers/actions.ts`) that upserts the `trainer_milestones` row at `(trainer_id,
+level)` -- HP gain and the Skill Talent pick only apply on the insert branch (this exact milestone
+didn't already exist), matching `editMilestone`'s original "no HP/talent reversal on edit" reasoning
+exactly, but as one action instead of two the client had to choose between. This also fixed a real
+latent bug the new UI would otherwise have exposed: the old `resolveMilestone` had no explicit level
+parameter, always resolving whatever `loadPendingMilestone` reported as the single earliest pending
+level -- fine when only one milestone could ever be pending at a time, but the new card list can have
+several simultaneously (filling out a later card first would have silently saved it at the wrong level).
+A new `updateBuilderLevel` action owns the page's own Level control specifically, distinct from
+`updateTrainerInfo` (which still handles Name/Class/Origin for the Info section and returns the
+narrower snapshot that section already renders) -- both funnel through a shared private
+`buildClassBuilderSnapshot` tail.
+
+**Permissions**: Level moved out of `updateTrainerInfo`'s GM-tier group. It used to be grouped with
+Class/Origin (GM-only once a trainer joins a campaign, even for the trainer's own owner) -- loosened to
+match every other build-related action (stat picks, Advanced Class choice, Talent picks), which were
+already freely owner-or-GM editable via RLS alone with no extra app-level gate. Confirmed via a live
+non-GM campaign-player test account actually raising their own trainer's Level.
+
+**Origin features**: schema + granting plumbing only (nullable `features.origin_id`, `class_id` loosened
+to nullable, unique constraint extended to include `origin_id`), auto-included in the Class Builder's
+fixed panel with no level gate. No sourcebook data entry in this pass -- matches how the Pokedex's
+remaining gaps were split off into their own follow-up rather than bundled into the main FR.
+
+**Known limitation, not a bug**: only Ace trainer and Researcher have any seeded Class
+features/milestones today (the original sheet import's stated coverage). Breeder/Coordinator/Ranger
+correctly show an empty card list at any level -- a pre-existing content gap, not something this FR
+attempted to fix.
+
+**Two bugs found during browser verification** (neither caught by typecheck, both runtime data-flow
+issues): the Skills section's Talent bonus went stale after a milestone save, because `talents` was a
+static initial prop on `ClassBuilder` never refreshed by the snapshot-apply function -- fixed by
+returning `talents` in `ClassBuilderSnapshot` and re-rendering from it. And `createTrainer`'s success
+redirect didn't branch on whether a campaign was selected -- `/build` is a 3-way campaign-aware split
+route (unlike the single unified `/starter` route the old redirect target was modeled on), so a
+trainer created with a campaign landed on the campaign-less `/build` path and 404'd; fixed to redirect
+the same way `trainerHref` already branches elsewhere.
+
+**Verification**: `npx tsc --noEmit` stayed at the 335-error baseline throughout (all deltas traced to
+either the same pre-existing Supabase relation-typing noise tolerated everywhere else in this codebase,
+or stale `.next` route-cache references to the deleted level-up pages that clear on the next build).
+Full browser click-through on the throwaway test account: created an Ace trainer, raised Level to 11
+(triggering 3 simultaneous "!" cards at levels 3/7/11), resolved them out of order (level 7 before level
+3) to specifically re-test the multi-pending-milestone fix -- both landed at their correct levels with
+no cross-contamination; subclass features from two different Advanced Classes (Underdog, Stat ace)
+interleaved correctly by real unlock level alongside base Class features; HP came out to exactly 32
+(20 base + 3 × 4 milestone gain), matching the trainer sheet exactly; inline-edited an already-resolved
+milestone's stat/Advanced-Class choice via the same card; confirmed a Breeder trainer's Class Builder
+renders a clean empty state; confirmed NPC creation lands on its own `/build` with no starter-Pokémon
+link; confirmed the old `/level-up` URLs 404.
