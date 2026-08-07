@@ -2,14 +2,14 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { signOut } from '@/app/auth/actions'
 import { LABEL_COLORS, LABEL_SWATCH_CLASSES } from '@/lib/pta3/labelColors'
-import { updateThemePreferences } from './actions'
+import { updateThemePreferences, updateUsername, updatePassword } from './actions'
 
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ error?: string; message?: string }>
 }) {
-  const { error } = await searchParams
+  const { error, message } = await searchParams
   const supabase = await createClient()
   const {
     data: { user },
@@ -27,6 +27,55 @@ export default async function SettingsPage({
       <p className="text-muted">Signed in as {profile?.display_name ?? user.email}</p>
 
       {error && <p className="text-danger">{error}</p>}
+      {message && <p className="text-success">{message}</p>}
+
+      <form action={updateUsername} className="flex w-full max-w-sm flex-col gap-2 rounded border p-4">
+        <label htmlFor="displayName" className="text-sm font-semibold">
+          Username
+        </label>
+        <input
+          id="displayName"
+          name="displayName"
+          type="text"
+          required
+          defaultValue={profile?.display_name ?? ''}
+          className="bg-surface-subtle rounded border px-3 py-2"
+        />
+        <button type="submit" className="w-fit rounded bg-accent px-4 py-2 text-accent-foreground">
+          Save username
+        </button>
+      </form>
+
+      <form action={updatePassword} className="flex w-full max-w-sm flex-col gap-2 rounded border p-4">
+        <label htmlFor="currentPassword" className="text-sm font-semibold">
+          Change password
+        </label>
+        <input
+          id="currentPassword"
+          name="currentPassword"
+          type="password"
+          placeholder="Current password"
+          required
+          className="bg-surface-subtle rounded border px-3 py-2"
+        />
+        <input
+          name="newPassword"
+          type="password"
+          placeholder="New password"
+          required
+          className="bg-surface-subtle rounded border px-3 py-2"
+        />
+        <input
+          name="confirmPassword"
+          type="password"
+          placeholder="Confirm new password"
+          required
+          className="bg-surface-subtle rounded border px-3 py-2"
+        />
+        <button type="submit" className="w-fit rounded bg-accent px-4 py-2 text-accent-foreground">
+          Save password
+        </button>
+      </form>
 
       <form action={updateThemePreferences} className="flex w-full max-w-sm flex-col gap-4 rounded border p-4">
         <fieldset className="flex gap-4">
