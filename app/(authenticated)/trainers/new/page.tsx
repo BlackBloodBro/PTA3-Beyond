@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadCreationSkillTalentOptions } from '@/lib/pta3/skillTalents'
+import { loadClassFavoredStats } from '@/lib/pta3/classFavoredStats'
 import { TrainerForm } from './TrainerForm'
 
 export default async function NewTrainerPage({
@@ -19,13 +20,15 @@ export default async function NewTrainerPage({
     redirect('/login')
   }
 
-  const [{ data: classes }, { data: origins }, { data: gmCampaigns }, { data: memberships }, skillTalentOptions] = await Promise.all([
-    supabase.from('classes').select('id, name').order('name'),
-    supabase.from('origins').select('id, name, lifestyle').order('name'),
-    supabase.from('campaigns').select('id, name').eq('gm_user_id', user.id),
-    supabase.from('campaign_members').select('campaigns(id, name)').eq('user_id', user.id),
-    loadCreationSkillTalentOptions(supabase),
-  ])
+  const [{ data: classes }, { data: origins }, { data: gmCampaigns }, { data: memberships }, skillTalentOptions, classFavoredStats] =
+    await Promise.all([
+      supabase.from('classes').select('id, name').order('name'),
+      supabase.from('origins').select('id, name, lifestyle').order('name'),
+      supabase.from('campaigns').select('id, name').eq('gm_user_id', user.id),
+      supabase.from('campaign_members').select('campaigns(id, name)').eq('user_id', user.id),
+      loadCreationSkillTalentOptions(supabase),
+      loadClassFavoredStats(supabase),
+    ])
 
   const campaigns = [
     ...(gmCampaigns ?? []),
@@ -45,6 +48,7 @@ export default async function NewTrainerPage({
         defaultCampaignId={params.campaignId}
         classTalentOptions={skillTalentOptions.classOptions}
         originTalentGroups={skillTalentOptions.originGroups}
+        classFavoredStats={classFavoredStats}
       />
     </main>
   )

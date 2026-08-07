@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { TrainerForm } from '@/app/(authenticated)/trainers/new/TrainerForm'
 import { loadCreationSkillTalentOptions } from '@/lib/pta3/skillTalents'
+import { loadClassFavoredStats } from '@/lib/pta3/classFavoredStats'
 
 export default async function NewNpcPage({
   params,
@@ -29,10 +30,11 @@ export default async function NewNpcPage({
     redirect(`/campaigns/${id}`)
   }
 
-  const [{ data: classes }, { data: origins }, skillTalentOptions] = await Promise.all([
+  const [{ data: classes }, { data: origins }, skillTalentOptions, classFavoredStats] = await Promise.all([
     supabase.from('classes').select('id, name').order('name'),
     supabase.from('origins').select('id, name, lifestyle').order('name'),
     loadCreationSkillTalentOptions(supabase),
+    loadClassFavoredStats(supabase),
   ])
 
   return (
@@ -52,6 +54,7 @@ export default async function NewNpcPage({
         campaigns={[]}
         classTalentOptions={skillTalentOptions.classOptions}
         originTalentGroups={skillTalentOptions.originGroups}
+        classFavoredStats={classFavoredStats}
       />
     </main>
   )

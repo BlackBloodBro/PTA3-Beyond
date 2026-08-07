@@ -49,6 +49,7 @@ export function TrainerForm({
   defaultCampaignId,
   classTalentOptions,
   originTalentGroups,
+  classFavoredStats,
 }: {
   classes: Option[]
   origins: Option[]
@@ -66,6 +67,9 @@ export function TrainerForm({
   // Advanced Class picker.
   classTalentOptions: Record<number, SkillOption[]>
   originTalentGroups: Record<number, OriginSkillTalentGroup[]>
+  // Each Class's 2 Favored Stats (by `stats.name`, e.g. "Special Attack"), keyed by class_id -- a
+  // pure recommendation surfaced next to the matching stat adjuster below, never enforced.
+  classFavoredStats: Record<number, string[]>
 }) {
   const [stats, setStats] = useState<Record<StatKey, number>>({
     attack: 1,
@@ -88,6 +92,7 @@ export function TrainerForm({
 
   const classSkillOptions = classId ? (classTalentOptions[Number(classId)] ?? []) : []
   const originGroups = originId ? (originTalentGroups[Number(originId)] ?? []) : []
+  const favoredStatNames = new Set(classId ? (classFavoredStats[Number(classId)] ?? []) : [])
 
   function handleClassChange(value: string) {
     setClassId(value)
@@ -289,7 +294,14 @@ export function TrainerForm({
 
         {STAT_KEYS.map((key) => (
           <div key={key} className="flex items-center justify-between gap-4">
-            <label>{STAT_LABELS[key]}</label>
+            <label>
+              {STAT_LABELS[key]}
+              {favoredStatNames.has(STAT_LABELS[key]) && (
+                <span className="ml-1 text-xs text-accent" title="Favored stat for this Class">
+                  ★
+                </span>
+              )}
+            </label>
             <div className="flex items-center gap-2">
               <button
                 type="button"

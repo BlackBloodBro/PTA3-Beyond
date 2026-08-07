@@ -2433,3 +2433,25 @@ Doctor, picking Diplomacy from both the Class list and Doctor's "choose 1 more" 
 Class and the mandatory Medicine from Doctor): the Trainer sheet correctly showed **Diplomacy: +6
 (Expert)**, **History: +3 (Talented)**, and **Medicine: +3 (Talented)**, confirming the pick-groups
 model, the cross-source Expert upgrade, and the derived-bonus display all work end-to-end.
+
+### Favored Stats: a Class recommendation, surfaced next to the stat adjusters at creation
+
+Each of the 5 base Classes has 2 "Favored Stats" per the Handbook -- printed twice (a p.15 overview
+table and repeated as "Favored Stats: X and Y" on each Class's own detail page, both agreeing exactly),
+confirming this is real ruleset content rather than the homebrew concept the FR's own Problem section
+originally assumed. New `class_favored_stats` join table (`class_id, stat_id`, PK on the pair, 10 rows:
+Ace trainer = Attack + Sp. Attack, Breeder = Defense + Sp. Defense, Coordinator = Sp. Defense + Speed,
+Ranger = Defense + Speed, Researcher = Sp. Attack + Sp. Defense), loaded in full via
+`loadClassFavoredStats()` (`lib/pta3/classFavoredStats.ts`) the same "load everything upfront" way the
+Skill Talent options already are.
+
+Since [[Improve Trainer creation]]'s combined creation/level-editing page hasn't landed yet, this
+doesn't wait for it -- surfaced directly in the existing `TrainerForm` (shared by both Trainer and NPC
+creation) as a small ★ next to a stat's own label whenever that stat is Favored for the currently
+selected Class, updating live on Class change via the same `classId` state Skill Talents already track.
+Purely a hint, same as designed -- the point-buy adjusters underneath are completely unaffected, a
+player can still put points anywhere.
+
+**Verification**: `npx tsc --noEmit` unchanged at the 335-error baseline. Browser-verified: selecting
+Ace trainer showed ★ on Attack and Special Attack; switching to Breeder correctly moved the ★ to
+Defense and Special Defense with no reload.
