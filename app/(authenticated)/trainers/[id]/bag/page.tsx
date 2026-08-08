@@ -39,36 +39,32 @@ export default async function BagPage({ params }: { params: Promise<{ id: string
   // campaign-less Trainers (see the notFound() guard above) -- no GM to defer to, so the owner gets
   // full control, same rule as adjustMoney's own campaign_id ? isGM : isOwner check.
   const canAdjustMoney = isOwner
-  // Same reasoning: the sell-price percentage is a Campaign-tier GM setting, and this route never
-  // serves a campaign trainer, so there's no GM to edit it here.
-  const canEditSellPercent = false
 
   const [snapshot, catalog, { data: pokemonRows }] = await Promise.all([
     loadBagSnapshot(supabase, id),
     loadItemCatalog(supabase),
     supabase
       .from('trainers_pokemon')
-      .select('pokemon(id, nickname, held_item_id, pokedex(name))')
+      .select('party_slot, pokemon(id, nickname, held_item_id, pokedex(name))')
       .eq('trainer_id', id),
   ])
 
   const pokemonOptions: BagPokemonOption[] = (pokemonRows ?? [])
-    .map((r) => r.pokemon)
-    .filter((p): p is NonNullable<typeof p> => p !== null)
-    .map((p) => ({
-      id: p.id,
-      name: p.nickname ? `${p.nickname} (${p.pokedex!.name})` : p.pokedex!.name,
-      hasHeldItem: p.held_item_id !== null,
+    .filter((r) => r.pokemon !== null)
+    .map((r) => ({
+      id: r.pokemon!.id,
+      name: r.pokemon!.nickname ? `${r.pokemon!.nickname} (${r.pokemon!.pokedex!.name})` : r.pokemon!.pokedex!.name,
+      hasHeldItem: r.pokemon!.held_item_id !== null,
+      partySlot: r.party_slot,
     }))
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-4 p-24">
-      <h1 className="text-2xl font-bold">{trainer.name}&apos;s Bag</h1>
+      <h1 className="text-2xl font-bold">{trainer.name}&apos;s Inventory</h1>
       <BagBoard
         trainerId={id}
         canManage={canManage}
         canAdjustMoney={canAdjustMoney}
-        canEditSellPercent={canEditSellPercent}
         initialItems={snapshot.items}
         initialMoney={snapshot.money}
         initialSellPricePercent={snapshot.sellPricePercent}

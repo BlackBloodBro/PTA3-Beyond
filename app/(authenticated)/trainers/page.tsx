@@ -1,10 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import { deleteTrainer } from '@/app/(authenticated)/trainers/actions'
-import { ConfirmButton } from '@/components/ConfirmButton'
-import { trainerHref } from '@/lib/pta3/trainerPaths'
-import { TrainerCampaignControl } from './TrainerCampaignControl'
+import { TrainerListBoard, type TrainerListRow } from './TrainerListBoard'
 
 export default async function TrainersPage({
   searchParams,
@@ -52,6 +49,17 @@ export default async function TrainersPage({
     pokemonCountByTrainer.set(tp.trainer_id, (pokemonCountByTrainer.get(tp.trainer_id) ?? 0) + 1)
   }
 
+  const trainerRows: TrainerListRow[] = (myTrainers ?? []).map((t) => ({
+    id: t.id,
+    name: t.name,
+    level: t.level,
+    className: t.classes?.name ?? null,
+    originName: t.origins?.name ?? null,
+    campaignId: t.campaign_id,
+    campaignName: t.campaigns?.name ?? null,
+    pokemonCount: pokemonCountByTrainer.get(t.id) ?? 0,
+  }))
+
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-2xl">
@@ -69,45 +77,7 @@ export default async function TrainersPage({
 
       {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
 
-      <div className="flex w-full max-w-2xl flex-col gap-4">
-        {(myTrainers ?? []).length === 0 ? (
-          <p className="text-sm text-muted">You don&apos;t have any trainers yet.</p>
-        ) : (
-          (myTrainers ?? []).map((t) => {
-            const pokemonCount = pokemonCountByTrainer.get(t.id) ?? 0
-            return (
-              <div key={t.id} className="rounded border-accent bg-accent/10 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <Link href={trainerHref({ id: t.id, is_npc: false, campaign_id: t.campaign_id })} className="text-lg font-semibold underline">
-                    {t.name}
-                  </Link>
-                  <form action={deleteTrainer.bind(null, t.id)}>
-                    <ConfirmButton
-                      confirmMessage={`Permanently delete ${t.name}? This cannot be undone.${
-                        pokemonCount > 0
-                          ? ` Their ${pokemonCount} Pokémon will become unassigned, not deleted.`
-                          : ''
-                      }`}
-                      className="rounded border border-danger px-3 py-1 text-sm text-danger"
-                    >
-                      Delete
-                    </ConfirmButton>
-                  </form>
-                </div>
-                <p className="text-sm text-muted">
-                  Level {t.level} {t.classes?.name} — {t.origins?.name}
-                </p>
-                <TrainerCampaignControl
-                  trainerId={t.id}
-                  initialCampaignId={t.campaign_id}
-                  initialCampaignName={t.campaigns?.name ?? null}
-                  assignableCampaigns={assignableCampaignsForTrainer as unknown as { id: string; name: string }[]}
-                />
-              </div>
-            )
-          })
-        )}
-      </div>
+      <TrainerListBoard trainers={trainerRows} assignableCampaigns={assignableCampaignsForTrainer as unknown as { id: string; name: string }[]} />
     </main>
   )
 }

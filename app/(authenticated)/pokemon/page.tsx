@@ -1,11 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import { deletePokemon } from '@/app/(authenticated)/pokemon/actions'
-import { PokemonSprite } from '@/components/PokemonSprite'
-import { ConfirmButton } from '@/components/ConfirmButton'
-import { PokemonAssignmentPanel } from './PokemonAssignmentPanel'
-import { pokemonHref } from '@/lib/pta3/pokemonPaths'
+import { PokemonListBoard, type PokemonListRow } from './PokemonListBoard'
 
 export default async function PokemonListPage({
   searchParams,
@@ -102,6 +98,19 @@ export default async function PokemonListPage({
 
   const allMyPokemon = [...assignedRows, ...poolRows]
 
+  const pokemonRows: PokemonListRow[] = allMyPokemon.map((p) => ({
+    id: p.id,
+    nickname: p.nickname,
+    is_shiny: p.is_shiny,
+    speciesName: p.pokedex?.name ?? null,
+    spriteCode: p.pokedex?.sprite_code ?? null,
+    trainerId: p.trainerId,
+    trainerName: p.trainerName,
+    trainerIsNpc: p.trainerIsNpc,
+    trainerCampaignId: p.trainerCampaignId,
+    campaignId: p.campaignId,
+  }))
+
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-2xl">
@@ -119,50 +128,7 @@ export default async function PokemonListPage({
 
       {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
 
-      <div className="flex w-full max-w-2xl flex-col gap-2">
-        {allMyPokemon.length === 0 ? (
-          <p className="text-sm text-muted">You don&apos;t have any Pokémon yet.</p>
-        ) : (
-          allMyPokemon.map((p) => (
-            <div key={p.id} className="flex flex-col gap-2 rounded border-accent bg-accent/10 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <Link
-                  href={pokemonHref({
-                    id: p.id,
-                    hasOwner: p.trainerId !== null,
-                    campaignId: p.trainerId !== null ? p.trainerCampaignId : p.campaignId,
-                  })}
-                  className="flex items-center gap-2 underline"
-                >
-                  {p.pokedex && <PokemonSprite spriteCode={p.pokedex.sprite_code} shiny={p.is_shiny} alt={p.pokedex.name} size={32} />}
-                  {p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name}
-                </Link>
-                <form action={deletePokemon.bind(null, p.id)}>
-                  <ConfirmButton
-                    confirmMessage={`Permanently delete ${
-                      p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name
-                    }? This cannot be undone.`}
-                    className="rounded border border-danger px-3 py-1 text-xs text-danger"
-                  >
-                    Delete
-                  </ConfirmButton>
-                </form>
-              </div>
-
-              <PokemonAssignmentPanel
-                pokemonId={p.id}
-                initialTrainerId={p.trainerId}
-                initialTrainerName={p.trainerName}
-                initialTrainerIsNpc={p.trainerIsNpc}
-                initialTrainerCampaignId={p.trainerCampaignId}
-                initialCampaignId={p.campaignId}
-                assignableTrainers={assignableTrainers}
-                assignableCampaigns={assignableCampaignsForPokemon}
-              />
-            </div>
-          ))
-        )}
-      </div>
+      <PokemonListBoard pokemon={pokemonRows} assignableTrainers={assignableTrainers} assignableCampaigns={assignableCampaignsForPokemon} />
     </main>
   )
 }

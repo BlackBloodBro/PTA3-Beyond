@@ -172,6 +172,36 @@ export async function updateCampaign(
   return { name, description: description || null }
 }
 
+// Percent of items.price a sold item returns, for every Trainer in this Campaign (see bag/actions.ts's
+// sellItem) -- Campaign-wide, GM-only, same tier as editing the Campaign's Name/Description above.
+// Moved here from a per-Trainer Bag-page control (see [[Move selling percentage to Campaign settings]])
+// since it was never actually per-Trainer, just misleadingly placed.
+export async function updateCampaignSellPricePercent(campaignId: string, percent: number): Promise<{ error: string } | { sellPricePercent: number }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: campaign } = await supabase.from('campaigns').select('gm_user_id').eq('id', campaignId).maybeSingle()
+
+  if (!campaign || campaign.gm_user_id !== user.id) {
+    return { error: 'Only this campaign\'s GM can change the sell price percentage' }
+  }
+
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)))
+  const { error } = await supabase.from('campaigns').update({ sell_price_percent: clamped }).eq('id', campaignId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { sellPricePercent: clamped }
+}
+
 export async function removePlayer(campaignId: string, targetUserId: string) {
   const supabase = await createClient()
   const {

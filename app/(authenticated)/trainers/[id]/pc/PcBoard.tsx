@@ -20,6 +20,7 @@ export type PcPokemon = {
   type1Id: number
   type2Id: number | null
   partySlot: number | null
+  heldItemName: string | null
 }
 
 type SortBy = 'species' | 'level' | 'nickname'
@@ -36,7 +37,7 @@ function hpColorClass(current: number, max: number): string {
   return 'text-danger'
 }
 
-function matchesFilters(p: PcPokemon, searchText: string, typeId: string, levelMin: string, levelMax: string): boolean {
+function matchesFilters(p: PcPokemon, searchText: string, typeId: string, levelMin: string, levelMax: string, heldItemOnly: boolean): boolean {
   if (searchText) {
     const needle = searchText.toLowerCase()
     const haystack = `${p.nickname ?? ''} ${p.speciesName}`.toLowerCase()
@@ -48,6 +49,7 @@ function matchesFilters(p: PcPokemon, searchText: string, typeId: string, levelM
   }
   if (levelMin && p.level < Number(levelMin)) return false
   if (levelMax && p.level > Number(levelMax)) return false
+  if (heldItemOnly && p.heldItemName === null) return false
   return true
 }
 
@@ -89,14 +91,15 @@ export function PcBoard({
   const [levelMax, setLevelMax] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('species')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [heldItemOnly, setHeldItemOnly] = useState(false)
 
   // The Pokemon currently mid-"add to Team" while the Team is full -- set when assignToTeam comes
   // back { full: true }, cleared once the bench choice is confirmed (or cancelled).
   const [pendingAdd, setPendingAdd] = useState<PcPokemon | null>(null)
 
   const filteredPc = useMemo(
-    () => sortPokemon(pc.filter((p) => matchesFilters(p, searchText, typeId, levelMin, levelMax)), sortBy, sortDir),
-    [pc, searchText, typeId, levelMin, levelMax, sortBy, sortDir],
+    () => sortPokemon(pc.filter((p) => matchesFilters(p, searchText, typeId, levelMin, levelMax, heldItemOnly)), sortBy, sortDir),
+    [pc, searchText, typeId, levelMin, levelMax, heldItemOnly, sortBy, sortDir],
   )
 
   async function handleAddToTeam(pokemon: PcPokemon) {
@@ -217,6 +220,15 @@ export function PcBoard({
               </button>
             </div>
           </div>
+          <label htmlFor="pcHeldItemOnly" className="flex items-center gap-1">
+            <input
+              id="pcHeldItemOnly"
+              type="checkbox"
+              checked={heldItemOnly}
+              onChange={(e) => setHeldItemOnly(e.target.checked)}
+            />
+            Holding an item
+          </label>
           <p className="ml-auto text-xs text-muted">
             {filteredPc.length} of {pc.length} in PC
           </p>
@@ -239,6 +251,14 @@ export function PcBoard({
                   <p className={`font-semibold ${hpColorClass(p.currentHp, p.maxHp)}`}>
                     {p.currentHp} / {p.maxHp} HP
                   </p>
+                  {p.heldItemName && (
+                    <p className="text-xs text-muted">
+                      Holding: {p.heldItemName} —{' '}
+                      <Link href={pokemonHref({ id: p.id, hasOwner: true, campaignId })} className="underline">
+                        take back
+                      </Link>
+                    </p>
+                  )}
                 </div>
                 {canManage &&
                   (pendingAdd?.id === p.id ? (

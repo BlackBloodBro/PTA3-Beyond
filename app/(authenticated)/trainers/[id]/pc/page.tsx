@@ -51,7 +51,7 @@ export default async function PCPage({ params }: { params: Promise<{ id: string 
         pokemon(
           id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_id,
           pokedex(name, base_hp, sprite_code, growth_rate_id, type_1_id, type_2_id),
-          loyalty:loyalties(name)
+          loyalty:loyalties(name), held_item:items!held_item_id(name)
         )
       `,
       )
@@ -90,6 +90,7 @@ export default async function PCPage({ params }: { params: Promise<{ id: string 
       type1Id: p.pokedex!.type_1_id,
       type2Id: p.pokedex!.type_2_id,
       partySlot: tp.party_slot,
+      heldItemName: p.held_item?.name ?? null,
     }
   })
 
