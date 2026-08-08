@@ -1086,3 +1086,74 @@ export async function removeAffliction(pokemonId: string, afflictionId: number):
 
   return {}
 }
+
+// The reverse of the Bag page's giveHeldItem -- unequips this Pokemon's held item and returns it to
+// its Trainer's bag (stacks onto an existing matching row, same logic as addToBag). Owner-or-GM, same
+// tier as giving. Only meaningful for a Trainer-owned Pokemon -- a Wild/pool Pokemon has no bag to
+// return the item to.
+export async function takeBackHeldItem(pokemonId: string): Promise<{ error: string } | { ok: true }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: pokemon } = await supabase
+    .from('pokemon')
+    .select('held_item_id, trainers_pokemon(trainer_id, trainers(user_id, campaigns(gm_user_id)))')
+    .eq('id', pokemonId)
+    .maybeSingle()
+
+  if (!pokemon) {
+    return { error: 'Pokemon not found' }
+  }
+
+  if (pokemon.held_item_id === null) {
+    return { error: 'This Pokémon is not holding an item' }
+  }
+
+  // Same trainers_pokemon-is-a-primary-key quirk as elsewhere -- this reverse embed (and the forward
+  // trainers -> campaigns embed nested inside it) both come back as single objects, not arrays.
+  const ownerLink = pokemon.trainers_pokemon as unknown as {
+    trainer_id: string
+    trainers: { user_id: string; campaigns: { gm_user_id: string } | null } | null
+  } | null
+
+  if (!ownerLink) {
+    return { error: 'This Pokémon does not belong to a Trainer' }
+  }
+
+  const isAuthorized = ownerLink.trainers?.user_id === user.id || ownerLink.trainers?.campaigns?.gm_user_id === user.id
+  if (!isAuthorized) {
+    return { error: 'Not authorized to manage this Pokémon' }
+  }
+
+  const itemId = pokemon.held_item_id
+
+  const { error: clearError } = await supabase.from('pokemon').update({ held_item_id: null }).eq('id', pokemonId)
+  if (clearError) return { error: clearError.message }
+
+  const { data: existing } = await supabase
+    .from('trainers_items')
+    .select('id, quantity')
+    .eq('trainer_id', ownerLink.trainer_id)
+    .eq('item_id', itemId)
+    .is('move_id', null)
+    .is('pokedex_id', null)
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase.from('trainers_items').update({ quantity: existing.quantity + 1 }).eq('id', existing.id)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await supabase
+      .from('trainers_items')
+      .insert({ trainer_id: ownerLink.trainer_id, item_id: itemId, move_id: null, pokedex_id: null, quantity: 1 })
+    if (error) return { error: error.message }
+  }
+
+  return { ok: true }
+}
