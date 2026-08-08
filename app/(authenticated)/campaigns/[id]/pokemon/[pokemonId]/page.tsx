@@ -10,6 +10,8 @@ import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { HeldItemTakeBack } from '@/app/(authenticated)/pokemon/[pokemonId]/HeldItemTakeBack'
+import { HeldItemGive } from '@/app/(authenticated)/pokemon/[pokemonId]/HeldItemGive'
+import { loadBagSnapshot } from '@/lib/pta3/bag'
 import {
   PokemonStateProvider,
   LevelLine,
@@ -152,6 +154,12 @@ export default async function CampaignPokemonPage({
   // Everyone who can reach Edit mode at all can at least change the Nickname; GM-only fields are
   // further gated inside the form itself.
   const canEditInfo = isOwner || isGM
+  // Only fetched when actually needed: no Trainer to hold a bag, or the Pokemon already has an item
+  // (HeldItemTakeBack covers that case instead), means there's nothing for HeldItemGive to offer.
+  const givableItems =
+    canEditInfo && trainerId && pokemon.held_item_id === null
+      ? (await loadBagSnapshot(supabase, trainerId)).items.filter((it) => it.holdable && it.quantity > 0).map((it) => ({ id: it.id, name: it.name }))
+      : []
   const bookmarked = await isBookmarked(supabase, user.id, 'pokemon', pokemonId)
   const species = pokemon.pokedex
 
@@ -618,6 +626,9 @@ export default async function CampaignPokemonPage({
               <p>
                 Held item: {pokemon.held_item?.name ?? 'None'}
                 {canEditInfo && trainerId && pokemon.held_item_id !== null && <HeldItemTakeBack pokemonId={pokemonId} />}
+                {canEditInfo && trainerId && pokemon.held_item_id === null && (
+                  <HeldItemGive trainerId={trainerId} pokemonId={pokemonId} items={givableItems} />
+                )}
               </p>
             </div>
           )}

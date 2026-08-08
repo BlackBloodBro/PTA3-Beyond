@@ -2,18 +2,31 @@
 
 import { useMemo, useState } from 'react'
 import type { BagItem, CatalogItem } from '@/lib/pta3/bag'
-import { grantItem, discardItem, useItem, buyItem, sellItem, adjustMoney, updateSellPricePercent, giveHeldItem } from './actions'
+import { grantItem, discardItem, useItem, buyItem, sellItem, adjustMoney, giveHeldItem } from './actions'
 
 export type BagPokemonOption = {
   id: string
   name: string
   hasHeldItem: boolean
+  partySlot: number | null
 }
 
 function matchesCatalogFilter(item: CatalogItem, searchText: string, category: string): boolean {
   if (searchText && !item.name.toLowerCase().includes(searchText.toLowerCase())) return false
   if (category && !item.categoryNames.includes(category)) return false
   return true
+}
+
+// Team first (in slot order), then PC (alphabetically) -- see [[Held item list shouldn't show all
+// Pokemon]]. Same native <optgroup> approach PokemonAssignmentPanel.tsx already uses for its own
+// (differently-grouped) trainer <select>, not a new UI pattern.
+function groupPokemonOptions(options: BagPokemonOption[]): [string, BagPokemonOption[]][] {
+  const team = options.filter((p) => p.partySlot !== null).sort((a, b) => a.partySlot! - b.partySlot!)
+  const pc = options.filter((p) => p.partySlot === null).sort((a, b) => a.name.localeCompare(b.name))
+  const groups: [string, BagPokemonOption[]][] = []
+  if (team.length > 0) groups.push(['Team', team])
+  if (pc.length > 0) groups.push(['PC', pc])
+  return groups
 }
 
 // Whole-number quantity, clamped to [1, cap] -- mirrors the server-side clampQuantity guard
@@ -27,7 +40,6 @@ export function BagBoard({
   trainerId,
   canManage,
   canAdjustMoney,
-  canEditSellPercent,
   initialItems,
   initialMoney,
   initialSellPricePercent,
@@ -37,7 +49,6 @@ export function BagBoard({
   trainerId: string
   canManage: boolean
   canAdjustMoney: boolean
-  canEditSellPercent: boolean
   initialItems: BagItem[]
   initialMoney: number
   initialSellPricePercent: number
@@ -47,7 +58,6 @@ export function BagBoard({
   const [items, setItems] = useState(initialItems)
   const [money, setMoney] = useState(initialMoney)
   const [sellPricePercent, setSellPricePercent] = useState(initialSellPricePercent)
-  const [sellPercentInput, setSellPercentInput] = useState(initialSellPricePercent)
   const [error, setError] = useState<string | null>(null)
   const [moneyDelta, setMoneyDelta] = useState(0)
   const [view, setView] = useState<'bag' | 'catalog'>('bag')
@@ -57,6 +67,7 @@ export function BagBoard({
   const [catalogCategory, setCatalogCategory] = useState('')
   const [givingItemId, setGivingItemId] = useState<string | null>(null)
   const [givePokemonId, setGivePokemonId] = useState('')
+  const [catalogSort, setCatalogSort] = useState<'name' | 'price-asc' | 'price-desc'>('name')
   const [bagQuantities, setBagQuantities] = useState<Record<string, number>>({})
   const [catalogQuantities, setCatalogQuantities] = useState<Record<number, number>>({})
 
@@ -66,15 +77,26 @@ export function BagBoard({
     return Array.from(set).sort()
   }, [catalog])
 
+  const groupedPokemonOptions = useMemo(() => groupPokemonOptions(pokemonOptions), [pokemonOptions])
+
   const filteredItems = useMemo(
     () => (bagCategory ? items.filter((it) => it.categoryNames.includes(bagCategory)) : items),
     [items, bagCategory],
   )
 
-  const filteredCatalog = useMemo(
-    () => catalog.filter((it) => matchesCatalogFilter(it, catalogSearch, catalogCategory)),
-    [catalog, catalogSearch, catalogCategory],
-  )
+  const filteredCatalog = useMemo(() => {
+    const matches = catalog.filter((it) => matchesCatalogFilter(it, catalogSearch, catalogCategory))
+    if (catalogSort === 'name') return matches
+    // Unpriced items (plates, gems, etc. -- see [[Fill out the Items table]]) have nothing to compare,
+    // so they sink to the end under either price sort rather than clustering at the top under "asc".
+    const sign = catalogSort === 'price-asc' ? 1 : -1
+    return [...matches].sort((a, b) => {
+      if (a.price === null && b.price === null) return 0
+      if (a.price === null) return 1
+      if (b.price === null) return -1
+      return sign * (a.price - b.price)
+    })
+  }, [catalog, catalogSearch, catalogCategory, catalogSort])
 
   function getBagQty(id: string, max: number): number {
     return clampQty(bagQuantities[id] ?? 1, Math.min(100, max))
@@ -167,16 +189,6 @@ export function BagBoard({
     applySnapshot(result)
   }
 
-  async function handleSaveSellPercent() {
-    setError(null)
-    const result = await updateSellPricePercent(trainerId, sellPercentInput)
-    if ('error' in result) {
-      setError(result.error)
-      return
-    }
-    applySnapshot(result)
-  }
-
   async function handleGive(trainersItemId: string) {
     if (!givePokemonId) return
     setError(null)
@@ -218,24 +230,6 @@ export function BagBoard({
             </div>
           )}
         </div>
-        {canEditSellPercent && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3 text-sm">
-            <label htmlFor="sellPercent">Sell price</label>
-            <input
-              id="sellPercent"
-              type="number"
-              min={0}
-              max={100}
-              value={sellPercentInput}
-              onChange={(e) => setSellPercentInput(Math.max(0, Math.min(100, Number(e.target.value))))}
-              className="bg-surface-subtle w-16 rounded border p-2 text-center"
-            />
-            <span className="text-muted">% of buy price (currently {sellPricePercent}%)</span>
-            <button type="button" onClick={handleSaveSellPercent} className="rounded border px-3 py-1 text-sm">
-              Save
-            </button>
-          </div>
-        )}
       </section>
 
       {canManage && (
@@ -245,21 +239,21 @@ export function BagBoard({
             onClick={() => setView('bag')}
             className={`px-3 py-2 text-sm font-semibold ${view === 'bag' ? 'border-b-2 border-accent text-foreground' : 'text-muted'}`}
           >
-            Bag
+            Inventory
           </button>
           <button
             type="button"
             onClick={() => setView('catalog')}
             className={`px-3 py-2 text-sm font-semibold ${view === 'catalog' ? 'border-b-2 border-accent text-foreground' : 'text-muted'}`}
           >
-            Manage Inventory
+            Catalog
           </button>
         </div>
       )}
 
       {view === 'bag' && (
       <section>
-        <h2 className="mb-2 font-semibold">Bag ({filteredItems.length} of {items.length})</h2>
+        <h2 className="mb-2 font-semibold">Inventory ({filteredItems.length} of {items.length})</h2>
         <div className="mb-2 flex items-center gap-2 text-sm">
           <label htmlFor="bagCategory">Category</label>
           <select id="bagCategory" value={bagCategory} onChange={(e) => setBagCategory(e.target.value)} className="bg-surface-subtle rounded border px-2 py-1">
@@ -326,10 +320,14 @@ export function BagBoard({
                       className="bg-surface-subtle rounded border px-2 py-1"
                     >
                       <option value="">Select a Pokémon…</option>
-                      {pokemonOptions.map((p) => (
-                        <option key={p.id} value={p.id} disabled={p.hasHeldItem}>
-                          {p.name}{p.hasHeldItem ? ' (already holding an item)' : ''}
-                        </option>
+                      {groupedPokemonOptions.map(([groupName, group]) => (
+                        <optgroup key={groupName} label={groupName}>
+                          {group.map((p) => (
+                            <option key={p.id} value={p.id} disabled={p.hasHeldItem}>
+                              {p.name}{p.hasHeldItem ? ' (already holding an item)' : ''}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                     <button
@@ -378,6 +376,19 @@ export function BagBoard({
                 {allCategoryNames.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="catalogSort">Sort by</label>
+              <select
+                id="catalogSort"
+                value={catalogSort}
+                onChange={(e) => setCatalogSort(e.target.value as 'name' | 'price-asc' | 'price-desc')}
+                className="bg-surface-subtle rounded border px-2 py-1"
+              >
+                <option value="name">Name</option>
+                <option value="price-asc">Price (low-high)</option>
+                <option value="price-desc">Price (high-low)</option>
               </select>
             </div>
             <p className="ml-auto text-xs text-muted">{filteredCatalog.length} of {catalog.length}</p>

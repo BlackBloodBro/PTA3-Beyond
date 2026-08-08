@@ -36,36 +36,32 @@ export default async function NpcBagPage({ params }: { params: Promise<{ id: str
   const canManage = isOwner || isGM
   // This route only ever serves campaign trainers -- always GM-only, no campaign-less-owner case here.
   const canAdjustMoney = isGM
-  // The sell-price percentage is a Campaign-tier GM setting, same as adjustMoney -- this route always
-  // has a real Campaign, so it's simply isGM (no campaign-less case to fall back for here).
-  const canEditSellPercent = isGM
 
   const [snapshot, catalog, { data: pokemonRows }] = await Promise.all([
     loadBagSnapshot(supabase, id),
     loadItemCatalog(supabase),
     supabase
       .from('trainers_pokemon')
-      .select('pokemon(id, nickname, held_item_id, pokedex(name))')
+      .select('party_slot, pokemon(id, nickname, held_item_id, pokedex(name))')
       .eq('trainer_id', id),
   ])
 
   const pokemonOptions: BagPokemonOption[] = (pokemonRows ?? [])
-    .map((r) => r.pokemon)
-    .filter((p): p is NonNullable<typeof p> => p !== null)
-    .map((p) => ({
-      id: p.id,
-      name: p.nickname ? `${p.nickname} (${p.pokedex!.name})` : p.pokedex!.name,
-      hasHeldItem: p.held_item_id !== null,
+    .filter((r) => r.pokemon !== null)
+    .map((r) => ({
+      id: r.pokemon!.id,
+      name: r.pokemon!.nickname ? `${r.pokemon!.nickname} (${r.pokemon!.pokedex!.name})` : r.pokemon!.pokedex!.name,
+      hasHeldItem: r.pokemon!.held_item_id !== null,
+      partySlot: r.party_slot,
     }))
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-4 p-24">
-      <h1 className="text-2xl font-bold">{trainer.name}&apos;s Bag</h1>
+      <h1 className="text-2xl font-bold">{trainer.name}&apos;s Inventory</h1>
       <BagBoard
         trainerId={id}
         canManage={canManage}
         canAdjustMoney={canAdjustMoney}
-        canEditSellPercent={canEditSellPercent}
         initialItems={snapshot.items}
         initialMoney={snapshot.money}
         initialSellPricePercent={snapshot.sellPricePercent}

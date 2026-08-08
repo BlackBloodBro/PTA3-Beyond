@@ -239,7 +239,7 @@ export default async function TrainerPage({
             PC
           </Link>
           <Link href={`/trainers/${id}/bag`} className="rounded border px-4 py-2 text-sm">
-            Bag
+            Inventory
           </Link>
           {isOwner && (
             <form action={deleteTrainer.bind(null, id)}>

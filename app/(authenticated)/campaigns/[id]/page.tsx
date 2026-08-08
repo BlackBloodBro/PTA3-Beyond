@@ -9,6 +9,7 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { CampaignInfoSection } from './CampaignInfoSection'
+import { SellPricePercentSection } from './SellPricePercentSection'
 
 export default async function CampaignPage({
   params,
@@ -31,7 +32,7 @@ export default async function CampaignPage({
 
   const { data: campaign } = await supabase
     .from('campaigns')
-    .select('id, name, description, invite_code, gm_user_id')
+    .select('id, name, description, invite_code, gm_user_id, sell_price_percent')
     .eq('id', id)
     .single()
 
@@ -97,10 +98,11 @@ export default async function CampaignPage({
         initialDescription={campaign.description}
       />
       {isGM && (
-        <div className="w-full max-w-2xl">
+        <div className="flex w-full max-w-2xl flex-col gap-2">
           <p className="text-sm">
             Invite code: <span className="font-mono font-semibold">{campaign.invite_code}</span>
           </p>
+          <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} />
         </div>
       )}
 

@@ -241,7 +241,7 @@ export default async function CampaignTrainerPage({
             PC
           </Link>
           <Link href={`${basePath}/bag`} className="rounded border px-4 py-2 text-sm">
-            Bag
+            Inventory
           </Link>
           {isOwner && (
             <form action={deleteTrainer.bind(null, id)}>

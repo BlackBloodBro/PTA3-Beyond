@@ -160,7 +160,8 @@ export async function buyItem(trainerId: string, itemId: number, quantity: numbe
 
 // Reverse of buyItem: credits money for a fraction of the item's buy price rather than the full
 // amount, discouraging a free buy-then-sell loop while still letting a player liquidate excess loot.
-// The fraction is Campaign-wide (see updateSellPricePercent) rather than per-sale, matching how the
+// The fraction is Campaign-wide (GM-editable on the Campaign page, see
+// campaigns/actions.ts's updateCampaignSellPricePercent) rather than per-sale, matching how the
 // GM already controls other economy-balance levers (e.g. directly adjusting money). Items with no
 // price (`items.price = null`) can't be sold -- same "not offered" treatment buyItem/the Catalog's Buy
 // button already give those, kept consistent rather than inventing a separate fallback value.
@@ -204,36 +205,6 @@ export async function sellItem(trainerId: string, trainersItemId: string, quanti
     const { error } = await supabase.from('trainers_items').delete().eq('id', row.id)
     if (error) return { error: error.message }
   }
-
-  return loadBagSnapshot(supabase, trainerId)
-}
-
-// The sell-price percentage itself is GM-only within a Campaign (an economy-balance lever, same tier
-// as directly adjusting money) -- a campaign-less Trainer has no GM to configure it, so it stays fixed
-// at the 50 default for that case (see loadBagSnapshot/sellItem's own fallback) with no edit path here.
-export async function updateSellPricePercent(trainerId: string, percent: number): Promise<{ error: string } | BagSnapshot> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
-  const { data: trainer } = await supabase
-    .from('trainers')
-    .select('id, campaign_id, campaigns(gm_user_id)')
-    .eq('id', trainerId)
-    .maybeSingle()
-
-  if (!trainer || !trainer.campaign_id || trainer.campaigns?.gm_user_id !== user.id) {
-    return { error: 'Only the campaign GM can change the sell price percentage' }
-  }
-
-  const clamped = Math.max(0, Math.min(100, Math.round(percent)))
-  const { error } = await supabase.from('campaigns').update({ sell_price_percent: clamped }).eq('id', trainer.campaign_id)
-  if (error) return { error: error.message }
 
   return loadBagSnapshot(supabase, trainerId)
 }
