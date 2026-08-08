@@ -9,6 +9,7 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { PokemonSprite } from '@/components/PokemonSprite'
+import { HeldItemTakeBack } from '@/app/(authenticated)/pokemon/[pokemonId]/HeldItemTakeBack'
 import {
   PokemonStateProvider,
   LevelLine,
@@ -614,7 +615,10 @@ export default async function CampaignPokemonPage({
                 <p>Size: {effectiveSize ?? '—'}</p>
                 <p>Gender: {pokemon.gender ? GENDER_LABELS[pokemon.gender] : '—'}</p>
               </div>
-              <p>Held item: {pokemon.held_item?.name ?? 'None'}</p>
+              <p>
+                Held item: {pokemon.held_item?.name ?? 'None'}
+                {canEditInfo && trainerId && pokemon.held_item_id !== null && <HeldItemTakeBack pokemonId={pokemonId} />}
+              </p>
             </div>
           )}
           </section>
