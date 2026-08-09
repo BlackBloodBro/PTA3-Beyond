@@ -698,6 +698,8 @@ export function MovesSection() {
   } = usePokemonState()
 
   const [error, setError] = useState<string | null>(null)
+  const [relearnForMoveId, setRelearnForMoveId] = useState<number | null>(null)
+  const [replaceMoveId, setReplaceMoveId] = useState('')
 
   const knownMoveIds = knownMoves.map((km) => km.move_id)
 
@@ -747,6 +749,32 @@ export function MovesSection() {
       return
     }
     removeKnownMove(moveId)
+  }
+
+  // At the 6-move cap, learning a new move means picking one of the 6 known moves to forget first --
+  // forgetMove already leaves the old move in the species' learnset (still relearnable later), so this
+  // just sequences the two existing actions rather than needing anything new.
+  async function handleRelearn(newMoveId: number) {
+    if (!replaceMoveId) return
+    setError(null)
+    const oldMoveId = Number(replaceMoveId)
+    const forgetResult = await forgetMove(pokemonId, oldMoveId)
+    if (forgetResult?.error) {
+      setError(forgetResult.error)
+      return
+    }
+    removeKnownMove(oldMoveId)
+    const learnResult = await learnMove(pokemonId, newMoveId)
+    if ('error' in learnResult) {
+      setError(learnResult.error)
+      return
+    }
+    const entry = fullLearnset.find((r) => r.move.id === newMoveId)
+    if (entry) {
+      addKnownMove({ move_id: newMoveId, uses_remaining: learnResult.usesRemaining, resets_on: learnResult.resetsOn, moves: entry.move })
+    }
+    setRelearnForMoveId(null)
+    setReplaceMoveId('')
   }
 
   return (
@@ -870,29 +898,65 @@ export function MovesSection() {
             <p className="text-sm text-muted">No new moves available to learn right now.</p>
           ) : (
             <ul className="flex flex-col gap-2">
-              {learnableMoves.map(({ level_learned, move }) => (
-                <li key={move.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-3">
-                  <div>
-                    <p className="font-medium">
-                      {move.name}{' '}
-                      <span className="text-xs font-normal text-muted">
-                        ({level_learned === null ? 'always known' : `level ${level_learned}`})
-                      </span>
-                    </p>
-                    <p className="text-xs text-muted">
-                      {move.range} · {move.types?.name} · {move.damage_stat.replace('_', ' ')} · {move.frequency}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleLearn(move.id)}
-                    disabled={knownMoveIds.length >= MAX_KNOWN_MOVES}
-                    className="rounded border px-3 py-1 text-sm disabled:opacity-30"
-                  >
-                    Learn
-                  </button>
-                </li>
-              ))}
+              {learnableMoves.map(({ level_learned, move }) => {
+                const atCap = knownMoveIds.length >= MAX_KNOWN_MOVES
+                const isRelearning = relearnForMoveId === move.id
+                return (
+                  <li key={move.id} className="flex flex-col gap-2 rounded border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-medium">
+                          {move.name}{' '}
+                          <span className="text-xs font-normal text-muted">
+                            ({level_learned === null ? 'always known' : `level ${level_learned}`})
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted">
+                          {move.range} · {move.types?.name} · {move.damage_stat.replace('_', ' ')} · {move.frequency}
+                        </p>
+                      </div>
+                      {atCap ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRelearnForMoveId(isRelearning ? null : move.id)
+                            setReplaceMoveId('')
+                          }}
+                          className="rounded border px-3 py-1 text-sm"
+                        >
+                          {isRelearning ? 'Cancel' : 'Replace…'}
+                        </button>
+                      ) : (
+                        <button type="button" onClick={() => handleLearn(move.id)} className="rounded border px-3 py-1 text-sm">
+                          Learn
+                        </button>
+                      )}
+                    </div>
+                    {isRelearning && (
+                      <div className="flex flex-wrap items-center gap-2 border-t pt-2 text-sm">
+                        <select
+                          value={replaceMoveId}
+                          onChange={(e) => setReplaceMoveId(e.target.value)}
+                          className="bg-surface-subtle rounded border px-2 py-1"
+                        >
+                          <option value="">Forget which move?</option>
+                          {knownMoves.map((km) => (
+                            <option key={km.move_id} value={km.move_id}>{km.moves.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          disabled={!replaceMoveId}
+                          onClick={() => handleRelearn(move.id)}
+                          className="rounded bg-accent px-3 py-1 text-accent-foreground disabled:opacity-50"
+                        >
+                          Confirm swap
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>
