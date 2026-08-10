@@ -6,6 +6,7 @@ import { statModifier } from '@/lib/pta3/pointBuy'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { ClickTooltip } from '@/components/ClickTooltip'
+import { PokemonSprite } from '@/components/PokemonSprite'
 import {
   adjustPokemonHp,
   addPokemonExp,
@@ -33,6 +34,148 @@ function formatSigned(n: number) {
 // (effective, override-aware) types.
 function stabBonus(moveTypeName: string | undefined, type1?: string, type2?: string) {
   return moveTypeName && (moveTypeName === type1 || moveTypeName === type2) ? 4 : 0
+}
+
+export type TypeMatchupInfo = {
+  attacking_type: string
+  defending_type: string
+  modifier: number
+}
+
+export type SpeciesTypeInfo = {
+  name: string
+  sprite_code: string
+  type_1: { name: string } | null
+  type_2: { name: string } | null
+}
+
+// Player's Handbook rule (page 122): NOT a mainline-style HP multiplier -- effectiveness adds or
+// subtracts DICE from the damage roll. Each of the move's type vs. each of the DEFENDING (target's)
+// types contributes -1 (resisted) / 0 (neutral, unlisted in typeMatchups) / +1 (super-effective); a
+// dual-type target sums both contributions, clamped to the -2..+2 die range the rule describes
+// (extremely-effective/super-effective/neutral/resisted/shielded). `defType1`/`defType2` are the
+// user-picked opponent types (see TargetPicker), deliberately NOT the attacking Pokemon's own
+// effectiveType1/2 -- that's STAB's job, a different thing being calculated from different inputs.
+// Skipped entirely for 'Special/Variable'-typed moves (their real type is chosen at time of use, not
+// stored) or when no target type has been picked yet.
+function effectivenessFor(
+  moveTypeName: string | undefined,
+  defType1: string | undefined,
+  defType2: string | undefined,
+  typeMatchups: TypeMatchupInfo[],
+) {
+  if (!moveTypeName || moveTypeName === 'Special/Variable' || !defType1) return null
+  const scoreAgainst = (defType: string | undefined) => {
+    if (!defType) return 0
+    return typeMatchups.find((m) => m.attacking_type === moveTypeName && m.defending_type === defType)?.modifier ?? 0
+  }
+  const total = scoreAgainst(defType1) + scoreAgainst(defType2)
+  const dice = Math.max(-2, Math.min(2, total))
+  if (dice === 0) return null
+  const label = dice === 2 ? 'Extremely effective' : dice === 1 ? 'Super effective' : dice === -1 ? 'Resisted' : 'Shielded'
+  return { dice, label }
+}
+
+// A move's damage_dice is always "<count>d<sides>" (e.g. "2d6"). Effectiveness changes the dice
+// COUNT, not the modifier added to the roll -- floored at 1 die, since a move can't roll zero or
+// negative dice.
+function adjustDiceCount(diceNotation: string, delta: number) {
+  const match = diceNotation.match(/^(\d+)d(\d+)$/)
+  if (!match || delta === 0) return diceNotation
+  const count = Math.max(1, parseInt(match[1], 10) + delta)
+  return `${count}d${match[2]}`
+}
+
+// Ephemeral, per-page "what am I fighting" reference -- plain local state, never persisted (see
+// [[Add an opponent type selector for move effectiveness]]). Two manually-set dropdowns, plus a
+// species search that's purely a shortcut to fill them in; the dropdowns stay editable afterward for
+// homebrew/override-typed opponents the Pokédex doesn't know about.
+function TargetTypePicker({
+  allTypeNames,
+  speciesList,
+  defType1,
+  defType2,
+  onChangeDefType1,
+  onChangeDefType2,
+}: {
+  allTypeNames: string[]
+  speciesList: SpeciesTypeInfo[]
+  defType1: string
+  defType2: string
+  onChangeDefType1: (v: string) => void
+  onChangeDefType2: (v: string) => void
+}) {
+  const [searchText, setSearchText] = useState('')
+  const needle = searchText.trim().toLowerCase()
+  const matches = needle ? speciesList.filter((s) => s.name.toLowerCase().includes(needle)).slice(0, 8) : []
+
+  function pickSpecies(s: SpeciesTypeInfo) {
+    onChangeDefType1(s.type_1?.name ?? '')
+    onChangeDefType2(s.type_2?.name ?? '')
+    setSearchText('')
+  }
+
+  return (
+    <div className="mb-3 flex flex-col gap-2 rounded border p-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">Against:</span>
+        <select value={defType1} onChange={(e) => onChangeDefType1(e.target.value)} className="rounded border px-2 py-1">
+          <option value="">Type 1</option>
+          {allTypeNames.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        <select value={defType2} onChange={(e) => onChangeDefType2(e.target.value)} className="rounded border px-2 py-1">
+          <option value="">Type 2 (optional)</option>
+          {allTypeNames.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        {(defType1 || defType2) && (
+          <button
+            type="button"
+            onClick={() => {
+              onChangeDefType1('')
+              onChangeDefType2('')
+            }}
+            className="text-xs text-muted underline"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <div className="relative">
+        <input
+          type="text"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          placeholder="Or search a species to fill in its types..."
+          className="w-full rounded border px-2 py-1"
+        />
+        {matches.length > 0 && (
+          <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded border bg-surface shadow">
+            {matches.map((s) => (
+              <li key={s.name}>
+                <button
+                  type="button"
+                  onClick={() => pickSpecies(s)}
+                  className="flex w-full items-center gap-2 px-2 py-1 text-left hover:bg-surface-muted"
+                >
+                  <PokemonSprite spriteCode={s.sprite_code} alt={s.name} size={24} />
+                  <span>{s.name}</span>
+                  <span className="text-xs text-muted">{[s.type_1?.name, s.type_2?.name].filter(Boolean).join(' / ')}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export type MoveInfo = {
@@ -139,6 +282,9 @@ type PokemonStateValue = {
   isGM: boolean
   effectiveType1?: string
   effectiveType2?: string
+  typeMatchups: TypeMatchupInfo[]
+  speciesList: SpeciesTypeInfo[]
+  allTypeNames: string[]
   level: number
   effectiveExp: number
   currentExp: number
@@ -199,6 +345,9 @@ export function PokemonStateProvider(props: {
   isGM: boolean
   effectiveType1?: string
   effectiveType2?: string
+  typeMatchups: TypeMatchupInfo[]
+  speciesList: SpeciesTypeInfo[]
+  allTypeNames: string[]
   initialLevel: number
   initialEffectiveExp: number
   initialCurrentExp: number
@@ -276,6 +425,9 @@ export function PokemonStateProvider(props: {
     isGM: props.isGM,
     effectiveType1: props.effectiveType1,
     effectiveType2: props.effectiveType2,
+    typeMatchups: props.typeMatchups,
+    speciesList: props.speciesList,
+    allTypeNames: props.allTypeNames,
     level,
     effectiveExp,
     currentExp,
@@ -691,6 +843,9 @@ export function MovesSection() {
     statRows,
     effectiveType1,
     effectiveType2,
+    typeMatchups,
+    speciesList,
+    allTypeNames,
     level,
     addKnownMove,
     removeKnownMove,
@@ -700,6 +855,8 @@ export function MovesSection() {
   const [error, setError] = useState<string | null>(null)
   const [relearnForMoveId, setRelearnForMoveId] = useState<number | null>(null)
   const [replaceMoveId, setReplaceMoveId] = useState('')
+  const [defType1, setDefType1] = useState('')
+  const [defType2, setDefType2] = useState('')
 
   const knownMoveIds = knownMoves.map((km) => km.move_id)
 
@@ -791,6 +948,16 @@ export function MovesSection() {
           </Link>
         )}
       </div>
+      {knownMoves.length > 0 && (
+        <TargetTypePicker
+          allTypeNames={allTypeNames}
+          speciesList={speciesList}
+          defType1={defType1}
+          defType2={defType2}
+          onChangeDefType1={setDefType1}
+          onChangeDefType2={setDefType2}
+        />
+      )}
       {knownMoves.length === 0 ? (
         <p className="text-sm text-muted">No moves known yet.</p>
       ) : (
@@ -800,6 +967,8 @@ export function MovesSection() {
             const toHit = modifierForDamageStat(move.damage_stat, statRows)
             const stab = stabBonus(move.types?.name, effectiveType1, effectiveType2)
             const damageModifier = toHit + stab
+            const effectiveness = effectivenessFor(move.types?.name, defType1 || undefined, defType2 || undefined, typeMatchups)
+            const displayDice = move.damage_dice ? adjustDiceCount(move.damage_dice, effectiveness?.dice ?? 0) : move.damage_dice
             const { maxUses } = parseMoveFrequency(move.frequency)
             const slotCount = maxUses ?? km.uses_remaining ?? 0
             const usedCount = km.uses_remaining !== null ? slotCount - km.uses_remaining : 0
@@ -808,6 +977,9 @@ export function MovesSection() {
                   `Base damage: ${move.damage_dice}`,
                   ...(toHit !== 0 ? [`Stat bonus: ${formatSigned(toHit)}`] : []),
                   ...(stab > 0 ? [`STAB: +${stab}`] : []),
+                  ...(effectiveness
+                    ? [`Effectiveness: ${effectiveness.label} (${formatSigned(effectiveness.dice)} ${Math.abs(effectiveness.dice) === 1 ? 'die' : 'dice'})`]
+                    : []),
                 ].join('\n')
               : undefined
             return (
@@ -872,7 +1044,7 @@ export function MovesSection() {
                 {move.damage_dice && (
                   <p className="text-sm">
                     Damage:{' '}
-                    <ClickTooltip label={`${move.damage_dice} ${damageModifier >= 0 ? '+' : ''}${damageModifier}`} tooltip={damageTitle!} />
+                    <ClickTooltip label={`${displayDice} ${damageModifier >= 0 ? '+' : ''}${damageModifier}`} tooltip={damageTitle!} />
                   </p>
                 )}
                 <details className="mt-1">
