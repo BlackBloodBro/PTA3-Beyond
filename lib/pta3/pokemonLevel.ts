@@ -2,6 +2,21 @@ import type { createClient } from '@/lib/supabase/server'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
+// Pure formula extracted so a client component (the Pokemon-creation form's live "this EXP -> level
+// N" preview, [[Bug - Improve Wild Pokemon creation and editing]]) can derive the same result from
+// preloaded reference data without a server round trip per keystroke. Must stay in lockstep with
+// computePokemonLevel/computePokemonLevelsBulk's formula below -- same multiplication, same
+// floor-before-compare, same fallback-to-1.
+export function deriveLevelFromModifiers(
+  params: { currentExp: number; loyaltyModifier: number; obtainModifier: number; growthModifier: number; shinyModifier: number },
+  levelRows: { level_number: number; cumulative_exp: number }[],
+): { level: number; effectiveExp: number } {
+  const effectiveExp = params.currentExp * params.loyaltyModifier * params.obtainModifier * params.growthModifier * params.shinyModifier
+  const flooredExp = Math.floor(effectiveExp)
+  const levelRow = [...levelRows].sort((a, b) => b.level_number - a.level_number).find((lr) => lr.cumulative_exp <= flooredExp)
+  return { level: levelRow?.level_number ?? 1, effectiveExp }
+}
+
 // Pokemon level is never stored -- it's always derived from current_exp and four multiplicative
 // modifiers (homebrew formula, confirmed with the user): effective_exp = current_exp ×
 // growth_rate.exp_modifier × obtain_method.modifier × shiny_modifier × loyalty_modifier, then

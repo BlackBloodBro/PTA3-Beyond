@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { pickRandomNatureId } from '@/lib/pta3/nature'
 import { pickRandomGender } from '@/lib/pta3/gender'
+import { pickRandomShiny } from '@/lib/pta3/shiny'
 import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
@@ -11,9 +12,114 @@ import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 
-const GENDER_VALUES = ['male', 'female', 'genderless'] as const
+export type MoveOption = {
+  id: number
+  name: string
+  range: string
+  damage_stat: string
+  frequency: string
+  damage_dice: string | null
+  description: string | null
+  types: { name: string } | null
+}
 
-export async function createPokemon(formData: FormData) {
+export type PassiveOption = {
+  id: number
+  name: string
+  description: string | null
+  category: string | null
+}
+
+// Species-specific reference data for the Pokemon-creation form's Moves/Passives/EXP panels
+// ([[Bug - Improve Wild Pokemon creation and editing]]) -- called client-side whenever the picked
+// species changes, since preloading every one of the ~986 species' learnsets up front isn't
+// feasible. Kept unauthenticated (matches fetchPokedexFilterOptions/fetchFilteredSpecies) -- it's
+// all public Pokedex reference data, nothing user- or campaign-scoped.
+export async function loadSpeciesCreationData(pokedexId: number): Promise<{
+  growthRateId: number | null
+  growthRateName: string | null
+  growthRateModifier: number
+  learnset: { level_learned: number; move: MoveOption }[]
+  passiveLearnset: { level_learned: number | null; passive: PassiveOption }[]
+}> {
+  const supabase = await createClient()
+
+  const [{ data: species }, { data: moveRows }, { data: passiveRows }] = await Promise.all([
+    supabase
+      .from('pokedex')
+      .select('growth_rate_id, growth_rate:growth_rates!growth_rate_id(name, exp_modifier)')
+      .eq('id', pokedexId)
+      .maybeSingle(),
+    supabase
+      .from('pokedex_moves')
+      .select('level_learned, move:moves(id, name, range, damage_stat, frequency, damage_dice, description, types(name))')
+      .eq('pokedex_id', pokedexId)
+      // Only natural level-up moves are offered here -- TM/tutor-taught moves (level_learned null)
+      // also need a Proficiency-overlap check that only matters once the Pokemon actually has a
+      // trainer/inventory; picking those is left to the detail page's existing Moves section after
+      // creation, same as it already works for every other Pokemon.
+      .not('level_learned', 'is', null)
+      .order('level_learned'),
+    supabase
+      .from('pokedex_passives')
+      .select('level_learned, passive:passives(id, name, description, passive_type, category)')
+      .eq('pokedex_id', pokedexId)
+      .order('level_learned', { nullsFirst: true }),
+  ])
+
+  const growthRate = species?.growth_rate as unknown as { name: string; exp_modifier: number } | null
+
+  const learnset = ((moveRows ?? []) as unknown as { level_learned: number; move: MoveOption | null }[]).filter(
+    (r): r is { level_learned: number; move: MoveOption } => r.move !== null,
+  )
+
+  // Same reverse-embed quirk as elsewhere -- `passive` comes back as a single object, not the array
+  // TS infers. Ability-type Passives are excluded: those auto-derive from species+level once the
+  // Pokemon exists, there's nothing to pick here.
+  const passiveLearnset = ((passiveRows ?? []) as unknown as { level_learned: number | null; passive: (PassiveOption & { passive_type: string }) | null }[])
+    .filter((r): r is { level_learned: number | null; passive: PassiveOption & { passive_type: string } } => r.passive !== null && r.passive.passive_type === 'stat')
+    .map((r) => ({
+      level_learned: r.level_learned,
+      passive: { id: r.passive.id, name: r.passive.name, description: r.passive.description, category: r.passive.category },
+    }))
+
+  return {
+    growthRateId: species?.growth_rate_id ?? null,
+    growthRateName: growthRate?.name ?? null,
+    growthRateModifier: growthRate?.exp_modifier ?? 1,
+    learnset,
+    passiveLearnset,
+  }
+}
+
+export type CreatePokemonInput = {
+  speciesId: number
+  nickname: string | null
+  campaignId: string | null
+  trainerId: string | null
+  natureChoice: 'random' | number
+  genderChoice: 'random' | 'male' | 'female' | 'genderless'
+  loyaltyId: number | null
+  obtainMethodId: number | null
+  heldItemId: number | null
+  shininessChoice: 'no' | 'yes' | 'random'
+  type1Id: number | null
+  type2Id: number | null
+  sizeId: number | null
+  weightId: number | null
+  currentExp: number
+  evs: Partial<Record<EvStatKey, number>>
+  moveIds: number[]
+  passiveIds: number[]
+  // Pool/wild only (enforced below) -- a Trainer can only ever receive one Pokemon per creation.
+  quantity: number
+}
+
+// Called directly from the client (CreatePokemonForm) as a plain function, not a <form action> --
+// the form has too much interdependent client state (live level preview, species-driven Moves/
+// Passives panels) to round-trip through FormData. Returns a redirect target + any per-step
+// warnings instead of calling redirect() itself, so the caller can show warnings before navigating.
+export async function createPokemon(input: CreatePokemonInput): Promise<{ error: string } | { redirectTo: string; warnings: string[] }> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -23,121 +129,143 @@ export async function createPokemon(formData: FormData) {
     redirect('/login')
   }
 
-  const speciesName = (formData.get('species') as string)?.trim()
-  const nickname = (formData.get('nickname') as string)?.trim()
-  const campaignIdRaw = (formData.get('campaignId') as string)?.trim()
-  const trainerIdRaw = (formData.get('trainerId') as string)?.trim()
-  const natureChoice = (formData.get('natureId') as string)?.trim()
-  const genderChoice = (formData.get('gender') as string)?.trim()
-
-  if (!speciesName) {
-    redirect(`/pokemon/new?error=${encodeURIComponent('Species is required')}`)
-  }
-
-  const { data: species } = await supabase.from('pokedex').select('id, base_hp').ilike('name', speciesName).single()
-
+  const { data: species } = await supabase.from('pokedex').select('id, base_hp').eq('id', input.speciesId).maybeSingle()
   if (!species) {
-    redirect(`/pokemon/new?error=${encodeURIComponent(`No species named "${speciesName}" found`)}`)
-  }
-
-  // "Random" (the default) rolls one of the seeded natures; a GM can instead pick a specific one
-  // -- e.g. a story-appropriate nature for a prepared NPC's Pokemon or a gift -- which the starter
-  // flow deliberately doesn't expose (a player doesn't choose their own Pokemon's nature).
-  let natureId: number | null
-  if (!natureChoice || natureChoice === 'random') {
-    natureId = await pickRandomNatureId(supabase)
-  } else {
-    const { data: nature } = await supabase.from('natures').select('id').eq('id', Number(natureChoice)).maybeSingle()
-    if (!nature) {
-      redirect(`/pokemon/new?error=${encodeURIComponent('Invalid nature')}`)
-    }
-    natureId = nature.id
-  }
-
-  // Same "Random by default, GM can predetermine" pattern as nature.
-  let gender: string | null
-  if (!genderChoice || genderChoice === 'random') {
-    gender = pickRandomGender()
-  } else if (GENDER_VALUES.includes(genderChoice as (typeof GENDER_VALUES)[number])) {
-    gender = genderChoice
-  } else {
-    redirect(`/pokemon/new?error=${encodeURIComponent('Invalid gender')}`)
+    return { error: 'Species not found' }
   }
 
   // "Which pool does this belong to" (organizational only -- not what actually grants assignment
   // rights below) -- must be a campaign this user GMs.
-  let campaignId: string | null = null
-  if (campaignIdRaw) {
-    const { data: campaign } = await supabase
-      .from('campaigns')
-      .select('id')
-      .eq('id', campaignIdRaw)
-      .eq('gm_user_id', user.id)
-      .maybeSingle()
-
+  if (input.campaignId) {
+    const { data: campaign } = await supabase.from('campaigns').select('id').eq('id', input.campaignId).eq('gm_user_id', user.id).maybeSingle()
     if (!campaign) {
-      redirect(`/pokemon/new?error=${encodeURIComponent('You are not the GM of that campaign')}`)
+      return { error: 'You are not the GM of that campaign' }
     }
-    campaignId = campaignIdRaw
   }
 
   // Assigning straight to a trainer at creation time is gated by that trainer's OWN campaign, not
   // by campaignId above -- a personal-pool (campaign-less) Pokemon can still be handed straight to
   // a trainer in any campaign this user GMs.
-  let trainerId: string | null = null
   let trainerCampaignId: string | null = null
-  if (trainerIdRaw) {
+  if (input.trainerId) {
     const { data: trainer } = await supabase
       .from('trainers')
       .select('id, campaign_id, campaigns(gm_user_id)')
-      .eq('id', trainerIdRaw)
+      .eq('id', input.trainerId)
       .maybeSingle()
 
     if (!trainer || !trainer.campaign_id || trainer.campaigns?.gm_user_id !== user.id) {
-      redirect(`/pokemon/new?error=${encodeURIComponent('You are not the GM for that trainer')}`)
+      return { error: 'You are not the GM for that trainer' }
     }
-    trainerId = trainerIdRaw
     trainerCampaignId = trainer.campaign_id
   }
 
-  // Generate the id up front rather than reading it back after insert -- same RETURNING-requires-
-  // SELECT-policy reasoning as the starter Pokemon flow (a fresh, still-unassigned Pokemon relies
-  // on created_by_user_id for its SELECT policy, which is only checked after this insert lands).
-  const pokemonId = crypto.randomUUID()
+  const quantity = input.trainerId ? 1 : Math.max(1, Math.min(50, Math.floor(input.quantity) || 1))
 
-  const { error: pokemonError } = await supabase.from('pokemon').insert({
-    id: pokemonId,
-    pokedex_id: species.id,
-    nickname: nickname || null,
-    current_hp: species.base_hp,
-    campaign_id: campaignId,
-    created_by_user_id: user.id,
-    nature_id: natureId,
-    gender,
-  })
+  const warnings: string[] = []
+  let lastPokemonId: string | null = null
 
-  if (pokemonError) {
-    redirect(`/pokemon/new?error=${encodeURIComponent(pokemonError.message)}`)
-  }
+  for (let i = 0; i < quantity; i++) {
+    // Each copy independently rolls its own Random Nature/Gender/Shiny rather than the whole batch
+    // sharing one roll -- a GM populating a wild encounter table wants variety, not N identical
+    // copies (locked design, [[Bug - Improve Wild Pokemon creation and editing]]).
+    const natureId = input.natureChoice === 'random' ? await pickRandomNatureId(supabase) : input.natureChoice
+    const gender = input.genderChoice === 'random' ? pickRandomGender() : input.genderChoice
+    const isShiny = input.shininessChoice === 'random' ? pickRandomShiny() : input.shininessChoice === 'yes'
 
-  if (trainerId) {
-    // Same auto-park behavior as assignPokemon below -- lands on the Team if there's room, parks
-    // in the PC (party_slot null) rather than blocking creation if it's already full.
-    const { data: existingSlots } = await supabase.from('trainers_pokemon').select('party_slot').eq('trainer_id', trainerId)
-    const nextSlot = findNextOpenSlot((existingSlots ?? []).map((r) => r.party_slot))
+    // Generate the id up front rather than reading it back after insert -- same RETURNING-requires-
+    // SELECT-policy reasoning as the starter Pokemon flow.
+    const pokemonId = crypto.randomUUID()
 
-    const { error: linkError } = await supabase
-      .from('trainers_pokemon')
-      .insert({ trainer_id: trainerId, pokemon_id: pokemonId, party_slot: nextSlot })
+    const { error: pokemonError } = await supabase.from('pokemon').insert({
+      id: pokemonId,
+      pokedex_id: species.id,
+      nickname: input.nickname || null,
+      current_hp: species.base_hp,
+      current_exp: Math.max(0, Math.floor(input.currentExp) || 0),
+      campaign_id: input.campaignId,
+      created_by_user_id: user.id,
+      nature_id: natureId,
+      gender,
+      loyalty_id: input.loyaltyId,
+      held_item_id: input.heldItemId,
+      is_shiny: isShiny,
+      type_1_id: input.type1Id,
+      type_2_id: input.type2Id,
+      size_id: input.sizeId,
+      weight_id: input.weightId,
+    })
 
-    if (linkError) {
-      redirect(`/pokemon/new?error=${encodeURIComponent(linkError.message)}`)
+    if (pokemonError) {
+      return { error: pokemonError.message }
     }
 
-    redirect(pokemonHref({ id: pokemonId, hasOwner: true, campaignId: trainerCampaignId }))
+    lastPokemonId = pokemonId
+
+    if (input.trainerId) {
+      // Same auto-park behavior as assignPokemon below -- lands on the Team if there's room, parks
+      // in the PC (party_slot null) rather than blocking creation if it's already full.
+      const { data: existingSlots } = await supabase.from('trainers_pokemon').select('party_slot').eq('trainer_id', input.trainerId)
+      const nextSlot = findNextOpenSlot((existingSlots ?? []).map((r) => r.party_slot))
+
+      const { error: linkError } = await supabase
+        .from('trainers_pokemon')
+        .insert({ trainer_id: input.trainerId, pokemon_id: pokemonId, party_slot: nextSlot, obtain_method_id: input.obtainMethodId })
+
+      if (linkError) {
+        warnings.push(`Trainer assignment failed: ${linkError.message}`)
+      }
+    }
+
+    // EVs/Moves/Passives reuse the existing detail-page actions verbatim -- their level/budget/
+    // eligibility checks (computed from the exp just set above) are exactly what's wanted here too,
+    // rather than re-deriving that logic pre-creation. A failure on one of these doesn't undo the
+    // Pokemon itself -- it's surfaced as a warning and left for the GM to fix on the detail page,
+    // same as any other partial-success case this codebase already accepts (no multi-statement
+    // transactions available via supabase-js).
+    const hasEvs = Object.values(input.evs).some((v) => (v ?? 0) > 0)
+    if (hasEvs) {
+      const fullEvs: Record<EvStatKey, number> = {
+        hp: input.evs.hp ?? 0,
+        attack: input.evs.attack ?? 0,
+        defense: input.evs.defense ?? 0,
+        special_attack: input.evs.special_attack ?? 0,
+        special_defense: input.evs.special_defense ?? 0,
+        speed: input.evs.speed ?? 0,
+      }
+      const evResult = await setPokemonEvs(pokemonId, fullEvs)
+      if ('error' in evResult) {
+        warnings.push(`EVs: ${evResult.error}`)
+      }
+    }
+
+    for (const moveId of input.moveIds) {
+      const moveResult = await learnMove(pokemonId, moveId)
+      if ('error' in moveResult) {
+        warnings.push(`Move: ${moveResult.error}`)
+      }
+    }
+
+    for (const passiveId of input.passiveIds) {
+      const passiveResult = await learnPassive(pokemonId, passiveId)
+      if ('error' in passiveResult) {
+        warnings.push(`Passive: ${passiveResult.error}`)
+      }
+    }
   }
 
-  redirect('/pokemon')
+  if (input.trainerId && lastPokemonId) {
+    return { redirectTo: pokemonHref({ id: lastPokemonId, hasOwner: true, campaignId: trainerCampaignId }), warnings }
+  }
+
+  // Bug fix: this used to unconditionally redirect to /pokemon regardless of campaignId, landing a
+  // GM who just created a Wild Pokemon for a specific campaign's pool on the generic global list
+  // instead of that campaign's own Wild Pokemon list.
+  if (input.campaignId) {
+    return { redirectTo: `/campaigns/${input.campaignId}/wild-pokemon`, warnings }
+  }
+
+  return { redirectTo: '/pokemon', warnings }
 }
 
 // Called directly from a client component (no <form action>, no redirect) so assigning a Wild/pool

@@ -1,15 +1,24 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { fetchFilteredSpecies, fetchPokedexFilterOptions } from '@/lib/pta3/pokedexFilter'
-import { SpeciesPicker } from '@/components/SpeciesPicker'
-import { createPokemon } from '../actions'
+import { CreatePokemonForm } from './CreatePokemonForm'
+
+// Normalizes a searchParams entry that's a bare string when there's exactly one value, or an array
+// when there are several -- native <input type="checkbox" name="typeIds" value="X"> repeated with
+// the same name submits as multiple values under that one key, which is how the multi-select filter
+// below works without any client JS.
+function toIdArray(raw: string | string[] | undefined): number[] {
+  if (!raw) return []
+  const values = Array.isArray(raw) ? raw : [raw]
+  return values.map(Number).filter((n) => !Number.isNaN(n))
+}
 
 export default async function NewPokemonPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; typeId?: string; habitatId?: string; campaignId?: string }>
+  searchParams: Promise<{ error?: string; typeIds?: string | string[]; habitatIds?: string | string[]; campaignId?: string }>
 }) {
-  const { error, typeId, habitatId, campaignId } = await searchParams
+  const { error, typeIds, habitatIds, campaignId } = await searchParams
   const supabase = await createClient()
 
   const {
@@ -20,14 +29,34 @@ export default async function NewPokemonPage({
     redirect('/login')
   }
 
-  const parsedTypeId = typeId ? Number(typeId) : null
-  const parsedHabitatId = habitatId ? Number(habitatId) : null
+  const selectedTypeIds = toIdArray(typeIds)
+  const selectedHabitatIds = toIdArray(habitatIds)
 
-  const [{ types, habitats }, species, { data: campaigns }, { data: natures }] = await Promise.all([
+  const [
+    { types, habitats },
+    species,
+    { data: campaigns },
+    { data: natures },
+    { data: loyalties },
+    { data: obtainMethods },
+    { data: items },
+    { data: sizes },
+    { data: weights },
+    { data: levels },
+    { data: shinyModifiers },
+  ] = await Promise.all([
     fetchPokedexFilterOptions(supabase),
-    fetchFilteredSpecies(supabase, { typeId: parsedTypeId, habitatId: parsedHabitatId }),
+    fetchFilteredSpecies(supabase, { typeIds: selectedTypeIds, habitatIds: selectedHabitatIds }),
     supabase.from('campaigns').select('id, name').eq('gm_user_id', user.id).order('name'),
-    supabase.from('natures').select('id, name').order('name'),
+    // Nature stat preview reuses the exact same query shape as the Pokemon detail page's edit form.
+    supabase.from('natures').select('id, name, increased:stats!increased_stat_id(name), decreased:stats!decreased_stat_id(name)').order('name'),
+    supabase.from('loyalties').select('id, name, modifier').order('name'),
+    supabase.from('obtain_methods').select('id, name, modifier').order('name'),
+    supabase.from('items').select('id, name').order('name'),
+    supabase.from('sizes').select('id, name').order('name'),
+    supabase.from('weights').select('id, name').order('name'),
+    supabase.from('levels').select('level_number, cumulative_exp').order('level_number'),
+    supabase.from('exp_modifiers_shiny').select('name, modifier'),
   ])
 
   // Trainers assignable at creation time -- any trainer in a campaign this user GMs, regardless of
@@ -48,33 +77,46 @@ export default async function NewPokemonPage({
 
       {error && <p className="text-danger">{error}</p>}
 
-      <form method="get" className="flex w-full max-w-sm flex-col gap-2 rounded border p-3 text-sm">
-        <p className="font-medium">Filter species</p>
-        <label htmlFor="typeId">Type</label>
-        <select id="typeId" name="typeId" defaultValue={typeId ?? ''} className="bg-surface-subtle rounded border px-3 py-2">
-          <option value="">Any type</option>
-          {types.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
+      <form method="get" className="flex w-full max-w-sm flex-col gap-2 rounded border border-accent bg-accent/10 p-4 text-sm">
+        <h2 className="font-semibold">Filter species</h2>
 
-        <label htmlFor="habitatId">Habitat</label>
-        <select id="habitatId" name="habitatId" defaultValue={habitatId ?? ''} className="bg-surface-subtle rounded border px-3 py-2">
-          <option value="">Any habitat</option>
-          {habitats.map((h) => (
-            <option key={h.id} value={h.id}>
-              {h.name}
-            </option>
-          ))}
-        </select>
+        {/* Native <details>/<summary> gives a closed-by-default dropdown with a real selection box
+            inside once opened -- no client JS needed, and the checkboxes underneath still submit via
+            this plain GET form exactly as before (multi-select, [[Bug - Improve Wild Pokemon creation
+            and editing]]). */}
+        <details className="rounded border">
+          <summary className="cursor-pointer select-none px-2 py-1.5 text-sm">
+            Type {selectedTypeIds.length > 0 ? `(${selectedTypeIds.length} selected)` : '(any)'}
+          </summary>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 border-t p-2">
+            {types.map((t) => (
+              <label key={t.id} className="flex items-center gap-1">
+                <input type="checkbox" name="typeIds" value={t.id} defaultChecked={selectedTypeIds.includes(t.id)} />
+                {t.name}
+              </label>
+            ))}
+          </div>
+        </details>
 
-        <div className="flex items-center gap-3">
+        <details className="rounded border">
+          <summary className="cursor-pointer select-none px-2 py-1.5 text-sm">
+            Habitat {selectedHabitatIds.length > 0 ? `(${selectedHabitatIds.length} selected)` : '(any)'}
+          </summary>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 border-t p-2">
+            {habitats.map((h) => (
+              <label key={h.id} className="flex items-center gap-1">
+                <input type="checkbox" name="habitatIds" value={h.id} defaultChecked={selectedHabitatIds.includes(h.id)} />
+                {h.name}
+              </label>
+            ))}
+          </div>
+        </details>
+
+        <div className="mt-2 flex items-center gap-3">
           <button type="submit" className="rounded border px-3 py-2">
             Apply filters
           </button>
-          {(typeId || habitatId) && (
+          {(selectedTypeIds.length > 0 || selectedHabitatIds.length > 0) && (
             <a href="/pokemon/new" className="text-xs underline">
               Clear filters
             </a>
@@ -84,54 +126,21 @@ export default async function NewPokemonPage({
 
       <p className="w-full max-w-sm text-xs text-muted">{species.length} matching species</p>
 
-      <form action={createPokemon} className="flex w-full max-w-sm flex-col gap-3">
-        <SpeciesPicker species={species} />
-
-        <label htmlFor="nickname">Nickname (optional)</label>
-        <input id="nickname" name="nickname" type="text" className="bg-surface-subtle rounded border px-3 py-2" />
-
-        <label htmlFor="natureId">Nature (roll a d20 — numbers match the options below)</label>
-        <select id="natureId" name="natureId" className="bg-surface-subtle rounded border px-3 py-2" defaultValue="random">
-          <option value="random">Random</option>
-          {(natures ?? []).map((n, i) => (
-            <option key={n.id} value={n.id}>
-              {i + 1}. {n.name}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="gender">Gender</label>
-        <select id="gender" name="gender" className="bg-surface-subtle rounded border px-3 py-2" defaultValue="random">
-          <option value="random">Random</option>
-          <option value="male">Male</option>
-          <option value="female">Female</option>
-          <option value="genderless">Genderless</option>
-        </select>
-
-        <label htmlFor="campaignId">Pool (optional)</label>
-        <select id="campaignId" name="campaignId" className="bg-surface-subtle rounded border px-3 py-2" defaultValue={campaignId ?? ''}>
-          <option value="">None (personal pool)</option>
-          {(campaigns ?? []).map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="trainerId">Assign to trainer now (optional)</label>
-        <select id="trainerId" name="trainerId" className="bg-surface-subtle rounded border px-3 py-2" defaultValue="">
-          <option value="">Leave unassigned</option>
-          {(trainers ?? []).map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name} ({t.campaigns?.name})
-            </option>
-          ))}
-        </select>
-
-        <button type="submit" className="mt-2 rounded bg-accent px-4 py-2 text-accent-foreground">
-          Create Pokémon
-        </button>
-      </form>
+      <CreatePokemonForm
+        species={species}
+        natures={(natures ?? []) as unknown as { id: number; name: string; increased: { name: string } | null; decreased: { name: string } | null }[]}
+        loyalties={loyalties ?? []}
+        obtainMethods={obtainMethods ?? []}
+        items={items ?? []}
+        types={types}
+        sizes={sizes ?? []}
+        weights={weights ?? []}
+        levels={levels ?? []}
+        shinyModifiers={shinyModifiers ?? []}
+        campaigns={campaigns ?? []}
+        trainers={(trainers ?? []) as unknown as { id: string; name: string; campaigns: { name: string } | null }[]}
+        defaultCampaignId={campaignId ?? ''}
+      />
     </main>
   )
 }
