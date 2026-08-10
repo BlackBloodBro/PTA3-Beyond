@@ -27,6 +27,7 @@ import {
   type PassiveInfo,
   type KnownPassiveEntry,
   type PassiveLearnsetEntry,
+  type SpeciesTypeInfo,
 } from '@/app/(authenticated)/pokemon/[pokemonId]/PokemonInteractive'
 
 const GENDER_LABELS: Record<string, string> = {
@@ -247,6 +248,23 @@ export default async function CampaignPokemonPage({
 
   const fullLearnset = (learnableRowsRaw ?? []).filter((r) => r.move) as unknown as LearnsetEntry[]
 
+  // Small, unconditional reference data -- always needed for the Moves section's opponent-type
+  // picker (see [[Add an opponent type selector for move effectiveness]]): the 112-row effectiveness
+  // matrix, the 18 real type names for the picker's dropdowns, and the full species list (986 rows,
+  // just name/sprite/types) so the picker's search can fill both dropdowns in from a species pick.
+  const [{ data: typeMatchupRows }, { data: allTypeRows }, { data: speciesRows }] = await Promise.all([
+    supabase.from('type_matchups').select('attacking_type:types!attacking_type_id(name), defending_type:types!defending_type_id(name), modifier'),
+    supabase.from('types').select('name').neq('name', 'Special/Variable').order('name'),
+    supabase.from('pokedex').select('name, sprite_code, type_1:types!type_1_id(name), type_2:types!type_2_id(name)').order('name'),
+  ])
+  const typeMatchups = (typeMatchupRows ?? []).map((r) => ({
+    attacking_type: (r.attacking_type as unknown as { name: string }).name,
+    defending_type: (r.defending_type as unknown as { name: string }).name,
+    modifier: r.modifier,
+  }))
+  const allTypeNames = (allTypeRows ?? []).map((r) => r.name)
+  const speciesList = (speciesRows ?? []) as unknown as SpeciesTypeInfo[]
+
   const { data: proficiencyRows } = await supabase
     .from('pokedex_proficiencies')
     .select('proficiencies(name)')
@@ -337,6 +355,9 @@ export default async function CampaignPokemonPage({
         isGM={isGM}
         effectiveType1={effectiveType1}
         effectiveType2={effectiveType2}
+        typeMatchups={typeMatchups}
+        speciesList={speciesList}
+        allTypeNames={allTypeNames}
         initialLevel={level}
         initialEffectiveExp={effectiveExp}
         initialCurrentExp={pokemon.current_exp}
