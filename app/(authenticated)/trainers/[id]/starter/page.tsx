@@ -34,12 +34,15 @@ export default async function StarterPokemonPage({
     redirect('/dashboard')
   }
 
+  // Still single-select here -- this flow's own filter UI is untouched by the multi-select change
+  // ([[Bug - Improve Wild Pokemon creation and editing]] scoped that to /pokemon/new specifically),
+  // just adapted to fetchFilteredSpecies' new array-based signature.
   const parsedTypeId = typeId ? Number(typeId) : null
   const parsedHabitatId = habitatId ? Number(habitatId) : null
 
   const [{ types, habitats }, species] = await Promise.all([
     fetchPokedexFilterOptions(supabase),
-    fetchFilteredSpecies(supabase, { typeId: parsedTypeId, habitatId: parsedHabitatId }),
+    fetchFilteredSpecies(supabase, { typeIds: parsedTypeId ? [parsedTypeId] : [], habitatIds: parsedHabitatId ? [parsedHabitatId] : [] }),
   ])
 
   const createStarterForTrainer = createStarterPokemon.bind(null, trainer.id)
