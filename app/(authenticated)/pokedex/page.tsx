@@ -17,7 +17,7 @@ export default async function PokedexPage() {
   }
 
   // Signed-in is the only gate -- this is reference data, not scoped to anything owned.
-  const [pokedex, moves, items, skills, { types }] = await Promise.all([
+  const [pokedex, moves, items, skills, { types, habitats }] = await Promise.all([
     loadPokedexBrowse(supabase),
     loadMovesBrowse(supabase),
     loadItemCatalog(supabase),
@@ -35,7 +35,7 @@ export default async function PokedexPage() {
 
       <h1 className="w-full max-w-4xl text-2xl font-bold">Pokédex</h1>
 
-      <PokedexBrowser pokedex={pokedex} moves={moves} items={items} skills={skills} types={types} />
+      <PokedexBrowser pokedex={pokedex} moves={moves} items={items} skills={skills} types={types} habitats={habitats} />
     </main>
   )
 }
