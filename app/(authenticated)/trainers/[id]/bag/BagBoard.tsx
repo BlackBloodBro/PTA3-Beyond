@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react'
 import type { BagItem, CatalogItem, TmMoveOption, TmPriceOption } from '@/lib/pta3/bag'
 import { SpeciesPicker } from '@/components/SpeciesPicker'
+import { PaginationControls } from '@/components/PaginationControls'
+import { usePagination } from '@/lib/pta3/usePagination'
 import { grantItem, discardItem, useItem, buyItem, sellItem, adjustMoney, giveHeldItem, teachTmMove } from './actions'
 
 type SpeciesOption = { id: number; name: string; sprite_code: string }
@@ -113,6 +115,15 @@ export function BagBoard({
       return sign * (a.price - b.price)
     })
   }, [catalog, catalogSearch, catalogCategory, catalogSort])
+
+  const {
+    page: catalogPage,
+    setPage: setCatalogPage,
+    pageSize: catalogPageSize,
+    setPageSize: setCatalogPageSize,
+    pageItems: pagedCatalog,
+    totalPages: catalogTotalPages,
+  } = usePagination(filteredCatalog)
 
   function getBagQty(id: string, max: number): number {
     return clampQty(bagQuantities[id] ?? 1, Math.min(100, max))
@@ -511,7 +522,7 @@ export function BagBoard({
             <p className="ml-auto text-xs text-muted">{filteredCatalog.length} of {catalog.length}</p>
           </div>
           <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
-            {filteredCatalog.map((it) => {
+            {pagedCatalog.map((it) => {
               const isTmFamily = it.categoryNames.includes('Technical Machines')
               const catalogPrice = resolveCatalogPrice(it)
               return (
@@ -587,6 +598,13 @@ export function BagBoard({
               )
             })}
           </ul>
+          <PaginationControls
+            page={catalogPage}
+            totalPages={catalogTotalPages}
+            pageSize={catalogPageSize}
+            onPageChange={setCatalogPage}
+            onPageSizeChange={setCatalogPageSize}
+          />
         </section>
       )}
     </div>
