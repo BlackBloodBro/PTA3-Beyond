@@ -1,8 +1,11 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type { BagItem, CatalogItem } from '@/lib/pta3/bag'
-import { grantItem, discardItem, useItem, buyItem, sellItem, adjustMoney, giveHeldItem } from './actions'
+import type { BagItem, CatalogItem, TmMoveOption, TmPriceOption } from '@/lib/pta3/bag'
+import { SpeciesPicker } from '@/components/SpeciesPicker'
+import { grantItem, discardItem, useItem, buyItem, sellItem, adjustMoney, giveHeldItem, teachTmMove } from './actions'
+
+type SpeciesOption = { id: number; name: string; sprite_code: string }
 
 export type BagPokemonOption = {
   id: string
@@ -45,6 +48,9 @@ export function BagBoard({
   initialSellPricePercent,
   catalog,
   pokemonOptions,
+  speciesList,
+  tmMoves,
+  tmPrices,
 }: {
   trainerId: string
   canManage: boolean
@@ -54,6 +60,9 @@ export function BagBoard({
   initialSellPricePercent: number
   catalog: CatalogItem[]
   pokemonOptions: BagPokemonOption[]
+  speciesList: SpeciesOption[]
+  tmMoves: TmMoveOption[]
+  tmPrices: TmPriceOption[]
 }) {
   const [items, setItems] = useState(initialItems)
   const [money, setMoney] = useState(initialMoney)
@@ -70,6 +79,13 @@ export function BagBoard({
   const [catalogSort, setCatalogSort] = useState<'name' | 'price-asc' | 'price-desc'>('name')
   const [bagQuantities, setBagQuantities] = useState<Record<string, number>>({})
   const [catalogQuantities, setCatalogQuantities] = useState<Record<number, number>>({})
+  // Species picked per catalog row -- only meaningful for items in the "Eggs" category, keyed by
+  // item id so switching rows doesn't clobber each other's in-progress pick.
+  const [catalogSpecies, setCatalogSpecies] = useState<Record<number, string>>({})
+  // Move picked per catalog row -- only meaningful for items in the "Technical Machines" category.
+  const [catalogMove, setCatalogMove] = useState<Record<number, string>>({})
+  const [teachingItemId, setTeachingItemId] = useState<string | null>(null)
+  const [teachPokemonId, setTeachPokemonId] = useState('')
 
   const allCategoryNames = useMemo(() => {
     const set = new Set<string>()
@@ -120,9 +136,55 @@ export function BagBoard({
     setSellPricePercent(snapshot.sellPricePercent)
   }
 
-  async function handleGrant(itemId: number) {
+  // Resolves the species picked for this catalog row (defaulting to the first species alphabetically,
+  // same default SpeciesPicker itself falls back to) into an id -- null for any non-Egg item, since
+  // pokedexId is meaningless for those.
+  function resolveCatalogPokedexId(item: CatalogItem): number | null {
+    if (!item.categoryNames.includes('Eggs')) return null
+    const pickedName = catalogSpecies[item.id] ?? speciesList[0]?.name
+    return speciesList.find((s) => s.name === pickedName)?.id ?? null
+  }
+
+  // TM and TR are now single generic items (not one row per frequency tier), so the full TM-eligible
+  // movepool is offered on both -- whichever move you pick determines the price (see
+  // resolveCatalogPrice below), not the other way around.
+  function eligibleTmMoves(): TmMoveOption[] {
+    return tmMoves
+  }
+
+  // Resolves the move picked for this catalog row into an id -- null for any non-Technical-Machines
+  // item, or if no eligible move exists to default to.
+  function resolveCatalogMoveId(item: CatalogItem): number | null {
+    if (!item.categoryNames.includes('Technical Machines')) return null
+    const options = eligibleTmMoves()
+    const pickedName = catalogMove[item.id] ?? options[0]?.name
+    return options.find((m) => m.name === pickedName)?.id ?? null
+  }
+
+  // Client-side price preview only -- buyItem/sellItem always recompute this server-side, so a stale
+  // value here can never change what's actually charged. Static `items.price` for everything except
+  // TM/TR, which have none of their own and price by the picked move's frequency instead.
+  function resolveCatalogPrice(item: CatalogItem): number | null {
+    if (item.price !== null) return item.price
+    const moveId = resolveCatalogMoveId(item)
+    const move = moveId !== null ? tmMoves.find((m) => m.id === moveId) : undefined
+    if (!move) return null
+    return tmPrices.find((p) => p.itemName === item.name && p.frequency === move.frequency)?.price ?? null
+  }
+
+  // Same preview-only price resolution for an already-owned Bag row (Sell), using its own attached
+  // move rather than a live picker.
+  function resolveBagItemPrice(it: BagItem): number | null {
+    if (it.price !== null) return it.price
+    if (it.moveName === null) return null
+    const move = tmMoves.find((m) => m.name === it.moveName)
+    if (!move) return null
+    return tmPrices.find((p) => p.itemName === it.name && p.frequency === move.frequency)?.price ?? null
+  }
+
+  async function handleGrant(item: CatalogItem) {
     setError(null)
-    const result = await grantItem(trainerId, itemId, getCatalogQty(itemId))
+    const result = await grantItem(trainerId, item.id, getCatalogQty(item.id), resolveCatalogPokedexId(item), resolveCatalogMoveId(item))
     if ('error' in result) {
       setError(result.error)
       return
@@ -133,14 +195,27 @@ export function BagBoard({
   async function handleBuy(item: CatalogItem) {
     setError(null)
     const qty = getCatalogQty(item.id)
-    const totalCost = (item.price ?? 0) * qty
+    const totalCost = (resolveCatalogPrice(item) ?? 0) * qty
     if (!window.confirm(`Buy ${qty} × ${item.name} for ${totalCost} P?`)) return
-    const result = await buyItem(trainerId, item.id, qty)
+    const result = await buyItem(trainerId, item.id, qty, resolveCatalogPokedexId(item), resolveCatalogMoveId(item))
     if ('error' in result) {
       setError(result.error)
       return
     }
     applySnapshot(result)
+  }
+
+  async function handleTeach(trainersItemId: string) {
+    if (!teachPokemonId) return
+    setError(null)
+    const result = await teachTmMove(trainerId, trainersItemId, teachPokemonId)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    applySnapshot(result)
+    setTeachingItemId(null)
+    setTeachPokemonId('')
   }
 
   async function handleUse(it: BagItem) {
@@ -169,7 +244,8 @@ export function BagBoard({
   async function handleSell(it: BagItem) {
     setError(null)
     const qty = getBagQty(it.id, it.quantity)
-    const saleValue = it.price !== null ? Math.floor((it.price * sellPricePercent) / 100) * qty : 0
+    const price = resolveBagItemPrice(it)
+    const saleValue = price !== null ? Math.floor((price * sellPricePercent) / 100) * qty : 0
     if (!window.confirm(`Sell ${qty} × ${it.name} for ${saleValue} P?`)) return
     const result = await sellItem(trainerId, it.id, qty)
     if ('error' in result) {
@@ -275,6 +351,7 @@ export function BagBoard({
                       {it.name} x{it.quantity}
                       {it.moveName ? ` (${it.moveName})` : ''}
                       {it.pokedexName ? ` (${it.pokedexName})` : ''}
+                      {it.usesRemaining !== null ? ` — ${it.usesRemaining} use${it.usesRemaining === 1 ? '' : 's'} left` : ''}
                     </p>
                     <p className="text-xs text-muted">{it.categoryNames.join(', ')}</p>
                     {it.description && <p className="mt-1 text-sm">{it.description}</p>}
@@ -292,7 +369,7 @@ export function BagBoard({
                       <button type="button" onClick={() => handleUse(it)} className="rounded bg-accent px-2 py-1 text-xs text-accent-foreground">
                         Use
                       </button>
-                      {it.price !== null && (
+                      {resolveBagItemPrice(it) !== null && (
                         <button type="button" onClick={() => handleSell(it)} className="rounded border border-success px-2 py-1 text-xs text-success">
                           Sell
                         </button>
@@ -309,9 +386,49 @@ export function BagBoard({
                           Give to Pokémon
                         </button>
                       )}
+                      {it.moveId !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setTeachingItemId(teachingItemId === it.id ? null : it.id)}
+                          className="rounded border px-2 py-1 text-xs"
+                        >
+                          Teach this Pokémon
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
+                {teachingItemId === it.id && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 border-t pt-2 text-sm">
+                    <select
+                      value={teachPokemonId}
+                      onChange={(e) => setTeachPokemonId(e.target.value)}
+                      className="bg-surface-subtle rounded border px-2 py-1"
+                    >
+                      <option value="">Select a Pokémon…</option>
+                      {groupedPokemonOptions.map(([groupName, group]) => (
+                        <optgroup key={groupName} label={groupName}>
+                          {group.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={!teachPokemonId}
+                      onClick={() => handleTeach(it.id)}
+                      className="rounded bg-accent px-3 py-1 text-accent-foreground disabled:opacity-50"
+                    >
+                      Confirm
+                    </button>
+                    <button type="button" onClick={() => setTeachingItemId(null)} className="rounded border px-2 py-1">
+                      Cancel
+                    </button>
+                  </div>
+                )}
                 {givingItemId === it.id && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 border-t pt-2 text-sm">
                     <select
@@ -394,12 +511,15 @@ export function BagBoard({
             <p className="ml-auto text-xs text-muted">{filteredCatalog.length} of {catalog.length}</p>
           </div>
           <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
-            {filteredCatalog.map((it) => (
+            {filteredCatalog.map((it) => {
+              const isTmFamily = it.categoryNames.includes('Technical Machines')
+              const catalogPrice = resolveCatalogPrice(it)
+              return (
               <li key={it.id} className="flex flex-col gap-1 rounded border px-2 py-1 text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <span className="min-w-0 flex-1 truncate">
                     {it.name}
-                    {it.price !== null && <span className="text-muted"> — {it.price} P</span>}
+                    {catalogPrice !== null && <span className="text-muted"> — {catalogPrice} P</span>}
                   </span>
                   <div className="flex shrink-0 items-center gap-1">
                     <input
@@ -410,13 +530,13 @@ export function BagBoard({
                       onChange={(e) => setCatalogQty(it.id, Number(e.target.value))}
                       className="bg-surface-subtle w-14 rounded border p-1 text-center text-xs"
                     />
-                    <button type="button" onClick={() => handleGrant(it.id)} className="rounded border px-2 py-1 text-xs">
+                    <button type="button" onClick={() => handleGrant(it)} className="rounded border px-2 py-1 text-xs">
                       Grant
                     </button>
-                    {it.buyable && it.price !== null && (
+                    {it.buyable && catalogPrice !== null && (
                       <button
                         type="button"
-                        disabled={money < it.price * getCatalogQty(it.id)}
+                        disabled={money < catalogPrice * getCatalogQty(it.id)}
                         onClick={() => handleBuy(it)}
                         className="rounded bg-accent px-2 py-1 text-xs text-accent-foreground disabled:opacity-50"
                       >
@@ -425,6 +545,38 @@ export function BagBoard({
                     )}
                   </div>
                 </div>
+                {it.categoryNames.includes('Eggs') && (
+                  <div className="mt-1">
+                    <SpeciesPicker
+                      species={speciesList}
+                      name={`egg-species-${it.id}`}
+                      label="Species"
+                      value={catalogSpecies[it.id] ?? speciesList[0]?.name ?? ''}
+                      onChange={(name) => setCatalogSpecies((prev) => ({ ...prev, [it.id]: name }))}
+                    />
+                  </div>
+                )}
+                {isTmFamily && (
+                  <div className="mt-1 flex flex-col gap-1">
+                    <label htmlFor={`tm-move-${it.id}`} className="text-xs text-muted">Move (sets the price above)</label>
+                    {eligibleTmMoves().length === 0 ? (
+                      <p className="text-xs text-muted">No eligible moves found.</p>
+                    ) : (
+                      <select
+                        id={`tm-move-${it.id}`}
+                        value={catalogMove[it.id] ?? eligibleTmMoves()[0]?.name ?? ''}
+                        onChange={(e) => setCatalogMove((prev) => ({ ...prev, [it.id]: e.target.value }))}
+                        className="bg-surface-subtle rounded border px-2 py-1 text-xs"
+                      >
+                        {eligibleTmMoves().map((m) => (
+                          <option key={m.id} value={m.name}>
+                            {m.name}{m.typeName ? ` (${m.typeName})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
                 {it.description && (
                   <details className="text-xs text-muted">
                     <summary className="cursor-pointer">Details</summary>
@@ -432,7 +584,8 @@ export function BagBoard({
                   </details>
                 )}
               </li>
-            ))}
+              )
+            })}
           </ul>
         </section>
       )}

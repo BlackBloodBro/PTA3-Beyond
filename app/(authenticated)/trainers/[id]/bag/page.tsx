@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { loadBagSnapshot, loadItemCatalog } from '@/lib/pta3/bag'
+import { loadBagSnapshot, loadItemCatalog, loadTmEligibleMoves, loadTmPrices } from '@/lib/pta3/bag'
 import { BagBoard, type BagPokemonOption } from './BagBoard'
 
 export default async function BagPage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,13 +40,20 @@ export default async function BagPage({ params }: { params: Promise<{ id: string
   // full control, same rule as adjustMoney's own campaign_id ? isGM : isOwner check.
   const canAdjustMoney = isOwner
 
-  const [snapshot, catalog, { data: pokemonRows }] = await Promise.all([
+  const [snapshot, catalog, { data: pokemonRows }, { data: speciesRows }, tmMoves, tmPrices] = await Promise.all([
     loadBagSnapshot(supabase, id),
     loadItemCatalog(supabase),
     supabase
       .from('trainers_pokemon')
       .select('party_slot, pokemon(id, nickname, held_item_id, pokedex(name))')
       .eq('trainer_id', id),
+    // Needed for the Catalog's Egg species picker ([[Add Eggs as Item]]) -- same small-columns-only
+    // shape as /pokemon/new's own species list fetch.
+    supabase.from('pokedex').select('id, name, sprite_code').order('name'),
+    // Needed for the Catalog's TM/TR move picker ([[When buying a Technical Machine you should
+    // choose a move]]).
+    loadTmEligibleMoves(supabase),
+    loadTmPrices(supabase),
   ])
 
   const pokemonOptions: BagPokemonOption[] = (pokemonRows ?? [])
@@ -70,6 +77,9 @@ export default async function BagPage({ params }: { params: Promise<{ id: string
         initialSellPricePercent={snapshot.sellPricePercent}
         catalog={catalog}
         pokemonOptions={pokemonOptions}
+        speciesList={speciesRows ?? []}
+        tmMoves={tmMoves}
+        tmPrices={tmPrices}
       />
       <Link href={`/trainers/${id}`} className="underline">
         Back to {trainer.name}

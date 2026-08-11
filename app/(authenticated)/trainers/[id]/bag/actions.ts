@@ -2,7 +2,8 @@
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { loadBagSnapshot, type BagSnapshot } from '@/lib/pta3/bag'
+import { loadBagSnapshot, resolveItemPrice, type BagSnapshot } from '@/lib/pta3/bag'
+import { learnMove } from '@/app/(authenticated)/pokemon/actions'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -54,7 +55,7 @@ async function addToBag(
   pokedexId: number | null,
   quantity: number,
 ): Promise<{ error: string } | { ok: true }> {
-  const { data: item } = await supabase.from('items').select('id, stackable').eq('id', itemId).maybeSingle()
+  const { data: item } = await supabase.from('items').select('id, name, stackable').eq('id', itemId).maybeSingle()
   if (!item) {
     return { error: 'Item not found' }
   }
@@ -73,21 +74,37 @@ async function addToBag(
     return { ok: true }
   }
 
-  const { error } = await supabase
-    .from('trainers_items')
-    .insert({ trainer_id: trainerId, item_id: itemId, move_id: moveId, pokedex_id: pokedexId, quantity: item.stackable ? quantity : 1 })
+  // TR tracks individual use charges (3, consumed on each successful teach -- [[When buying a
+  // Technical Machine you should choose a move]]); everything else (including the now-infinite-use
+  // TM) leaves this null, same nullable-means-unlimited convention as pokemon_moves.uses_remaining.
+  const usesRemaining = item.name === 'TR' ? 3 : null
+
+  const { error } = await supabase.from('trainers_items').insert({
+    trainer_id: trainerId,
+    item_id: itemId,
+    move_id: moveId,
+    pokedex_id: pokedexId,
+    quantity: item.stackable ? quantity : 1,
+    uses_remaining: usesRemaining,
+  })
   if (error) return { error: error.message }
   return { ok: true }
 }
 
-export async function grantItem(trainerId: string, itemId: number, quantity: number = 1): Promise<{ error: string } | BagSnapshot> {
+export async function grantItem(
+  trainerId: string,
+  itemId: number,
+  quantity: number = 1,
+  pokedexId: number | null = null,
+  moveId: number | null = null,
+): Promise<{ error: string } | BagSnapshot> {
   const supabase = await createClient()
   const { trainer } = await requireAuthorizedTrainer(supabase, trainerId)
   if (!trainer) {
     return { error: 'Not authorized to manage this Trainer’s Bag' }
   }
 
-  const result = await addToBag(supabase, trainerId, itemId, null, null, clampQuantity(quantity))
+  const result = await addToBag(supabase, trainerId, itemId, moveId, pokedexId, clampQuantity(quantity))
   if ('error' in result) return result
 
   return loadBagSnapshot(supabase, trainerId)
@@ -131,20 +148,34 @@ export async function useItem(trainerId: string, trainersItemId: string): Promis
   return discardItem(trainerId, trainersItemId, 1)
 }
 
-export async function buyItem(trainerId: string, itemId: number, quantity: number = 1): Promise<{ error: string } | BagSnapshot> {
+export async function buyItem(
+  trainerId: string,
+  itemId: number,
+  quantity: number = 1,
+  pokedexId: number | null = null,
+  moveId: number | null = null,
+): Promise<{ error: string } | BagSnapshot> {
   const supabase = await createClient()
   const { trainer } = await requireAuthorizedTrainer(supabase, trainerId)
   if (!trainer) {
     return { error: 'Not authorized to manage this Trainer’s Bag' }
   }
 
-  const { data: item } = await supabase.from('items').select('id, buyable, price').eq('id', itemId).maybeSingle()
-  if (!item || !item.buyable || item.price === null) {
+  const { data: item } = await supabase.from('items').select('id, buyable').eq('id', itemId).maybeSingle()
+  if (!item || !item.buyable) {
+    return { error: 'That item is not available to buy' }
+  }
+
+  // Static `items.price` for almost everything; TM/TR have none of their own and price by whichever
+  // move is attached instead (per-frequency lookup, [[When buying a Technical Machine you should
+  // choose a move]]) -- recomputed here rather than trusting a client-supplied number.
+  const price = await resolveItemPrice(supabase, itemId, moveId)
+  if (price === null) {
     return { error: 'That item is not available to buy' }
   }
 
   const qty = clampQuantity(quantity)
-  const totalCost = item.price * qty
+  const totalCost = price * qty
   if (trainer.money < totalCost) {
     return { error: 'Not enough money' }
   }
@@ -152,7 +183,7 @@ export async function buyItem(trainerId: string, itemId: number, quantity: numbe
   const { error: moneyError } = await supabase.from('trainers').update({ money: trainer.money - totalCost }).eq('id', trainerId)
   if (moneyError) return { error: moneyError.message }
 
-  const result = await addToBag(supabase, trainerId, itemId, null, null, qty)
+  const result = await addToBag(supabase, trainerId, itemId, moveId, pokedexId, qty)
   if ('error' in result) return result
 
   return loadBagSnapshot(supabase, trainerId)
@@ -174,7 +205,7 @@ export async function sellItem(trainerId: string, trainersItemId: string, quanti
 
   const { data: row } = await supabase
     .from('trainers_items')
-    .select('id, quantity, items(price)')
+    .select('id, item_id, move_id, quantity')
     .eq('id', trainersItemId)
     .eq('trainer_id', trainerId)
     .maybeSingle()
@@ -182,7 +213,11 @@ export async function sellItem(trainerId: string, trainersItemId: string, quanti
   if (!row) {
     return { error: 'Item not found in this Bag' }
   }
-  if (row.items?.price == null) {
+
+  // Uses this row's own attached move (already fixed at purchase/grant time) rather than any
+  // client-supplied value -- same TM/TR dynamic-price lookup as buyItem.
+  const price = await resolveItemPrice(supabase, row.item_id, row.move_id)
+  if (price === null) {
     return { error: 'That item cannot be sold' }
   }
 
@@ -192,7 +227,7 @@ export async function sellItem(trainerId: string, trainersItemId: string, quanti
   }
 
   const percent = trainer.campaign_id ? (trainer.campaigns?.sell_price_percent ?? 50) : 50
-  const saleValue = Math.floor((row.items.price * percent) / 100) * qty
+  const saleValue = Math.floor((price * percent) / 100) * qty
 
   const { error: moneyError } = await supabase.from('trainers').update({ money: trainer.money + saleValue }).eq('id', trainerId)
   if (moneyError) return { error: moneyError.message }
@@ -291,6 +326,56 @@ export async function giveHeldItem(trainerId: string, trainersItemId: string, po
   } else {
     const { error } = await supabase.from('trainers_items').delete().eq('id', row.id)
     if (error) return { error: error.message }
+  }
+
+  return loadBagSnapshot(supabase, trainerId)
+}
+
+// Teaches a move-attached TM/TR's move ([[When buying a Technical Machine you should choose a move]])
+// to one of this Trainer's own Pokémon -- shaped like giveHeldItem above (pick a Pokémon, confirm),
+// except it calls the existing learnMove instead of setting held_item_id. Additive, not gating: this is
+// a second, bound way to learn a TM-eligible move alongside the free "Learn a Move" flow already on the
+// Pokémon page (untouched, still just as permissive) -- buying/granting a TM/TR stops being
+// mechanically inert without restricting anything that already worked.
+// Consumption: TM is infinitely reusable (uses_remaining null) and is never touched here. TR has 3
+// charges (uses_remaining starts at 3 on grant/purchase) -- decremented per successful teach, removed
+// once it hits 0.
+export async function teachTmMove(trainerId: string, trainersItemId: string, pokemonId: string): Promise<{ error: string } | BagSnapshot> {
+  const supabase = await createClient()
+  const { trainer } = await requireAuthorizedTrainer(supabase, trainerId)
+  if (!trainer) {
+    return { error: 'Not authorized to manage this Trainer’s Bag' }
+  }
+
+  const [{ data: row }, { data: pokemon }] = await Promise.all([
+    supabase.from('trainers_items').select('id, move_id, uses_remaining').eq('id', trainersItemId).eq('trainer_id', trainerId).maybeSingle(),
+    supabase.from('trainers_pokemon').select('pokemon_id').eq('trainer_id', trainerId).eq('pokemon_id', pokemonId).maybeSingle(),
+  ])
+
+  if (!row) {
+    return { error: 'Item not found in this Bag' }
+  }
+  if (row.move_id === null) {
+    return { error: 'That item has no move attached to teach' }
+  }
+  if (!pokemon) {
+    return { error: 'That Pokémon does not belong to this Trainer' }
+  }
+
+  const learnResult = await learnMove(pokemonId, row.move_id)
+  if ('error' in learnResult) {
+    return learnResult
+  }
+
+  if (row.uses_remaining !== null) {
+    const remaining = row.uses_remaining - 1
+    if (remaining > 0) {
+      const { error } = await supabase.from('trainers_items').update({ uses_remaining: remaining }).eq('id', row.id)
+      if (error) return { error: error.message }
+    } else {
+      const { error } = await supabase.from('trainers_items').delete().eq('id', row.id)
+      if (error) return { error: error.message }
+    }
   }
 
   return loadBagSnapshot(supabase, trainerId)
