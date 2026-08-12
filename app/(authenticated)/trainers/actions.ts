@@ -733,7 +733,7 @@ export async function resetFeatureUses(
   return { usesRemaining: maxUses }
 }
 
-export async function restSleep(trainerId: string) {
+export async function restSleep(trainerId: string, formData: FormData) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -756,7 +756,10 @@ export async function restSleep(trainerId: string) {
   // Max HP is never stored -- recompute it from this trainer's qualifying milestones.
   const maxHp = computeMaxHp(await loadQualifyingMilestones(supabase, trainerId, trainer.level))
 
-  const roll = Math.floor(Math.random() * 6) + 1
+  // Per [[Change HP restoration]]: the player physically rolls their own d6 now (RollInputButton's
+  // prompt on the Sleep button) instead of this action rolling it server-side -- clamped to [1, 6]
+  // here too as a safety net against a tampered/malformed value, not the primary validation.
+  const roll = Math.max(1, Math.min(6, Math.floor(Number(formData.get('roll'))) || 1))
   const newTrainerHp = Math.min(maxHp, trainer.current_hp + roll)
 
   const { error: trainerError } = await supabase

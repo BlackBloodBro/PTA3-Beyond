@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { deleteTrainer, restPokemonCenter, restSleep } from '@/app/(authenticated)/trainers/actions'
 import { ConfirmButton } from '@/components/ConfirmButton'
+import { RollInputButton } from '@/components/RollInputButton'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
 import { MAX_TEAM_SIZE } from '@/lib/pta3/pokemonTeam'
@@ -288,12 +289,16 @@ export default async function NpcPage({
             <h2 className="mb-2 font-semibold">Rest</h2>
             <div className="flex flex-wrap gap-2">
               <form action={restSleep.bind(null, id)}>
-                <ConfirmButton
-                  confirmMessage="Sleep? You heal 1d6 HP, each Pokémon heals 1/6 of its max HP, and rest-based features recharge."
+                <RollInputButton
+                  promptMessage="Roll a d6 and enter the result (1-6). You heal that much HP, each Pokémon heals 1/6 of its max HP, and rest-based features recharge."
+                  min={1}
+                  max={6}
+                  fieldName="roll"
+                  formAction={restSleep.bind(null, id)}
                   className="rounded border px-4 py-2 text-sm"
                 >
                   Sleep
-                </ConfirmButton>
+                </RollInputButton>
               </form>
               <form action={restPokemonCenter.bind(null, id)}>
                 <ConfirmButton
