@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { pickRandomNatureId } from '@/lib/pta3/nature'
 import { pickRandomGender } from '@/lib/pta3/gender'
 import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
+import { pickFlavorPreferences } from '@/lib/pta3/flavors'
 
 export async function createStarterPokemon(trainerId: string, formData: FormData) {
   const supabase = await createClient()
@@ -79,6 +80,14 @@ export async function createStarterPokemon(trainerId: string, formData: FormData
     redirect(
       `/trainers/${trainerId}/starter?error=${encodeURIComponent(pokemonError.message ?? 'Could not create Pokemon')}`,
     )
+  }
+
+  // Same reasoning as nature/gender -- always rolled, no picker exposed to the player.
+  const flavorPrefs = await pickFlavorPreferences(supabase)
+  if (flavorPrefs.length > 0) {
+    await supabase
+      .from('pokemon_flavor_preferences')
+      .insert(flavorPrefs.map((p) => ({ pokemon_id: pokemonId, flavor_id: p.flavorId, liked: p.liked })))
   }
 
   // A brand-new trainer's starter always lands on the Team, not the PC -- findNextOpenSlot still

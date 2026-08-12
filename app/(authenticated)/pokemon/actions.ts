@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { pickRandomNatureId } from '@/lib/pta3/nature'
 import { pickRandomGender } from '@/lib/pta3/gender'
 import { pickRandomShiny } from '@/lib/pta3/shiny'
+import { pickFlavorPreferences } from '@/lib/pta3/flavors'
 import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
@@ -201,6 +202,17 @@ export async function createPokemon(input: CreatePokemonInput): Promise<{ error:
     }
 
     lastPokemonId = pokemonId
+
+    // Independently rolled per copy, same reasoning as Nature/Gender/Shiny above.
+    const flavorPrefs = await pickFlavorPreferences(supabase)
+    if (flavorPrefs.length > 0) {
+      const { error: flavorError } = await supabase
+        .from('pokemon_flavor_preferences')
+        .insert(flavorPrefs.map((p) => ({ pokemon_id: pokemonId, flavor_id: p.flavorId, liked: p.liked })))
+      if (flavorError) {
+        warnings.push(`Flavor preferences: ${flavorError.message}`)
+      }
+    }
 
     if (input.trainerId) {
       // Same auto-park behavior as assignPokemon below -- lands on the Team if there's room, parks
