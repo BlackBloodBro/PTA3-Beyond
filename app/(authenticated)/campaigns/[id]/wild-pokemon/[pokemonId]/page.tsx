@@ -7,6 +7,7 @@ import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { isBookmarked } from '@/lib/pta3/bookmarks'
+import { formatFlavorPreferences } from '@/lib/pta3/flavors'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { HeldItemTakeBack } from '@/app/(authenticated)/pokemon/[pokemonId]/HeldItemTakeBack'
@@ -89,6 +90,7 @@ export default async function WildPokemonPage({
         increased:stats!increased_stat_id(name),
         decreased:stats!decreased_stat_id(name)
       ),
+      pokemon_flavor_preferences(liked, flavor:flavors(name)),
       loyalty:loyalties!loyalty_id(name, modifier),
       held_item:items!held_item_id(name),
       trainers_pokemon(
@@ -176,6 +178,9 @@ export default async function WildPokemonPage({
   const effectiveType2 = pokemon.type_2_id ? pokemon.override_type_2?.name : species.type_2?.name
   const effectiveSize = pokemon.override_size?.name ?? species.size?.name
   const effectiveWeight = pokemon.override_weight?.name ?? species.weight?.name
+  const { likes, dislikes } = formatFlavorPreferences(
+    pokemon.pokemon_flavor_preferences as unknown as { liked: boolean; flavor: { name: string } | null }[],
+  )
 
   // Level is never stored -- always recomputed from current_exp and the four modifiers so it
   // reflects any change (exp award, loyalty shift, obtain method, shininess) immediately.
@@ -463,6 +468,8 @@ export default async function WildPokemonPage({
                         <p>Nature: {pokemon.nature?.name ?? '—'}</p>
                         <p>Stat increase: {pokemon.nature?.increased?.name ?? '—'}</p>
                         <p>Stat decrease: {pokemon.nature?.decreased?.name ?? '—'}</p>
+                        <p>Likes: {likes}</p>
+                        <p>Dislikes: {dislikes}</p>
                       </div>
                       <div className="flex flex-col gap-1">
                         <p>Weight: {effectiveWeight ?? '—'}</p>
@@ -646,6 +653,8 @@ export default async function WildPokemonPage({
                 <p>Nature: {pokemon.nature?.name ?? '—'}</p>
                 <p>Stat increase: {pokemon.nature?.increased?.name ?? '—'}</p>
                 <p>Stat decrease: {pokemon.nature?.decreased?.name ?? '—'}</p>
+                <p>Likes: {likes}</p>
+                <p>Dislikes: {dislikes}</p>
               </div>
               <div className="flex flex-col gap-1">
                 <p>Weight: {effectiveWeight ?? '—'}</p>
