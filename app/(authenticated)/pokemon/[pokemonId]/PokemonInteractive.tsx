@@ -116,7 +116,7 @@ function TargetTypePicker({
   }
 
   return (
-    <div className="mb-3 flex flex-col gap-2 rounded border p-2 text-sm">
+    <div className="mb-3 flex flex-col gap-2 rounded border border-accent bg-accent/10 p-2 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">Against:</span>
         <select value={defType1} onChange={(e) => onChangeDefType1(e.target.value)} className="rounded border px-2 py-1">
@@ -128,7 +128,7 @@ function TargetTypePicker({
           ))}
         </select>
         <select value={defType2} onChange={(e) => onChangeDefType2(e.target.value)} className="rounded border px-2 py-1">
-          <option value="">Type 2 (optional)</option>
+          <option value="">Type 2</option>
           {allTypeNames.map((t) => (
             <option key={t} value={t}>
               {t}
