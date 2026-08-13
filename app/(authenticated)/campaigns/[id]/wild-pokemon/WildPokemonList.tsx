@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { assignPokemon } from '@/app/(authenticated)/pokemon/actions'
-import { createLabel, setPokemonLabels } from '@/app/(authenticated)/campaigns/[id]/actions'
+import { bulkSetPokemonLabel, createLabel } from '@/app/(authenticated)/campaigns/[id]/actions'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { LABEL_CHIP_CLASSES, LABEL_COLORS, LABEL_SWATCH_CLASSES, type LabelColor } from '@/lib/pta3/labelColors'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
@@ -25,7 +25,10 @@ export type WildPokemon = {
 // Owns the whole Wild Pokemon list client-side so assigning a Pokemon (it leaves the list) and
 // editing/creating labels (shared across every row's picker) never need a page reload -- both
 // assignPokemon and the label actions are now plain functions returning results instead of
-// <form action> + redirect.
+// <form action> + redirect. Per-row "Edit labels" (details/summary) replaced with a bulk
+// select-and-assign toolbar ([[Improve label management]]), matching NpcList's own bulk pattern --
+// per-row selection checkboxes + a "Manage labels" picker that assigns/unassigns one label across
+// every selected row at a time via bulkSetPokemonLabel, not a per-row full-replace.
 export function WildPokemonList({
   campaignId,
   initialPokemon,
@@ -46,6 +49,11 @@ export function WildPokemonList({
   const [typeId, setTypeId] = useState('')
   const [levelMin, setLevelMin] = useState('')
   const [levelMax, setLevelMax] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [bulkError, setBulkError] = useState<string | null>(null)
+  const [newLabelName, setNewLabelName] = useState('')
+  const [newLabelColor, setNewLabelColor] = useState<LabelColor>('gray')
 
   function toggleFilterLabel(labelId: string) {
     setSelectedFilterLabelIds((prev) => {
@@ -79,6 +87,58 @@ export function WildPokemonList({
       return true
     })
   }, [pokemonList, searchText, selectedFilterLabelIds, typeId, levelMin, levelMax])
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(visiblePokemon.map((p) => p.id)))
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set())
+  }
+
+  async function handleBulkLabelToggle(label: Label, add: boolean) {
+    setBulkError(null)
+    const ids = Array.from(selectedIds)
+    const result = await bulkSetPokemonLabel(ids, label.id, add)
+    if ('error' in result) {
+      setBulkError(result.error)
+      return
+    }
+    setPokemonList((prev) =>
+      prev.map((p) => {
+        if (!selectedIds.has(p.id)) return p
+        if (add) {
+          if (p.labelIds.includes(label.id)) return p
+          return { ...p, labelIds: [...p.labelIds, label.id] }
+        }
+        return { ...p, labelIds: p.labelIds.filter((id) => id !== label.id) }
+      }),
+    )
+  }
+
+  async function handleCreateLabel() {
+    setBulkError(null)
+    if (!newLabelName.trim()) return
+    const result = await createLabel(campaignId, newLabelName, newLabelColor)
+    if ('error' in result) {
+      setBulkError(result.error)
+      return
+    }
+    setLabels((prev) => [...prev, result.label].sort((a, b) => a.name.localeCompare(b.name)))
+    setNewLabelName('')
+  }
 
   return (
     <>
@@ -177,6 +237,67 @@ export function WildPokemonList({
             Clear filters
           </button>
         )}
+
+        <div className="mt-1 flex flex-wrap items-center gap-2 border-t pt-2">
+          <button type="button" onClick={selectAllVisible} className="text-xs underline">
+            Select all visible
+          </button>
+          {selectedIds.size > 0 && (
+            <button type="button" onClick={clearSelection} className="text-xs underline">
+              Clear selection
+            </button>
+          )}
+          <span className="text-xs text-muted">{selectedIds.size} selected</span>
+          <button
+            type="button"
+            disabled={selectedIds.size === 0}
+            onClick={() => setPickerOpen((o) => !o)}
+            className="rounded border-accent bg-accent/20 px-3 py-1 text-xs disabled:opacity-50"
+          >
+            Manage labels
+          </button>
+        </div>
+
+        {pickerOpen && selectedIds.size > 0 && (
+          <div className="flex flex-col gap-2 rounded border-accent bg-accent/20 p-2">
+            <p className="text-xs text-muted">
+              Check a label to add it to all {selectedIds.size} selected Pokémon, uncheck to remove it.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {labels.map((label) => (
+                <label key={label.id} className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs ${LABEL_CHIP_CLASSES[label.color]}`}>
+                  <input type="checkbox" onChange={(e) => handleBulkLabelToggle(label, e.target.checked)} />
+                  {label.name}
+                </label>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+              <input
+                value={newLabelName}
+                onChange={(e) => setNewLabelName(e.target.value)}
+                type="text"
+                placeholder="New label name"
+                className="bg-surface-subtle rounded border px-2 py-1 text-xs"
+              />
+              {LABEL_COLORS.map((color) => (
+                <label key={color} className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="wild-pokemon-new-label-color"
+                    checked={newLabelColor === color}
+                    onChange={() => setNewLabelColor(color)}
+                    className="sr-only peer"
+                  />
+                  <span className={`h-4 w-4 rounded-full ${LABEL_SWATCH_CLASSES[color]} ring-offset-1 peer-checked:ring-2 peer-checked:ring-black`} />
+                </label>
+              ))}
+              <button type="button" onClick={handleCreateLabel} className="rounded bg-accent px-2 py-1 text-xs text-accent-foreground">
+                + Add label
+              </button>
+            </div>
+            {bulkError && <p className="text-xs text-danger">{bulkError}</p>}
+          </div>
+        )}
       </form>
 
       <div className="flex w-full max-w-2xl flex-col gap-2">
@@ -190,11 +311,9 @@ export function WildPokemonList({
               campaignId={campaignId}
               trainers={trainers}
               labels={labels}
+              selected={selectedIds.has(p.id)}
+              onToggleSelected={() => toggleSelected(p.id)}
               onAssigned={() => setPokemonList((prev) => prev.filter((row) => row.id !== p.id))}
-              onLabelsSaved={(labelIds) =>
-                setPokemonList((prev) => prev.map((row) => (row.id === p.id ? { ...row, labelIds } : row)))
-              }
-              onLabelCreated={(label) => setLabels((prev) => [...prev, label].sort((a, b) => a.name.localeCompare(b.name)))}
             />
           ))
         )}
@@ -208,24 +327,20 @@ function WildPokemonRow({
   campaignId,
   trainers,
   labels,
+  selected,
+  onToggleSelected,
   onAssigned,
-  onLabelsSaved,
-  onLabelCreated,
 }: {
   pokemon: WildPokemon
   campaignId: string
   trainers: Trainer[]
   labels: Label[]
+  selected: boolean
+  onToggleSelected: () => void
   onAssigned: () => void
-  onLabelsSaved: (labelIds: string[]) => void
-  onLabelCreated: (label: Label) => void
 }) {
   const [selectedTrainer, setSelectedTrainer] = useState('')
   const [assignError, setAssignError] = useState<string | null>(null)
-  const [selectedLabelIds, setSelectedLabelIds] = useState<Set<string>>(new Set(pokemon.labelIds))
-  const [labelError, setLabelError] = useState<string | null>(null)
-  const [newLabelName, setNewLabelName] = useState('')
-  const [newLabelColor, setNewLabelColor] = useState<LabelColor>('gray')
 
   async function handleAssign() {
     setAssignError(null)
@@ -238,132 +353,57 @@ function WildPokemonRow({
     onAssigned()
   }
 
-  function toggleLabel(labelId: string) {
-    setSelectedLabelIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(labelId)) {
-        next.delete(labelId)
-      } else {
-        next.add(labelId)
-      }
-      return next
-    })
-  }
-
-  async function handleSaveLabels() {
-    setLabelError(null)
-    const labelIds = Array.from(selectedLabelIds)
-    const result = await setPokemonLabels(pokemon.id, labelIds)
-    if ('error' in result) {
-      setLabelError(result.error)
-      return
-    }
-    onLabelsSaved(result.labelIds)
-  }
-
-  async function handleCreateLabel() {
-    setLabelError(null)
-    if (!newLabelName.trim()) return
-    const result = await createLabel(campaignId, newLabelName, newLabelColor)
-    if ('error' in result) {
-      setLabelError(result.error)
-      return
-    }
-    onLabelCreated(result.label)
-    setNewLabelName('')
-  }
-
   const currentLabels = labels.filter((l) => pokemon.labelIds.includes(l.id))
 
   return (
-    <div className="rounded border-accent bg-accent/10 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <Link href={pokemonHref({ id: pokemon.id, hasOwner: false, campaignId })} className="flex items-center gap-2 underline">
-          {pokemon.pokedex && (
-            <PokemonSprite spriteCode={pokemon.pokedex.sprite_code} shiny={pokemon.is_shiny} alt={pokemon.pokedex.name} size={32} />
-          )}
-          <span>
-            {pokemon.nickname ? `${pokemon.nickname} (${pokemon.pokedex?.name})` : pokemon.pokedex?.name}
-            <span className="ml-2 text-xs text-muted">Level {pokemon.level}</span>
-          </span>
-        </Link>
-        {trainers.length > 0 && (
-          <span className="flex items-center gap-2">
-            <select
-              value={selectedTrainer}
-              onChange={(e) => setSelectedTrainer(e.target.value)}
-              className="bg-surface-subtle rounded border p-1 text-sm"
-            >
-              <option value="" disabled>
-                Assign to...
-              </option>
-              {trainers.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                  {t.is_npc ? ' (NPC)' : ''}
-                </option>
-              ))}
-            </select>
-            <button type="button" onClick={handleAssign} className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground">
-              Assign
-            </button>
-          </span>
-        )}
-      </div>
-      {assignError && <p className="mt-1 text-xs text-danger">{assignError}</p>}
-
-      {currentLabels.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {currentLabels.map((l) => (
-            <span key={l.id} className={`rounded-full px-2 py-0.5 text-xs ${LABEL_CHIP_CLASSES[l.color]}`}>
-              {l.name}
+    <div className="flex items-start gap-2 rounded border-accent bg-accent/10 p-3">
+      <input type="checkbox" className="mt-1" checked={selected} onChange={onToggleSelected} />
+      <div className="flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <Link href={pokemonHref({ id: pokemon.id, hasOwner: false, campaignId })} className="flex items-center gap-2 underline">
+            {pokemon.pokedex && (
+              <PokemonSprite spriteCode={pokemon.pokedex.sprite_code} shiny={pokemon.is_shiny} alt={pokemon.pokedex.name} size={32} />
+            )}
+            <span>
+              {pokemon.nickname ? `${pokemon.nickname} (${pokemon.pokedex?.name})` : pokemon.pokedex?.name}
+              <span className="ml-2 text-xs text-muted">Level {pokemon.level}</span>
             </span>
-          ))}
+          </Link>
+          {trainers.length > 0 && (
+            <span className="flex items-center gap-2">
+              <select
+                value={selectedTrainer}
+                onChange={(e) => setSelectedTrainer(e.target.value)}
+                className="bg-surface-subtle rounded border p-1 text-sm"
+              >
+                <option value="" disabled>
+                  Assign to...
+                </option>
+                {trainers.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.is_npc ? ' (NPC)' : ''}
+                  </option>
+                ))}
+              </select>
+              <button type="button" onClick={handleAssign} className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground">
+                Assign
+              </button>
+            </span>
+          )}
         </div>
-      )}
+        {assignError && <p className="mt-1 text-xs text-danger">{assignError}</p>}
 
-      <details className="mt-2">
-        <summary className="cursor-pointer text-xs text-muted">Edit labels</summary>
-        <div className="mt-2 flex flex-col gap-2">
-          <div className="flex flex-wrap gap-2">
-            {labels.map((label) => (
-              <label key={label.id} className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs ${LABEL_CHIP_CLASSES[label.color]}`}>
-                <input type="checkbox" checked={selectedLabelIds.has(label.id)} onChange={() => toggleLabel(label.id)} />
-                {label.name}
-              </label>
+        {currentLabels.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {currentLabels.map((l) => (
+              <span key={l.id} className={`rounded-full px-2 py-0.5 text-xs ${LABEL_CHIP_CLASSES[l.color]}`}>
+                {l.name}
+              </span>
             ))}
           </div>
-          <button type="button" onClick={handleSaveLabels} className="w-fit rounded bg-accent px-3 py-1 text-xs text-accent-foreground">
-            Save labels
-          </button>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-2">
-          <input
-            value={newLabelName}
-            onChange={(e) => setNewLabelName(e.target.value)}
-            type="text"
-            placeholder="New label name"
-            className="bg-surface-subtle rounded border px-2 py-1 text-xs"
-          />
-          {LABEL_COLORS.map((color) => (
-            <label key={color} className="flex items-center gap-1">
-              <input
-                type="radio"
-                name={`color-${pokemon.id}`}
-                checked={newLabelColor === color}
-                onChange={() => setNewLabelColor(color)}
-                className="sr-only peer"
-              />
-              <span className={`h-4 w-4 rounded-full ${LABEL_SWATCH_CLASSES[color]} ring-offset-1 peer-checked:ring-2 peer-checked:ring-black`} />
-            </label>
-          ))}
-          <button type="button" onClick={handleCreateLabel} className="rounded bg-accent px-2 py-1 text-xs text-accent-foreground">
-            + Add label
-          </button>
-        </div>
-        {labelError && <p className="mt-1 text-xs text-danger">{labelError}</p>}
-      </details>
+        )}
+      </div>
     </div>
   )
 }
