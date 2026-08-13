@@ -63,6 +63,11 @@ export default async function NpcBagPage({ params }: { params: Promise<{ id: str
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-4 p-24">
+      <div className="w-full max-w-4xl">
+        <Link href={`/campaigns/${campaignId}/npcs/${id}`} className="text-sm underline">
+          ← Back to {trainer.name}
+        </Link>
+      </div>
       <h1 className="text-2xl font-bold">{trainer.name}&apos;s Inventory</h1>
       <BagBoard
         trainerId={id}
@@ -77,9 +82,6 @@ export default async function NpcBagPage({ params }: { params: Promise<{ id: str
         tmMoves={tmMoves}
         tmPrices={tmPrices}
       />
-      <Link href={`/campaigns/${campaignId}/npcs/${id}`} className="underline">
-        Back to {trainer.name}
-      </Link>
     </main>
   )
 }

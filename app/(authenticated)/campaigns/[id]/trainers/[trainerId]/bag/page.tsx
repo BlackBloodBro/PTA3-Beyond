@@ -63,6 +63,11 @@ export default async function CampaignTrainerBagPage({ params }: { params: Promi
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-4 p-24">
+      <div className="w-full max-w-4xl">
+        <Link href={`/campaigns/${campaignId}/trainers/${id}`} className="text-sm underline">
+          ← Back to {trainer.name}
+        </Link>
+      </div>
       <h1 className="text-2xl font-bold">{trainer.name}&apos;s Inventory</h1>
       <BagBoard
         trainerId={id}
@@ -77,9 +82,6 @@ export default async function CampaignTrainerBagPage({ params }: { params: Promi
         tmMoves={tmMoves}
         tmPrices={tmPrices}
       />
-      <Link href={`/campaigns/${campaignId}/trainers/${id}`} className="underline">
-        Back to {trainer.name}
-      </Link>
     </main>
   )
 }
