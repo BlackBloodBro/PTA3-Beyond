@@ -9,6 +9,11 @@ type Label = { id: string; name: string; color: LabelColor }
 // Replaces the old <form action={setTrainerLabels}> + <form action={createLabel}> pair -- both are
 // now plain functions called directly, so toggling an NPC's labels or adding a brand new campaign
 // label updates this section in place instead of reloading the whole trainer page.
+// [[Improve label management]]: collapsed behind an edit-toggle -- same isEditing/openEdit/Cancel
+// shape as CampaignInfoSection/TrainerInfoSection -- so this section reads as a compact chip row by
+// default instead of a full-height form competing with the rest of the NPC sheet. Kept in place (not
+// removed) and still the only per-NPC label editor -- the bulk pattern lives on the NPC overview,
+// this stays for single-NPC touch-ups and for creating brand new campaign labels.
 export function NpcLabelsSection({
   trainerId,
   campaignId,
@@ -21,10 +26,18 @@ export function NpcLabelsSection({
   initialSelectedLabelIds: string[]
 }) {
   const [labels, setLabels] = useState(initialLabels)
+  const [savedLabelIds, setSavedLabelIds] = useState<string[]>(initialSelectedLabelIds)
   const [selectedLabelIds, setSelectedLabelIds] = useState<Set<string>>(new Set(initialSelectedLabelIds))
+  const [isEditing, setIsEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [newLabelName, setNewLabelName] = useState('')
   const [newLabelColor, setNewLabelColor] = useState<LabelColor>('gray')
+
+  function openEdit() {
+    setSelectedLabelIds(new Set(savedLabelIds))
+    setError(null)
+    setIsEditing(true)
+  }
 
   function toggleLabel(labelId: string) {
     setSelectedLabelIds((prev) => {
@@ -45,7 +58,9 @@ export function NpcLabelsSection({
       setError(result.error)
       return
     }
+    setSavedLabelIds(result.labelIds)
     setSelectedLabelIds(new Set(result.labelIds))
+    setIsEditing(false)
   }
 
   async function handleCreateLabel() {
@@ -60,9 +75,39 @@ export function NpcLabelsSection({
     setNewLabelName('')
   }
 
+  if (!isEditing) {
+    const currentLabels = labels.filter((l) => savedLabelIds.includes(l.id))
+    return (
+      <section className="w-full max-w-4xl rounded border-accent bg-accent/10 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-semibold">Labels</h2>
+          <button type="button" onClick={openEdit} className="rounded border px-3 py-1 text-sm">
+            Edit
+          </button>
+        </div>
+        {currentLabels.length === 0 ? (
+          <p className="mt-2 text-sm text-muted">No labels.</p>
+        ) : (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {currentLabels.map((label) => (
+              <span key={label.id} className={`rounded-full px-2 py-1 text-xs ${LABEL_CHIP_CLASSES[label.color]}`}>
+                {label.name}
+              </span>
+            ))}
+          </div>
+        )}
+      </section>
+    )
+  }
+
   return (
     <section className="w-full max-w-4xl rounded border-accent bg-accent/10 p-4">
-      <h2 className="mb-2 font-semibold">Labels</h2>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="font-semibold">Labels</h2>
+        <button type="button" onClick={() => setIsEditing(false)} className="rounded border px-3 py-1 text-sm">
+          Cancel
+        </button>
+      </div>
       <div className="flex flex-col gap-2">
         {labels.length === 0 ? (
           <p className="text-sm text-muted">No labels in this campaign yet.</p>

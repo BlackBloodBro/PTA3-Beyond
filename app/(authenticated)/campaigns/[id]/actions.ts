@@ -276,3 +276,79 @@ export async function setPokemonLabels(
 
   return { labelIds }
 }
+
+// [[Improve label management]]: additive/subtractive, unlike setTrainerLabels/setPokemonLabels above
+// (single-entity, delete-then-insert-full-set) -- applying that shape per selected row in a bulk
+// picker would wipe out any of that row's labels not present in the picker's checked set. These only
+// touch the one label_id passed in, across every id in the list, leaving everything else alone.
+// GM-only via RLS ("GM manages trainer labels"/"GM manages pokemon labels"), same as the two actions
+// above -- no separate app-level check needed.
+export async function bulkSetTrainerLabel(trainerIds: string[], labelId: string, add: boolean): Promise<{ error: string } | { ok: true }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  if (trainerIds.length === 0) {
+    return { ok: true }
+  }
+
+  if (add) {
+    // Upsert + ignoreDuplicates -- a mixed selection where some rows already have this label
+    // shouldn't error on the (trainer_id, label_id) PK conflict for those rows.
+    const { error } = await supabase
+      .from('trainer_labels')
+      .upsert(
+        trainerIds.map((trainerId) => ({ trainer_id: trainerId, label_id: labelId })),
+        { onConflict: 'trainer_id,label_id', ignoreDuplicates: true },
+      )
+    if (error) {
+      return { error: error.message }
+    }
+  } else {
+    const { error } = await supabase.from('trainer_labels').delete().eq('label_id', labelId).in('trainer_id', trainerIds)
+    if (error) {
+      return { error: error.message }
+    }
+  }
+
+  return { ok: true }
+}
+
+export async function bulkSetPokemonLabel(pokemonIds: string[], labelId: string, add: boolean): Promise<{ error: string } | { ok: true }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  if (pokemonIds.length === 0) {
+    return { ok: true }
+  }
+
+  if (add) {
+    const { error } = await supabase
+      .from('pokemon_labels')
+      .upsert(
+        pokemonIds.map((pokemonId) => ({ pokemon_id: pokemonId, label_id: labelId })),
+        { onConflict: 'pokemon_id,label_id', ignoreDuplicates: true },
+      )
+    if (error) {
+      return { error: error.message }
+    }
+  } else {
+    const { error } = await supabase.from('pokemon_labels').delete().eq('label_id', labelId).in('pokemon_id', pokemonIds)
+    if (error) {
+      return { error: error.message }
+    }
+  }
+
+  return { ok: true }
+}
