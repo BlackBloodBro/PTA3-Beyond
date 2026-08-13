@@ -41,6 +41,36 @@ export type SkillBrowseRow = {
   statName: string | null
 }
 
+export type FeatureBrowseRow = {
+  id: number
+  name: string
+  description: string
+  level_required: number
+}
+
+export type SubclassBrowseRow = {
+  id: number
+  name: string
+  description: string | null
+  features: FeatureBrowseRow[]
+}
+
+export type ClassBrowseRow = {
+  id: number
+  name: string
+  description: string | null
+  baseFeatures: FeatureBrowseRow[]
+  subclasses: SubclassBrowseRow[]
+}
+
+export type OriginBrowseRow = {
+  id: number
+  name: string
+  description: string | null
+  lifestyle: string | null
+  features: FeatureBrowseRow[]
+}
+
 // Loaded once per page visit, filtered client-side -- same "load everything upfront" pattern as
 // loadItemCatalog. Deliberately excludes pokedex_moves/pokedex_passives (each species' full learnset)
 // from this bulk query -- embedding that across ~986 species would multiply the payload far beyond
@@ -114,5 +144,65 @@ export async function loadSkillsBrowse(supabase: SupabaseClient): Promise<SkillB
     id: s.id,
     name: s.name,
     statName: s.stats?.name ?? null,
+  }))
+}
+
+// [[Add Classes and Origins to Pokedex]]: unlike loadClassBuilderData (lib/pta3/trainerFeatures.ts),
+// this is pure reference browsing -- every Feature for every Class/Subclass, no per-trainer level
+// gating or milestone resolution. Small tables (5 classes, 29 subclasses, 15 origins) grouped in JS
+// from 3 flat queries rather than nested embeds, same "load everything, assemble client-side" spirit
+// as the other browse loaders.
+export async function loadClassesBrowse(supabase: SupabaseClient): Promise<ClassBrowseRow[]> {
+  const [{ data: classes }, { data: subclasses }, { data: features }] = await Promise.all([
+    supabase.from('classes').select('id, name, description').order('name'),
+    supabase.from('subclasses').select('id, class_id, name, description').order('name'),
+    supabase.from('features').select('id, name, description, level_required, class_id, subclass_id').order('level_required'),
+  ])
+
+  const featuresByClass = new Map<number, FeatureBrowseRow[]>()
+  const featuresBySubclass = new Map<number, FeatureBrowseRow[]>()
+  for (const f of features ?? []) {
+    const row = { id: f.id, name: f.name, description: f.description, level_required: f.level_required }
+    if (f.subclass_id) {
+      featuresBySubclass.set(f.subclass_id, [...(featuresBySubclass.get(f.subclass_id) ?? []), row])
+    } else {
+      featuresByClass.set(f.class_id, [...(featuresByClass.get(f.class_id) ?? []), row])
+    }
+  }
+
+  const subclassesByClass = new Map<number, SubclassBrowseRow[]>()
+  for (const s of subclasses ?? []) {
+    const row = { id: s.id, name: s.name, description: s.description, features: featuresBySubclass.get(s.id) ?? [] }
+    subclassesByClass.set(s.class_id, [...(subclassesByClass.get(s.class_id) ?? []), row])
+  }
+
+  return (classes ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    description: c.description,
+    baseFeatures: featuresByClass.get(c.id) ?? [],
+    subclasses: subclassesByClass.get(c.id) ?? [],
+  }))
+}
+
+export async function loadOriginsBrowse(supabase: SupabaseClient): Promise<OriginBrowseRow[]> {
+  const [{ data: origins }, { data: features }] = await Promise.all([
+    supabase.from('origins').select('id, name, description, lifestyle').order('name'),
+    supabase.from('features').select('id, name, description, level_required, origin_id').not('origin_id', 'is', null),
+  ])
+
+  const featuresByOrigin = new Map<number, FeatureBrowseRow[]>()
+  for (const f of features ?? []) {
+    if (!f.origin_id) continue
+    const row = { id: f.id, name: f.name, description: f.description, level_required: f.level_required }
+    featuresByOrigin.set(f.origin_id, [...(featuresByOrigin.get(f.origin_id) ?? []), row])
+  }
+
+  return (origins ?? []).map((o) => ({
+    id: o.id,
+    name: o.name,
+    description: o.description,
+    lifestyle: o.lifestyle,
+    features: featuresByOrigin.get(o.id) ?? [],
   }))
 }
