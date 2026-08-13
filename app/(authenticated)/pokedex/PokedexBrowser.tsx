@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { PaginationControls } from '@/components/PaginationControls'
 import { usePagination } from '@/lib/pta3/usePagination'
-import type { PokedexBrowseRow, MoveBrowseRow, SkillBrowseRow } from '@/lib/pta3/referenceBrowser'
+import type { PokedexBrowseRow, MoveBrowseRow, SkillBrowseRow, ClassBrowseRow, OriginBrowseRow, FeatureBrowseRow } from '@/lib/pta3/referenceBrowser'
 import type { CatalogItem } from '@/lib/pta3/bag'
 
 type TypeOption = { id: number; name: string }
@@ -76,6 +76,8 @@ export function PokedexBrowser({
   moves,
   items,
   skills,
+  classes,
+  origins,
   types,
   habitats,
 }: {
@@ -83,10 +85,12 @@ export function PokedexBrowser({
   moves: MoveBrowseRow[]
   items: CatalogItem[]
   skills: SkillBrowseRow[]
+  classes: ClassBrowseRow[]
+  origins: OriginBrowseRow[]
   types: TypeOption[]
   habitats: HabitatOption[]
 }) {
-  const [tab, setTab] = useState<'pokedex' | 'moves' | 'items' | 'skills'>('pokedex')
+  const [tab, setTab] = useState<'pokedex' | 'moves' | 'items' | 'skills' | 'classes' | 'origins'>('pokedex')
 
   return (
     <div className="flex w-full max-w-4xl flex-col gap-6">
@@ -97,6 +101,8 @@ export function PokedexBrowser({
             ['moves', 'Moves'],
             ['items', 'Items'],
             ['skills', 'Skills'],
+            ['classes', 'Classes'],
+            ['origins', 'Origins'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -114,6 +120,8 @@ export function PokedexBrowser({
       {tab === 'moves' && <MovesTab moves={moves} types={types} />}
       {tab === 'items' && <ItemsTab items={items} />}
       {tab === 'skills' && <SkillsTab skills={skills} />}
+      {tab === 'classes' && <ClassesTab classes={classes} />}
+      {tab === 'origins' && <OriginsTab origins={origins} />}
     </div>
   )
 }
@@ -402,6 +410,137 @@ function SkillsTab({ skills }: { skills: SkillBrowseRow[] }) {
         {skills.map((s) => (
           <li key={s.id} className="rounded border px-2 py-1 text-sm">
             {s.name} — {s.statName ?? '—'}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// Mirrors PassiveFeaturesSection's <details> list (trainers/[id]/TrainerInteractive.tsx) -- same
+// name/level/description shape, just without the per-Trainer uses-tracker, per this FR's own scope.
+function FeatureList({ features }: { features: FeatureBrowseRow[] }) {
+  if (features.length === 0) return <p className="text-xs text-muted">None.</p>
+  return (
+    <ul className="flex flex-col gap-1">
+      {features.map((f) => (
+        <li key={f.id}>
+          <details>
+            <summary className="cursor-pointer text-sm font-medium">
+              {f.name} <span className="text-xs font-normal text-muted">(level {f.level_required})</span>
+            </summary>
+            <p className="mt-1 pl-4 text-xs text-muted">{f.description}</p>
+          </details>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// Classes(5)/Subclasses(29) are small enough that no pagination is needed, same reasoning as the
+// unpaginated Skills tab (18 rows) -- [[Make the Pokedex and Catalog a paged list]]'s own scope note.
+// Advanced Classes render nested under their parent Class rather than as a separate tab, per this
+// FR's Proposed solution -- a Subclass only makes sense in the context of its base Class.
+function ClassesTab({ classes }: { classes: ClassBrowseRow[] }) {
+  const [search, setSearch] = useState('')
+
+  const filtered = useMemo(
+    () => classes.filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase())),
+    [classes, search],
+  )
+
+  return (
+    <section>
+      <div className="mb-2 flex flex-wrap items-end gap-2 text-sm">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="classSearch">Search</label>
+          <input
+            id="classSearch"
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-surface-subtle rounded border px-2 py-1"
+          />
+        </div>
+        <p className="ml-auto text-xs text-muted">{filtered.length} of {classes.length}</p>
+      </div>
+      <ul className="flex flex-col gap-2">
+        {filtered.map((c) => (
+          <li key={c.id} className="rounded border px-3 py-2 text-sm">
+            <details>
+              <summary className="cursor-pointer font-medium">{c.name}</summary>
+              <div className="mt-2 flex flex-col gap-3 pl-2">
+                {c.description && <p className="text-xs text-foreground">{c.description}</p>}
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-muted">Base features</p>
+                  <FeatureList features={c.baseFeatures} />
+                </div>
+                {c.subclasses.length > 0 && (
+                  <div>
+                    <p className="mb-1 text-xs font-semibold text-muted">Advanced classes</p>
+                    <ul className="flex flex-col gap-2">
+                      {c.subclasses.map((s) => (
+                        <li key={s.id} className="rounded border px-2 py-1">
+                          <details>
+                            <summary className="cursor-pointer text-sm font-medium">{s.name}</summary>
+                            <div className="mt-1 flex flex-col gap-2 pl-2">
+                              {s.description && <p className="text-xs text-foreground">{s.description}</p>}
+                              <FeatureList features={s.features} />
+                            </div>
+                          </details>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function OriginsTab({ origins }: { origins: OriginBrowseRow[] }) {
+  const [search, setSearch] = useState('')
+
+  const filtered = useMemo(
+    () => origins.filter((o) => !search || o.name.toLowerCase().includes(search.toLowerCase())),
+    [origins, search],
+  )
+
+  return (
+    <section>
+      <div className="mb-2 flex flex-wrap items-end gap-2 text-sm">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="originSearch">Search</label>
+          <input
+            id="originSearch"
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-surface-subtle rounded border px-2 py-1"
+          />
+        </div>
+        <p className="ml-auto text-xs text-muted">{filtered.length} of {origins.length}</p>
+      </div>
+      <ul className="flex flex-col gap-2">
+        {filtered.map((o) => (
+          <li key={o.id} className="rounded border px-3 py-2 text-sm">
+            <details>
+              <summary className="flex cursor-pointer flex-wrap items-center gap-1.5">
+                <span className="font-medium">{o.name}</span>
+                {o.lifestyle && <span className="rounded bg-surface-muted px-1.5 py-0.5 text-xs">{o.lifestyle}</span>}
+              </summary>
+              <div className="mt-2 flex flex-col gap-3 pl-2">
+                {o.description && <p className="text-xs text-foreground">{o.description}</p>}
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-muted">Features</p>
+                  <FeatureList features={o.features} />
+                </div>
+              </div>
+            </details>
           </li>
         ))}
       </ul>
