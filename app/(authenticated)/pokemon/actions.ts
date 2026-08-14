@@ -12,6 +12,7 @@ import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pok
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
+import { previewPassiveLoss, shiftSizeOrWeightOverride, isMaxLoyalty } from '@/lib/pta3/evolution'
 
 export type MoveOption = {
   id: number
@@ -1296,4 +1297,187 @@ export async function takeBackHeldItem(pokemonId: string): Promise<{ error: stri
   }
 
   return { ok: true }
+}
+
+// Read-only, called by the client to build the evolve confirmation dialog's Passive-loss warning
+// ([[Add Evolution functionality]] Design) before the Trainer/GM commits via evolvePokemon below.
+export async function previewEvolution(pokemonId: string, toPokedexId: number): Promise<{ error: string } | { removedPassiveNames: string[] }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const loss = await previewPassiveLoss(supabase, pokemonId, toPokedexId)
+  return { removedPassiveNames: loss.map((p) => p.name) }
+}
+
+// Applies an evolution (or, via GM override, a devolution/lateral jump to any other species in the
+// same chain) per Design's fully-resolved rules:
+// - Updates this row's pokedex_id in place -- id/nickname/EVs/current_exp/nature/held item/gender/
+//   shininess/learned moves all already live independent of species, untouched here.
+// - A GM's custom Size/Weight override shifts by the tier-delta between the old and new species'
+//   *defaults*, clamped at the extremes, skipped entirely if Variable is involved anywhere.
+// - Any learned Passive the new species doesn't offer is removed automatically (the caller must have
+//   already shown the Passive-loss warning via previewEvolution before calling this).
+//
+// trainersItemId, when provided, is the specific Bag row of the evolution-stone item being consumed --
+// required and validated against a real 'item'-typed edge; consuming it uses the same decrement-or-
+// delete-at-zero shape as discardItem. Without it, the target must be reachable via a currently-
+// satisfied 'level' or 'loyalty' edge (checked against the Pokemon's own computed level/loyalty) -- if
+// neither applies, this is only reachable via GM override (isGM required, target must be in the same
+// evolution_chain_id as the Pokemon's current species).
+export async function evolvePokemon(
+  pokemonId: string,
+  toPokedexId: number,
+  trainersItemId: string | null = null,
+): Promise<{ error: string } | { toPokedexId: number; removedPassiveNames: string[] }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: pokemon } = await supabase
+    .from('pokemon')
+    .select(
+      `current_exp, is_shiny, loyalty_id, pokedex_id, size_id, weight_id, created_by_user_id, campaign_id,
+       campaign:campaign_id(gm_user_id),
+       pokedex(evolution_chain_id, growth_rate_id, size_id, weight_id),
+       trainers_pokemon(trainer_id, obtain_method_id, trainers(user_id, campaign_id, campaigns(gm_user_id)))`,
+    )
+    .eq('id', pokemonId)
+    .single()
+
+  if (!pokemon) {
+    return { error: 'Pokemon not found' }
+  }
+
+  // Same reverse-embed quirk as updatePokemonDetails -- these come back as single objects, not arrays.
+  const ownerLink = pokemon.trainers_pokemon as unknown as {
+    trainer_id: string
+    obtain_method_id: number | null
+    trainers: { user_id: string; campaign_id: string | null; campaigns: { gm_user_id: string } | null } | null
+  } | null
+  const campaign = pokemon.campaign as unknown as { gm_user_id: string } | null
+  const fromSpecies = pokemon.pokedex as unknown as { evolution_chain_id: number | null; growth_rate_id: number | null; size_id: number | null; weight_id: number | null } | null
+
+  const poolAuthority = resolveWildPokemonAuthority(
+    { campaignId: pokemon.campaign_id, campaignGmUserId: campaign?.gm_user_id ?? null, createdByUserId: pokemon.created_by_user_id },
+    user.id,
+  )
+  const isOwner = ownerLink ? ownerLink.trainers?.user_id === user.id : poolAuthority
+  const isGM = ownerLink
+    ? ownerLink.trainers?.campaigns
+      ? ownerLink.trainers.campaigns.gm_user_id === user.id
+      : ownerLink.trainers?.user_id === user.id
+    : poolAuthority
+
+  if (!isOwner && !isGM) {
+    return { error: 'Not authorized to evolve this Pokemon' }
+  }
+
+  const { data: toSpecies } = await supabase
+    .from('pokedex')
+    .select('id, size_id, weight_id, evolution_chain_id')
+    .eq('id', toPokedexId)
+    .maybeSingle()
+  if (!toSpecies) {
+    return { error: 'Target species not found' }
+  }
+
+  if (trainersItemId) {
+    if (!ownerLink) {
+      return { error: 'This Pokemon has no Trainer to hold items' }
+    }
+    const { data: item } = await supabase
+      .from('trainers_items')
+      .select('id, item_id, quantity')
+      .eq('id', trainersItemId)
+      .eq('trainer_id', ownerLink.trainer_id)
+      .maybeSingle()
+    if (!item) {
+      return { error: 'Item not found in this Bag' }
+    }
+    const { data: edge } = await supabase
+      .from('evolution_triggers')
+      .select('id')
+      .eq('from_pokedex_id', pokemon.pokedex_id)
+      .eq('to_pokedex_id', toPokedexId)
+      .eq('trigger_type', 'item')
+      .eq('item_id', item.item_id)
+      .maybeSingle()
+    if (!edge) {
+      return { error: 'That item does not trigger this evolution' }
+    }
+
+    const remaining = item.quantity - 1
+    if (remaining > 0) {
+      const { error } = await supabase.from('trainers_items').update({ quantity: remaining }).eq('id', item.id)
+      if (error) return { error: error.message }
+    } else {
+      const { error } = await supabase.from('trainers_items').delete().eq('id', item.id)
+      if (error) return { error: error.message }
+    }
+  } else {
+    const { level } = await computePokemonLevel(supabase, {
+      currentExp: pokemon.current_exp,
+      isShiny: pokemon.is_shiny,
+      loyaltyId: pokemon.loyalty_id,
+      obtainMethodId: ownerLink?.obtain_method_id ?? null,
+      growthRateId: fromSpecies?.growth_rate_id ?? null,
+    })
+
+    const { data: edges } = await supabase
+      .from('evolution_triggers')
+      .select('trigger_type, level_requirement')
+      .eq('from_pokedex_id', pokemon.pokedex_id)
+      .eq('to_pokedex_id', toPokedexId)
+      .in('trigger_type', ['level', 'loyalty'])
+
+    const levelSatisfied = (edges ?? []).some((e) => e.trigger_type === 'level' && e.level_requirement !== null && level >= e.level_requirement)
+    const loyaltySatisfied = (edges ?? []).some((e) => e.trigger_type === 'loyalty') && (await isMaxLoyalty(supabase, pokemon.loyalty_id))
+
+    if (!levelSatisfied && !loyaltySatisfied) {
+      // Not a currently-satisfied automatic edge -- only a GM override can do this (skip-ahead,
+      // devolve, or an edge that exists but isn't met yet). Must stay within the same known chain.
+      if (!isGM) {
+        return { error: 'This Pokemon is not eligible to evolve into that species yet' }
+      }
+      if (fromSpecies?.evolution_chain_id === null || fromSpecies?.evolution_chain_id !== toSpecies.evolution_chain_id) {
+        return { error: 'That species is not part of this Pokemon\'s evolution chain' }
+      }
+    }
+  }
+
+  const removedPassives = await previewPassiveLoss(supabase, pokemonId, toPokedexId)
+
+  const newSizeId = await shiftSizeOrWeightOverride(supabase, 'sizes', pokemon.size_id, fromSpecies?.size_id ?? null, toSpecies.size_id)
+  const newWeightId = await shiftSizeOrWeightOverride(supabase, 'weights', pokemon.weight_id, fromSpecies?.weight_id ?? null, toSpecies.weight_id)
+
+  const { error: updateError } = await supabase
+    .from('pokemon')
+    .update({ pokedex_id: toPokedexId, size_id: newSizeId, weight_id: newWeightId })
+    .eq('id', pokemonId)
+
+  if (updateError) {
+    return { error: updateError.message }
+  }
+
+  if (removedPassives.length > 0) {
+    const { error: passiveError } = await supabase
+      .from('pokemon_passives')
+      .delete()
+      .eq('pokemon_id', pokemonId)
+      .in('passive_id', removedPassives.map((p) => p.passiveId))
+    if (passiveError) return { error: passiveError.message }
+  }
+
+  return { toPokedexId, removedPassiveNames: removedPassives.map((p) => p.name) }
 }

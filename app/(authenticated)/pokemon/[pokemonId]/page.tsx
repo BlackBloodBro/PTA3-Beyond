@@ -8,6 +8,7 @@ import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { formatFlavorPreferences } from '@/lib/pta3/flavors'
+import { loadEvolutionTargets, loadEvolutionChainMembers, isMaxLoyalty, loadEvolutionStoneBagItems } from '@/lib/pta3/evolution'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { HeldItemTakeBack } from './HeldItemTakeBack'
@@ -17,6 +18,8 @@ import {
   PokemonStateProvider,
   LevelLine,
   ExperienceSection,
+  EvolveButton,
+  GmOverrideEvolutionPicker,
   StatsSection,
   MovesSection,
   AfflictionsSection,
@@ -71,7 +74,7 @@ export default async function PokemonPage({
       created_by_user_id, campaign:campaign_id(id, name, gm_user_id),
       pokedex:pokedex_id (
         name, description, base_hp, base_atk, base_def, base_sp_atk, base_sp_def, base_speed,
-        egg_hatch_rate, growth_rate_id, sprite_code,
+        egg_hatch_rate, growth_rate_id, sprite_code, evolution_chain_id,
         type_1:types!type_1_id(name), type_2:types!type_2_id(name),
         size:sizes!size_id(name), weight:weights!weight_id(name),
         growth_rate:growth_rates!growth_rate_id(name, exp_modifier)
@@ -190,6 +193,16 @@ export default async function PokemonPage({
     obtainMethodId: ownerLink?.obtain_method_id ?? null,
     growthRateId: species.growth_rate_id,
   })
+
+  // [[Add Evolution functionality]]: every outgoing evolution edge from this species, every other
+  // species in its chain (for the GM-override picker), whether this Pokemon is at max Loyalty, and
+  // (only if it has a Trainer to hold items) that Trainer's Evolution Stone inventory.
+  const [evolutionTargets, chainMembers, isMaxLoyaltyPokemon, bagStoneItems] = await Promise.all([
+    loadEvolutionTargets(supabase, pokemon.pokedex_id),
+    loadEvolutionChainMembers(supabase, species.evolution_chain_id, pokemon.pokedex_id),
+    isMaxLoyalty(supabase, pokemon.loyalty_id),
+    trainerId ? loadEvolutionStoneBagItems(supabase, trainerId) : Promise.resolve([]),
+  ])
 
   // Stat "Value" = species base + this Pokemon's EV allocation (homebrew: 1 EV per 8 levels, max
   // 2 EVs/stat, +1/EV except HP which is +6/EV) + a +1/-1 nature adjustment on its raised/lowered
@@ -344,20 +357,6 @@ export default async function PokemonPage({
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
-      <div className="flex w-full max-w-6xl items-center gap-3">
-        <Link href="/pokemon" className="text-sm underline">
-          ← Pokémon
-        </Link>
-        {trainerId && (
-          <>
-            <span className="text-sm text-muted">·</span>
-            <Link href={trainerLinkHref!} className="text-sm underline">
-              {trainer?.name ?? 'Trainer'}
-            </Link>
-          </>
-        )}
-      </div>
-
       {error && <p className="w-full max-w-6xl text-danger">{error}</p>}
 
       <PokemonStateProvider
@@ -409,7 +408,28 @@ export default async function PokemonPage({
         loyaltyName={pokemon.loyalty?.name ?? null}
         loyaltyModifier={pokemon.loyalty?.modifier ?? 1}
         isShiny={pokemon.is_shiny}
+        evolutionTargets={evolutionTargets}
+        chainMembers={chainMembers}
+        isMaxLoyaltyPokemon={isMaxLoyaltyPokemon}
+        bagStoneItems={bagStoneItems}
       >
+      <div className="flex w-full max-w-6xl items-center gap-3">
+        <Link href="/pokemon" className="text-sm underline">
+          ← Pokémon
+        </Link>
+        {trainerId && (
+          <>
+            <span className="text-sm text-muted">·</span>
+            <Link href={trainerLinkHref!} className="text-sm underline">
+              {trainer?.name ?? 'Trainer'}
+            </Link>
+          </>
+        )}
+        <div className="ml-auto">
+          <EvolveButton />
+        </div>
+      </div>
+
       <div className="flex w-full max-w-6xl items-start gap-4">
         <aside className="w-64 shrink-0">
           <section className="rounded border border-accent bg-accent/10 p-4">
@@ -609,6 +629,8 @@ export default async function PokemonPage({
                     <input type="checkbox" name="isShiny" defaultChecked={pokemon.is_shiny} />
                     Shiny
                   </label>
+
+                  <GmOverrideEvolutionPicker />
                 </>
               )}
 

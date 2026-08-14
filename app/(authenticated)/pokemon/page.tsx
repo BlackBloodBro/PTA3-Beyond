@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { computePokemonLevelsBulk } from '@/lib/pta3/pokemonLevel'
 import { fetchPokedexFilterOptions } from '@/lib/pta3/pokedexFilter'
+import { computeLevelEligibleEvolutionSet } from '@/lib/pta3/evolution'
 import { PokemonListBoard, type PokemonListRow } from './PokemonListBoard'
 
 export default async function PokemonListPage({
@@ -31,7 +32,7 @@ export default async function PokemonListPage({
       supabase
         .from('trainers_pokemon')
         .select(
-          'trainer_id, obtain_method_id, trainers!inner(id, name, user_id, is_npc, campaign_id), pokemon(id, nickname, is_shiny, current_exp, loyalty_id, pokedex(name, sprite_code, type_1_id, type_2_id, growth_rate_id))',
+          'trainer_id, obtain_method_id, trainers!inner(id, name, user_id, is_npc, campaign_id), pokemon(id, nickname, is_shiny, current_exp, loyalty_id, pokedex_id, pokedex(name, sprite_code, type_1_id, type_2_id, growth_rate_id))',
         )
         .eq('trainers.user_id', user.id),
       // Pool Pokemon this user created -- filtered to unassigned (no trainers_pokemon row) below,
@@ -42,7 +43,7 @@ export default async function PokemonListPage({
       supabase
         .from('pokemon')
         .select(
-          'id, nickname, is_shiny, current_exp, loyalty_id, campaign_id, pokedex(name, sprite_code, type_1_id, type_2_id, growth_rate_id), trainers_pokemon(trainer_id)',
+          'id, nickname, is_shiny, current_exp, loyalty_id, campaign_id, pokedex_id, pokedex(name, sprite_code, type_1_id, type_2_id, growth_rate_id), trainers_pokemon(trainer_id)',
         )
         .eq('created_by_user_id', user.id),
       // Assignable targets, half one: every trainer you own that ISN'T in a campaign -- a campaign
@@ -73,6 +74,7 @@ export default async function PokemonListPage({
     currentExp: number
     loyaltyId: number | null
     obtainMethodId: number | null
+    pokedexId: number
     pokedex: { name: string; sprite_code: string; type_1_id: number; type_2_id: number | null; growth_rate_id: number | null } | null
     trainerId: string | null
     trainerName: string | null
@@ -93,6 +95,7 @@ export default async function PokemonListPage({
       currentExp: tp.pokemon!.current_exp,
       loyaltyId: tp.pokemon!.loyalty_id,
       obtainMethodId: tp.obtain_method_id,
+      pokedexId: tp.pokemon!.pokedex_id,
       pokedex: tp.pokemon!.pokedex,
       trainerId: tp.trainer_id,
       trainerName: tp.trainers?.name ?? null,
@@ -110,6 +113,7 @@ export default async function PokemonListPage({
       currentExp: p.current_exp,
       loyaltyId: p.loyalty_id,
       obtainMethodId: null,
+      pokedexId: p.pokedex_id,
       pokedex: p.pokedex,
       trainerId: null,
       trainerName: null,
@@ -132,6 +136,14 @@ export default async function PokemonListPage({
     })),
   )
 
+  // [[Add Evolution functionality]]: gold-highlights a card whose level meets a level-based evolution
+  // requirement -- bulk-computed once against the small evolution_triggers table, same "load once,
+  // check in memory" shape as computePokemonLevelsBulk above.
+  const evolutionEligibleIds = await computeLevelEligibleEvolutionSet(
+    supabase,
+    allMyPokemon.map((p) => ({ pokemonId: p.id, pokedexId: p.pokedexId, level: levelsByPokemonId.get(p.id)?.level ?? 1 })),
+  )
+
   const pokemonRows: PokemonListRow[] = allMyPokemon.map((p) => ({
     id: p.id,
     nickname: p.nickname,
@@ -141,6 +153,7 @@ export default async function PokemonListPage({
     level: levelsByPokemonId.get(p.id)?.level ?? 1,
     type1Id: p.pokedex?.type_1_id ?? null,
     type2Id: p.pokedex?.type_2_id ?? null,
+    evolutionEligible: evolutionEligibleIds.has(p.id),
     trainerId: p.trainerId,
     trainerName: p.trainerName,
     trainerIsNpc: p.trainerIsNpc,
