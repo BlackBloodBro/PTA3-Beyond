@@ -17,6 +17,9 @@ export type PokemonListRow = {
   level: number
   type1Id: number | null
   type2Id: number | null
+  // [[Add Evolution functionality]]: true when this Pokemon's level meets a level-based evolution
+  // requirement -- drives the gold card highlight so it's visible while browsing.
+  evolutionEligible: boolean
   trainerId: string | null
   trainerName: string | null
   trainerIsNpc: boolean | null
@@ -125,7 +128,10 @@ export function PokemonListBoard({
         <p className="text-sm text-muted">No Pokémon match.</p>
       ) : (
         filtered.map((p) => (
-          <div key={p.id} className="flex flex-col gap-2 rounded border-accent bg-accent/10 p-3">
+          <div
+            key={p.id}
+            className={`flex flex-col gap-2 rounded p-3 ${p.evolutionEligible ? 'border-2 border-warning bg-warning/10' : 'border-accent bg-accent/10'}`}
+          >
             <div className="flex items-center justify-between gap-2">
               <Link
                 href={pokemonHref({

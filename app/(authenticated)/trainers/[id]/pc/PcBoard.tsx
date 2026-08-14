@@ -21,6 +21,10 @@ export type PcPokemon = {
   type2Id: number | null
   partySlot: number | null
   heldItemName: string | null
+  // [[Add Evolution functionality]]: true when this Pokemon's level meets a level-based evolution
+  // requirement -- drives the gold card highlight so it's visible while browsing without opening
+  // each Pokemon individually.
+  evolutionEligible: boolean
 }
 
 type SortBy = 'species' | 'level' | 'nickname'
@@ -239,7 +243,10 @@ export function PcBoard({
             <p className="text-sm text-muted">No Pokémon match.</p>
           ) : (
             filteredPc.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 rounded border-accent bg-accent/10 p-2">
+              <div
+                key={p.id}
+                className={`flex items-center gap-2 rounded p-2 ${p.evolutionEligible ? 'border-2 border-warning bg-warning/10' : 'border-accent bg-accent/10'}`}
+              >
                 <PokemonSprite spriteCode={p.spriteCode} shiny={p.isShiny} alt={p.speciesName} size={40} />
                 <div className="min-w-0 flex-1 text-sm">
                   <Link href={pokemonHref({ id: p.id, hasOwner: true, campaignId })} className="block truncate font-medium underline">
@@ -298,7 +305,10 @@ export function PcBoard({
           ) : (
             <ul className="flex flex-col gap-2">
               {team.map((p) => (
-                <li key={p.id} className="flex items-center gap-2 rounded border p-2">
+                <li
+                  key={p.id}
+                  className={`flex items-center gap-2 rounded p-2 ${p.evolutionEligible ? 'border-2 border-warning bg-warning/10' : 'border'}`}
+                >
                   <PokemonSprite spriteCode={p.spriteCode} shiny={p.isShiny} alt={p.speciesName} size={40} />
                   <div className="min-w-0 flex-1 text-sm">
                     <Link href={pokemonHref({ id: p.id, hasOwner: true, campaignId })} className="block truncate font-medium underline">

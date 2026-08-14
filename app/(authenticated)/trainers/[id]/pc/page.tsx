@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { computePokemonLevelsBulk } from '@/lib/pta3/pokemonLevel'
 import { fetchPokedexFilterOptions } from '@/lib/pta3/pokedexFilter'
+import { computeLevelEligibleEvolutionSet } from '@/lib/pta3/evolution'
 import { PcBoard, type PcPokemon } from './PcBoard'
 
 export default async function PCPage({ params }: { params: Promise<{ id: string }> }) {
@@ -49,7 +50,7 @@ export default async function PCPage({ params }: { params: Promise<{ id: string 
         `
         party_slot, obtain_method_id,
         pokemon(
-          id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_id,
+          id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_id, pokedex_id,
           pokedex(name, base_hp, sprite_code, growth_rate_id, type_1_id, type_2_id),
           loyalty:loyalties(name), held_item:items!held_item_id(name)
         )
@@ -75,6 +76,14 @@ export default async function PCPage({ params }: { params: Promise<{ id: string 
     })),
   )
 
+  // [[Add Evolution functionality]]: gold-highlights a card whose level meets a level-based evolution
+  // requirement -- bulk-computed once against the small evolution_triggers table, same "load once,
+  // check in memory" shape as computePokemonLevelsBulk above.
+  const evolutionEligibleIds = await computeLevelEligibleEvolutionSet(
+    supabase,
+    rows.map((tp) => ({ pokemonId: tp.pokemon!.id, pokedexId: tp.pokemon!.pokedex_id, level: levelsByPokemonId.get(tp.pokemon!.id)?.level ?? 1 })),
+  )
+
   const allPokemon: PcPokemon[] = rows.map((tp) => {
     const p = tp.pokemon!
     return {
@@ -91,6 +100,7 @@ export default async function PCPage({ params }: { params: Promise<{ id: string 
       type2Id: p.pokedex!.type_2_id,
       partySlot: tp.party_slot,
       heldItemName: p.held_item?.name ?? null,
+      evolutionEligible: evolutionEligibleIds.has(p.id),
     }
   })
 

@@ -6,6 +6,7 @@ import { ConfirmButton } from '@/components/ConfirmButton'
 import { RollInputButton } from '@/components/RollInputButton'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
+import { computeLevelEligibleEvolutionSet } from '@/lib/pta3/evolution'
 import { MAX_TEAM_SIZE } from '@/lib/pta3/pokemonTeam'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { isBookmarked } from '@/lib/pta3/bookmarks'
@@ -178,7 +179,7 @@ export default async function NpcPage({
       `
       obtain_method_id,
       pokemon(
-        id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_id,
+        id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_id, pokedex_id,
         pokedex(name, base_hp, sprite_code, growth_rate_id),
         loyalty:loyalties(name)
       )
@@ -202,6 +203,14 @@ export default async function NpcPage({
       })
       return { ...p, level, maxHp: p.pokedex!.base_hp + p.ev_hp * 6 }
     }),
+  )
+
+  // [[Add Evolution functionality]]: gold-highlights a Team card whose level meets a level-based
+  // evolution requirement, same "load once, check in memory" shape as the PC board and global
+  // Pokemon list use.
+  const evolutionEligibleIds = await computeLevelEligibleEvolutionSet(
+    supabase,
+    team.map((p) => ({ pokemonId: p.id, pokedexId: p.pokedex_id, level: p.level })),
   )
 
   const { data: trainerMoves } = await supabase
@@ -353,7 +362,10 @@ export default async function NpcPage({
             ) : (
               <ul className="flex flex-col gap-2">
                 {team.map((p, i) => (
-                  <li key={i} className="flex items-center gap-2 rounded border p-2">
+                  <li
+                    key={i}
+                    className={`flex items-center gap-2 rounded p-2 ${evolutionEligibleIds.has(p.id) ? 'border-2 border-warning bg-warning/10' : 'border'}`}
+                  >
                     <PokemonSprite spriteCode={p.pokedex!.sprite_code} shiny={p.is_shiny} alt={p.pokedex!.name} size={40} />
                     <div className="min-w-0 flex-1 text-sm">
                       <Link href={pokemonHref({ id: p.id, hasOwner: true, campaignId })} className="block truncate font-medium underline">

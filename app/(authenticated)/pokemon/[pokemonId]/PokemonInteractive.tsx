@@ -1,10 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { statModifier } from '@/lib/pta3/pointBuy'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
+import type { EvolutionTarget, ChainMember, EvolutionStoneBagItem } from '@/lib/pta3/evolution'
 import { ClickTooltip } from '@/components/ClickTooltip'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import {
@@ -19,6 +21,8 @@ import {
   removeAffliction,
   learnPassive,
   unlearnPassive,
+  previewEvolution,
+  evolvePokemon,
 } from '../actions'
 
 const MAX_KNOWN_MOVES = 6
@@ -308,6 +312,10 @@ type PokemonStateValue = {
   loyaltyName: string | null
   loyaltyModifier: number
   isShiny: boolean
+  evolutionTargets: EvolutionTarget[]
+  chainMembers: ChainMember[]
+  isMaxLoyaltyPokemon: boolean
+  bagStoneItems: EvolutionStoneBagItem[]
   statRows: StatRows
   evsAvailable: number
   evsSpent: number
@@ -373,6 +381,10 @@ export function PokemonStateProvider(props: {
   loyaltyName: string | null
   loyaltyModifier: number
   isShiny: boolean
+  evolutionTargets: EvolutionTarget[]
+  chainMembers: ChainMember[]
+  isMaxLoyaltyPokemon: boolean
+  bagStoneItems: EvolutionStoneBagItem[]
   children: ReactNode
 }) {
   const [level, setLevel] = useState(props.initialLevel)
@@ -451,6 +463,10 @@ export function PokemonStateProvider(props: {
     loyaltyName: props.loyaltyName,
     loyaltyModifier: props.loyaltyModifier,
     isShiny: props.isShiny,
+    evolutionTargets: props.evolutionTargets,
+    chainMembers: props.chainMembers,
+    isMaxLoyaltyPokemon: props.isMaxLoyaltyPokemon,
+    bagStoneItems: props.bagStoneItems,
     statRows,
     evsAvailable,
     evsSpent,
@@ -1336,5 +1352,246 @@ export function PassivesSection() {
         </div>
       )}
     </section>
+  )
+}
+
+// [[Add Evolution functionality]]: no standalone section anymore -- a species with nothing
+// currently actionable (the common case: most Pokemon most of the time) shouldn't occupy a whole
+// card. This renders nothing until at least one automatic trigger (level/loyalty/item) is actually
+// satisfied right now, at which point it's a single highlighted button in the page header. Evolving
+// stays a deliberate, explicitly-confirmed action (matches Learn/Add Exp's opt-in convention, not
+// auto-applied): clicking fetches the Passive-loss preview first and shows a confirm step naming
+// exactly what will be lost before anything actually changes. A successful evolve calls
+// router.refresh() rather than patching client state in place -- unlike HP/Exp/Moves, evolving changes
+// nearly everything derived from the species (stats, sprite, learnset, type, available evolutions
+// itself), so a fresh server render is simpler and less error-prone than reconstructing all of that
+// client-side. The GM-only "jump to any chain member" override lives separately, inside the Info Edit
+// form (see GmOverrideEvolutionPicker below) -- it has no eligibility gate of its own, so it doesn't
+// belong on this always-conditional button.
+export function EvolveButton() {
+  const router = useRouter()
+  const { pokemonId, isOwner, isGM, level, isMaxLoyaltyPokemon, evolutionTargets, bagStoneItems } = usePokemonState()
+
+  const [open, setOpen] = useState(false)
+  const [pending, setPending] = useState<{ toPokedexId: number; toName: string; trainersItemId: string | null; removedPassiveNames: string[] } | null>(
+    null,
+  )
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleOutsideClick(e: MouseEvent) {
+      if (!panelRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [open])
+
+  const canAct = isOwner || isGM
+  const readyTargets = evolutionTargets
+    .filter((t) => t.triggerType !== 'other')
+    .map((t) => {
+      if (t.triggerType === 'level') {
+        return { toPokedexId: t.toPokedexId, label: t.toName, trainersItemId: null as string | null, ready: t.levelRequirement !== null && level >= t.levelRequirement }
+      }
+      if (t.triggerType === 'loyalty') {
+        return { toPokedexId: t.toPokedexId, label: t.toName, trainersItemId: null as string | null, ready: isMaxLoyaltyPokemon }
+      }
+      const bagItem = bagStoneItems.find((b) => b.itemId === t.itemId)
+      return { toPokedexId: t.toPokedexId, label: `${t.toName} (${t.itemName})`, trainersItemId: bagItem?.trainersItemId ?? null, ready: !!bagItem }
+    })
+    .filter((t) => t.ready)
+
+  if (!canAct || readyTargets.length === 0) return null
+
+  async function startEvolve(target: { toPokedexId: number; label: string; trainersItemId: string | null }) {
+    setError(null)
+    setBusy(true)
+    const preview = await previewEvolution(pokemonId, target.toPokedexId)
+    setBusy(false)
+    if ('error' in preview) {
+      setError(preview.error)
+      return
+    }
+    setPending({ toPokedexId: target.toPokedexId, toName: target.label, trainersItemId: target.trainersItemId, removedPassiveNames: preview.removedPassiveNames })
+  }
+
+  async function confirmEvolve() {
+    if (!pending) return
+    setBusy(true)
+    setError(null)
+    const result = await evolvePokemon(pokemonId, pending.toPokedexId, pending.trainersItemId)
+    setBusy(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setPending(null)
+    router.refresh()
+  }
+
+  return (
+    <div ref={panelRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => (readyTargets.length === 1 ? startEvolve(readyTargets[0]) : setOpen((o) => !o))}
+        disabled={busy}
+        className="rounded border border-success px-4 py-2 text-sm font-semibold text-success disabled:opacity-50"
+      >
+        Evolve
+      </button>
+
+      {(open || pending || error) && (
+        <div className="bg-page absolute right-0 top-full z-20 mt-1 w-72 rounded border p-3 text-sm shadow-lg">
+          {error && <p className="mb-2 text-xs text-danger">{error}</p>}
+          {pending ? (
+            <div className="flex flex-col gap-2">
+              <p>
+                Evolve into <span className="font-medium">{pending.toName}</span>?
+              </p>
+              {pending.removedPassiveNames.length > 0 && (
+                <p className="text-warning">
+                  This will remove {pending.removedPassiveNames.length > 1 ? 'these Passives' : 'this Passive'} ({pending.toName} doesn&apos;t offer{' '}
+                  {pending.removedPassiveNames.length > 1 ? 'them' : 'it'}): {pending.removedPassiveNames.join(', ')}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={confirmEvolve}
+                  disabled={busy}
+                  className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground disabled:opacity-50"
+                >
+                  Confirm
+                </button>
+                <button type="button" onClick={() => setPending(null)} disabled={busy} className="rounded border px-3 py-1 text-sm">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {readyTargets.map((t) => (
+                <li key={t.toPokedexId}>
+                  <button
+                    type="button"
+                    onClick={() => startEvolve(t)}
+                    disabled={busy}
+                    className="w-full rounded border px-3 py-1 text-left text-sm disabled:opacity-50"
+                  >
+                    {t.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// [[Add Evolution functionality]]: the unconditional GM-only override (jump directly to any other
+// species in the chain, including devolving) -- separate from EvolveButton above since it has no
+// eligibility gate, and lives inside the Info Edit form alongside this Pokemon's other GM-only
+// overrides (Nature/Type/Size/Gender/...) rather than its own section. Its Change/Confirm buttons are
+// `type="button"`, not `type="submit"` -- evolving is a distinct server action (evolvePokemon) from
+// the surrounding form's own submit (updatePokemonDetails), so nesting it inside that <form> is safe.
+export function GmOverrideEvolutionPicker() {
+  const router = useRouter()
+  const { pokemonId, isGM, chainMembers } = usePokemonState()
+
+  const [pending, setPending] = useState<{ toPokedexId: number; toName: string; removedPassiveNames: string[] } | null>(null)
+  const [selectedChainId, setSelectedChainId] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  if (!isGM || chainMembers.length === 0) return null
+
+  async function startEvolve(toPokedexId: number, toName: string) {
+    setError(null)
+    setBusy(true)
+    const preview = await previewEvolution(pokemonId, toPokedexId)
+    setBusy(false)
+    if ('error' in preview) {
+      setError(preview.error)
+      return
+    }
+    setPending({ toPokedexId, toName, removedPassiveNames: preview.removedPassiveNames })
+  }
+
+  async function confirmEvolve() {
+    if (!pending) return
+    setBusy(true)
+    setError(null)
+    const result = await evolvePokemon(pokemonId, pending.toPokedexId, null)
+    setBusy(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setPending(null)
+    router.refresh()
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <p>Species (GM override)</p>
+      {pending ? (
+        <div className="flex flex-col gap-2 rounded border p-2">
+          <p>
+            Evolve into <span className="font-medium">{pending.toName}</span>?
+          </p>
+          {pending.removedPassiveNames.length > 0 && (
+            <p className="text-warning">
+              This will remove {pending.removedPassiveNames.length > 1 ? 'these Passives' : 'this Passive'} ({pending.toName} doesn&apos;t offer{' '}
+              {pending.removedPassiveNames.length > 1 ? 'them' : 'it'}): {pending.removedPassiveNames.join(', ')}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={confirmEvolve}
+              disabled={busy}
+              className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground disabled:opacity-50"
+            >
+              Confirm
+            </button>
+            <button type="button" onClick={() => setPending(null)} disabled={busy} className="rounded border px-3 py-1 text-sm">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={selectedChainId}
+            onChange={(e) => setSelectedChainId(e.target.value)}
+            className="bg-surface-subtle rounded border p-2"
+          >
+            <option value="">Choose a species...</option>
+            {chainMembers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!selectedChainId || busy}
+            onClick={() => {
+              const m = chainMembers.find((cm) => cm.id === Number(selectedChainId))
+              if (m) startEvolve(m.id, m.name)
+            }}
+            className="rounded border px-3 py-1 text-sm disabled:opacity-30"
+          >
+            Change
+          </button>
+        </div>
+      )}
+      {error && <p className="text-xs text-danger">{error}</p>}
+    </div>
   )
 }
