@@ -23,7 +23,12 @@ export async function isBookmarked(
   return !!data
 }
 
-export type SidebarBookmark = { id: string; label: string; href: string; entityType: 'trainer' | 'pokemon' | 'campaign' }
+// entityId (the raw Trainer/Pokemon/Campaign id, not the bookmark row's own id) is only actually
+// used by the Sidebar for campaign bookmarks so far (to build the NPCs/Wild Pokémon shortcut hrefs,
+// [[Add Campaign Trainers and Pokemon to the sidebar]]), but populated uniformly for all three types
+// rather than as a campaign-only optional field, since deriving it here once is simpler than parsing
+// it back out of `href` later.
+export type SidebarBookmark = { id: string; entityId: string; label: string; href: string; entityType: 'trainer' | 'pokemon' | 'campaign' }
 
 // Campaigns, then Trainers, then Pokémon -- matches the Sidebar's own static link order above the
 // Bookmarks section, so the grouping reads as a natural extension of it rather than an arbitrary one.
@@ -92,6 +97,7 @@ export async function loadBookmarksForSidebar(supabase: SupabaseClient, userId: 
       if (!t) continue
       result.push({
         id: row.id,
+        entityId: t.id,
         label: t.name,
         href: trainerHref({ id: t.id, is_npc: t.is_npc, campaign_id: t.campaign_id }),
         entityType: 'trainer',
@@ -106,6 +112,7 @@ export async function loadBookmarksForSidebar(supabase: SupabaseClient, userId: 
       const effectiveCampaignId = owningTrainer ? owningTrainer.campaign_id : p.campaign_id
       result.push({
         id: row.id,
+        entityId: p.id,
         label,
         href: pokemonHref({ id: p.id, hasOwner: !!owningTrainer, campaignId: effectiveCampaignId }),
         entityType: 'pokemon',
@@ -113,7 +120,7 @@ export async function loadBookmarksForSidebar(supabase: SupabaseClient, userId: 
     } else {
       const c = campaignById.get(row.entity_id)
       if (!c) continue
-      result.push({ id: row.id, label: c.name, href: `/campaigns/${c.id}`, entityType: 'campaign' })
+      result.push({ id: row.id, entityId: c.id, label: c.name, href: `/campaigns/${c.id}`, entityType: 'campaign' })
     }
   }
   // Grouped by entity type (Campaigns/Trainers/Pokémon); stable sort keeps each group's original
