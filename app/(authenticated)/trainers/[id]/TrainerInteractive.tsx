@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { statModifier } from '@/lib/pta3/pointBuy'
 import { talentBonus } from '@/lib/pta3/skillTalents'
@@ -242,6 +243,7 @@ export function TrainerInfoSection({
 }) {
   const { basePath, name, level, advancedClasses, className, originName, lifestyle, classId, originId, isOwner, isGM, applyInfoSnapshot } =
     useTrainerState()
+  const router = useRouter()
 
   const [isEditing, setIsEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -282,6 +284,11 @@ export function TrainerInfoSection({
     }
     applyInfoSnapshot(result, draftClassId, draftOriginId)
     setIsEditing(false)
+    // [[Bug - Bookmarked trainer name is not updated when edited]]: this action is a direct
+    // client-invoked call (no <form>, no redirect), so nothing else re-fetches the (authenticated)
+    // layout's Sidebar bookmarks -- router.refresh() re-syncs them, same pattern already used by
+    // HeldItemGive/HeldItemTakeBack/EvolveButton for the same calling shape.
+    router.refresh()
   }
 
   return (
