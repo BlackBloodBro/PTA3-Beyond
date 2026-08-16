@@ -46,6 +46,14 @@ export type TypeMatchupInfo = {
   modifier: number
 }
 
+// [[Bug - Double check immunities in type effectiveness]]: presence-only pairs, deliberately not
+// folded into TypeMatchupInfo/type_matchups -- see effectivenessFor's comment for why immunity can't
+// be represented as just another modifier value in that additive system.
+export type TypeImmunityInfo = {
+  attacking_type: string
+  defending_type: string
+}
+
 export type SpeciesTypeInfo = {
   name: string
   sprite_code: string
@@ -62,13 +70,26 @@ export type SpeciesTypeInfo = {
 // effectiveType1/2 -- that's STAB's job, a different thing being calculated from different inputs.
 // Skipped entirely for 'Special/Variable'-typed moves (their real type is chosen at time of use, not
 // stored) or when no target type has been picked yet.
+//
+// [[Bug - Double check immunities in type effectiveness]]: true immunity (e.g. Normal vs. Ghost) is
+// checked FIRST, before any of the above summing, and short-circuits straight to a 0-damage result --
+// it can't be folded into the sum-then-clamp math above, because that system is additive (a dual-type
+// defender's two scores add together) while real immunity is multiplicative (0x always wins regardless
+// of the other type). A Normal move vs. a Ghost/Steel dual-type must stay 0 damage even though Steel is
+// merely neutral to Normal, which summing the two could never express.
 function effectivenessFor(
   moveTypeName: string | undefined,
   defType1: string | undefined,
   defType2: string | undefined,
   typeMatchups: TypeMatchupInfo[],
+  typeImmunities: TypeImmunityInfo[],
 ) {
   if (!moveTypeName || moveTypeName === 'Special/Variable' || !defType1) return null
+  const isImmune = (defType: string | undefined) =>
+    !!defType && typeImmunities.some((i) => i.attacking_type === moveTypeName && i.defending_type === defType)
+  if (isImmune(defType1) || isImmune(defType2)) {
+    return { dice: 0, label: 'Immune', immune: true }
+  }
   const scoreAgainst = (defType: string | undefined) => {
     if (!defType) return 0
     return typeMatchups.find((m) => m.attacking_type === moveTypeName && m.defending_type === defType)?.modifier ?? 0
@@ -77,7 +98,7 @@ function effectivenessFor(
   const dice = Math.max(-2, Math.min(2, total))
   if (dice === 0) return null
   const label = dice === 2 ? 'Extremely effective' : dice === 1 ? 'Super effective' : dice === -1 ? 'Resisted' : 'Shielded'
-  return { dice, label }
+  return { dice, label, immune: false }
 }
 
 // A move's damage_dice is always "<count>d<sides>" (e.g. "2d6"). Effectiveness changes the dice
@@ -287,6 +308,7 @@ type PokemonStateValue = {
   effectiveType1?: string
   effectiveType2?: string
   typeMatchups: TypeMatchupInfo[]
+  typeImmunities: TypeImmunityInfo[]
   speciesList: SpeciesTypeInfo[]
   allTypeNames: string[]
   level: number
@@ -354,6 +376,7 @@ export function PokemonStateProvider(props: {
   effectiveType1?: string
   effectiveType2?: string
   typeMatchups: TypeMatchupInfo[]
+  typeImmunities: TypeImmunityInfo[]
   speciesList: SpeciesTypeInfo[]
   allTypeNames: string[]
   initialLevel: number
@@ -438,6 +461,7 @@ export function PokemonStateProvider(props: {
     effectiveType1: props.effectiveType1,
     effectiveType2: props.effectiveType2,
     typeMatchups: props.typeMatchups,
+    typeImmunities: props.typeImmunities,
     speciesList: props.speciesList,
     allTypeNames: props.allTypeNames,
     level,
@@ -860,6 +884,7 @@ export function MovesSection() {
     effectiveType1,
     effectiveType2,
     typeMatchups,
+    typeImmunities,
     speciesList,
     allTypeNames,
     level,
@@ -983,7 +1008,7 @@ export function MovesSection() {
             const toHit = modifierForDamageStat(move.damage_stat, statRows)
             const stab = stabBonus(move.types?.name, effectiveType1, effectiveType2)
             const damageModifier = toHit + stab
-            const effectiveness = effectivenessFor(move.types?.name, defType1 || undefined, defType2 || undefined, typeMatchups)
+            const effectiveness = effectivenessFor(move.types?.name, defType1 || undefined, defType2 || undefined, typeMatchups, typeImmunities)
             const displayDice = move.damage_dice ? adjustDiceCount(move.damage_dice, effectiveness?.dice ?? 0) : move.damage_dice
             const { maxUses } = parseMoveFrequency(move.frequency)
             const slotCount = maxUses ?? km.uses_remaining ?? 0
@@ -993,9 +1018,11 @@ export function MovesSection() {
                   `Base damage: ${move.damage_dice}`,
                   ...(toHit !== 0 ? [`Stat bonus: ${formatSigned(toHit)}`] : []),
                   ...(stab > 0 ? [`STAB: +${stab}`] : []),
-                  ...(effectiveness
-                    ? [`Effectiveness: ${effectiveness.label} (${formatSigned(effectiveness.dice)} ${Math.abs(effectiveness.dice) === 1 ? 'die' : 'dice'})`]
-                    : []),
+                  ...(effectiveness?.immune
+                    ? ['Effectiveness: Immune (0 damage)']
+                    : effectiveness
+                      ? [`Effectiveness: ${effectiveness.label} (${formatSigned(effectiveness.dice)} ${Math.abs(effectiveness.dice) === 1 ? 'die' : 'dice'})`]
+                      : []),
                 ].join('\n')
               : undefined
             return (
@@ -1060,7 +1087,10 @@ export function MovesSection() {
                 {move.damage_dice && (
                   <p className="text-sm">
                     Damage:{' '}
-                    <ClickTooltip label={`${displayDice} ${damageModifier >= 0 ? '+' : ''}${damageModifier}`} tooltip={damageTitle!} />
+                    <ClickTooltip
+                      label={effectiveness?.immune ? 'Immune — 0 damage' : `${displayDice} ${damageModifier >= 0 ? '+' : ''}${damageModifier}`}
+                      tooltip={damageTitle!}
+                    />
                   </p>
                 )}
                 <details className="mt-1">
