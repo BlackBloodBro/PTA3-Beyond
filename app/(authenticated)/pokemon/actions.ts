@@ -13,6 +13,7 @@ import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { previewPassiveLoss, shiftSizeOrWeightOverride, isMaxLoyalty } from '@/lib/pta3/evolution'
+import { setOriginalTrainerIfUnset } from '@/lib/pta3/pokemonOrigin'
 
 export type MoveOption = {
   id: number
@@ -227,6 +228,8 @@ export async function createPokemon(input: CreatePokemonInput): Promise<{ error:
 
       if (linkError) {
         warnings.push(`Trainer assignment failed: ${linkError.message}`)
+      } else {
+        await setOriginalTrainerIfUnset(supabase, pokemonId, input.trainerId, input.obtainMethodId)
       }
     }
 
@@ -342,6 +345,8 @@ export async function assignPokemon(
     return { error: error.message }
   }
 
+  await setOriginalTrainerIfUnset(supabase, pokemonId, trainerId, null)
+
   return { trainerId, trainerName: trainer.name, trainerIsNpc: trainer.is_npc, trainerCampaignId: trainer.campaign_id }
 }
 
@@ -398,6 +403,133 @@ export async function unassignPokemon(pokemonId: string): Promise<{ error: strin
   }
 
   return { ok: true }
+}
+
+// Gifts a Pokemon directly from its current Trainer to another Trainer/NPC in the same Campaign, in
+// one atomic step -- what today takes a GM two separate calls (unassignPokemon + assignPokemon), per
+// [[Add Pokemon gifting]]. Authorized by the CURRENT trainer's owner or that campaign's GM -- unlike
+// assignPokemon, the destination trainer's own owner/GM does NOT need to separately authorize
+// receiving it, since gifting only ever moves the giver's own belongings. RLS has its own narrower
+// "Owner gifts trainers_pokemon within campaign" policy backing this up (the existing owner policy's
+// WITH CHECK ties trainer_id to auth.uid() on both sides of an update, which would otherwise block a
+// player gifting to a trainer they don't own).
+export async function giftPokemon(
+  pokemonId: string,
+  toTrainerId: string,
+): Promise<
+  | { error: string }
+  | { toTrainerId: string; toTrainerName: string; toTrainerIsNpc: boolean; toTrainerCampaignId: string | null; obtainMethodName: string | null }
+> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  if (!toTrainerId) {
+    return { error: 'Choose a trainer to gift to' }
+  }
+
+  const { data: pokemon } = await supabase
+    .from('pokemon')
+    .select(
+      'original_trainer_id, original_obtain_method_id, trainers_pokemon(trainer_id, trainers(user_id, campaign_id, campaigns(gm_user_id)))',
+    )
+    .eq('id', pokemonId)
+    .maybeSingle()
+
+  if (!pokemon) {
+    return { error: 'Pokemon not found' }
+  }
+
+  // Same trainers_pokemon-is-a-primary-key quirk as elsewhere -- this reverse embed (and the
+  // forward trainers -> campaigns embed nested inside it) both come back as single objects.
+  const ownerLink = pokemon.trainers_pokemon as unknown as {
+    trainer_id: string
+    trainers: { user_id: string; campaign_id: string | null; campaigns: { gm_user_id: string } | null } | null
+  } | null
+
+  if (!ownerLink || !ownerLink.trainers) {
+    return { error: 'This Pokemon has no current Trainer to gift from' }
+  }
+
+  const currentTrainer = ownerLink.trainers
+
+  const authorized = currentTrainer.campaign_id
+    ? currentTrainer.campaigns?.gm_user_id === user.id
+    : currentTrainer.user_id === user.id
+
+  if (!authorized) {
+    return { error: 'Not authorized to gift this Pokemon' }
+  }
+
+  if (!currentTrainer.campaign_id) {
+    return { error: 'Gifting is only possible within a Campaign' }
+  }
+
+  if (toTrainerId === ownerLink.trainer_id) {
+    return { error: 'Already owned by that Trainer' }
+  }
+
+  const { data: toTrainer } = await supabase
+    .from('trainers')
+    .select('id, name, is_npc, campaign_id')
+    .eq('id', toTrainerId)
+    .maybeSingle()
+
+  if (!toTrainer) {
+    return { error: 'Trainer not found' }
+  }
+
+  if (toTrainer.campaign_id !== currentTrainer.campaign_id) {
+    return { error: 'Can only gift to a Trainer in the same Campaign' }
+  }
+
+  // Obtain method updates automatically -- 'Gifted', unless this gift is going back to the Pokemon's
+  // original trainer, in which case it reverts to whatever it originally was (mirrors the mainline
+  // games' "traded back to the OT" logic).
+  let obtainMethodId: number | null
+  let obtainMethodName: string | null
+  if (toTrainerId === pokemon.original_trainer_id) {
+    obtainMethodId = pokemon.original_obtain_method_id
+    const { data: method } = obtainMethodId
+      ? await supabase.from('obtain_methods').select('name').eq('id', obtainMethodId).maybeSingle()
+      : { data: null }
+    obtainMethodName = method?.name ?? null
+  } else {
+    const { data: giftedMethod } = await supabase.from('obtain_methods').select('id, name').eq('name', 'Gifted').maybeSingle()
+    obtainMethodId = giftedMethod?.id ?? null
+    obtainMethodName = giftedMethod?.name ?? null
+  }
+
+  // Auto-park: same as assignPokemon -- lands on the Team if there's room, parks in the PC otherwise.
+  const { data: existingSlots } = await supabase.from('trainers_pokemon').select('party_slot').eq('trainer_id', toTrainerId)
+  const nextSlot = findNextOpenSlot((existingSlots ?? []).map((r) => r.party_slot))
+
+  // A plain ownership reassignment (trainers_pokemon.pokemon_id is the primary key, so this is an
+  // UPDATE, not a delete+insert) -- no trade history kept, matching every other ownership-change
+  // action in this app.
+  const { error } = await supabase
+    .from('trainers_pokemon')
+    .update({ trainer_id: toTrainerId, party_slot: nextSlot, obtain_method_id: obtainMethodId })
+    .eq('pokemon_id', pokemonId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  await setOriginalTrainerIfUnset(supabase, pokemonId, toTrainerId, obtainMethodId)
+
+  return {
+    toTrainerId,
+    toTrainerName: toTrainer.name,
+    toTrainerIsNpc: toTrainer.is_npc,
+    toTrainerCampaignId: toTrainer.campaign_id,
+    obtainMethodName,
+  }
 }
 
 // Re-tags an unassigned pool Pokemon's campaign (which Wild Pokemon list it shows up on) after the

@@ -24,7 +24,10 @@ import {
   unlearnPassive,
   previewEvolution,
   evolvePokemon,
+  giftPokemon,
 } from '../actions'
+
+export type GiftableTrainer = { id: string; name: string; is_npc: boolean }
 
 const MAX_KNOWN_MOVES = 6
 // Player's Handbook rule (README.md:93-94): max 3 active Stat Passives per Pokemon, one per
@@ -340,6 +343,9 @@ type PokemonStateValue = {
   chainMembers: ChainMember[]
   isMaxLoyaltyPokemon: boolean
   bagStoneItems: EvolutionStoneBagItem[]
+  giftableTrainers: GiftableTrainer[]
+  originalTrainerId: string | null
+  originalObtainMethodName: string | null
   statRows: StatRows
   evsAvailable: number
   evsSpent: number
@@ -412,6 +418,9 @@ export function PokemonStateProvider(props: {
   chainMembers: ChainMember[]
   isMaxLoyaltyPokemon: boolean
   bagStoneItems: EvolutionStoneBagItem[]
+  giftableTrainers: GiftableTrainer[]
+  originalTrainerId: string | null
+  originalObtainMethodName: string | null
   children: ReactNode
 }) {
   const [level, setLevel] = useState(props.initialLevel)
@@ -499,6 +508,9 @@ export function PokemonStateProvider(props: {
     chainMembers: props.chainMembers,
     isMaxLoyaltyPokemon: props.isMaxLoyaltyPokemon,
     bagStoneItems: props.bagStoneItems,
+    giftableTrainers: props.giftableTrainers,
+    originalTrainerId: props.originalTrainerId,
+    originalObtainMethodName: props.originalObtainMethodName,
     statRows,
     evsAvailable,
     evsSpent,
@@ -1591,6 +1603,119 @@ export function EvolveButton() {
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// [[Add Pokemon gifting]]: gives this Pokemon directly to another same-campaign Trainer/NPC in one
+// step -- authorized by this Pokemon's current owner or that campaign's GM, no destination-side
+// approval needed (gifting only ever moves the giver's own belongings). Renders nothing when there's
+// no campaign/current-trainer context to gift from, or no other same-campaign Trainer to gift to.
+// The confirm step names the resulting obtain method before committing (Gifted, or a revert to the
+// Pokemon's original obtain method if gifting back to its original trainer), matching this app's
+// established "explicitly confirm and name what changes" convention (Evolve, level-up milestones).
+// A successful gift calls router.refresh() rather than patching client state -- the current Trainer
+// changes, which cascades into isOwner/isGM/canEditInfo and most of the Info card, so a fresh server
+// render is simpler than reconstructing all of that client-side.
+export function GiftPokemonButton() {
+  const router = useRouter()
+  const { pokemonId, isOwner, isGM, giftableTrainers, originalTrainerId, originalObtainMethodName } = usePokemonState()
+
+  const [open, setOpen] = useState(false)
+  const [selectedTrainerId, setSelectedTrainerId] = useState('')
+  const [confirming, setConfirming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleOutsideClick(e: MouseEvent) {
+      if (!panelRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [open])
+
+  if (!(isOwner || isGM) || giftableTrainers.length === 0) return null
+
+  const selectedTrainer = giftableTrainers.find((t) => t.id === selectedTrainerId) ?? null
+  const resultText =
+    selectedTrainerId && selectedTrainerId === originalTrainerId
+      ? `revert to ${originalObtainMethodName ?? 'its original obtain method'}`
+      : 'become Gifted'
+
+  async function confirmGift() {
+    if (!selectedTrainerId) return
+    setBusy(true)
+    setError(null)
+    const result = await giftPokemon(pokemonId, selectedTrainerId)
+    setBusy(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setOpen(false)
+    setConfirming(false)
+    setSelectedTrainerId('')
+    router.refresh()
+  }
+
+  return (
+    <div ref={panelRef} className="relative shrink-0">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="rounded border px-4 py-2 text-sm font-semibold">
+        Gift to...
+      </button>
+
+      {(open || confirming || error) && (
+        <div className="bg-page absolute right-0 top-full z-20 mt-1 w-72 rounded border p-3 text-sm shadow-lg">
+          {error && <p className="mb-2 text-xs text-danger">{error}</p>}
+          {confirming && selectedTrainer ? (
+            <div className="flex flex-col gap-2">
+              <p>
+                Gift to <span className="font-medium">{selectedTrainer.name}</span>? Obtain method will {resultText}.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={confirmGift}
+                  disabled={busy}
+                  className="rounded bg-accent px-3 py-1 text-sm text-accent-foreground disabled:opacity-50"
+                >
+                  Confirm
+                </button>
+                <button type="button" onClick={() => setConfirming(false)} disabled={busy} className="rounded border px-3 py-1 text-sm">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <select
+                value={selectedTrainerId}
+                onChange={(e) => setSelectedTrainerId(e.target.value)}
+                className="bg-surface-subtle rounded border px-2 py-1 text-sm"
+              >
+                <option value="">Choose a Trainer…</option>
+                {giftableTrainers.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.is_npc ? ' (NPC)' : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => selectedTrainerId && setConfirming(true)}
+                disabled={!selectedTrainerId}
+                className="rounded border px-3 py-1 text-sm disabled:opacity-50"
+              >
+                Gift
+              </button>
+            </div>
           )}
         </div>
       )}

@@ -6,6 +6,7 @@ import { pickRandomNatureId } from '@/lib/pta3/nature'
 import { pickRandomGender } from '@/lib/pta3/gender'
 import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
 import { pickFlavorPreferences } from '@/lib/pta3/flavors'
+import { setOriginalTrainerIfUnset } from '@/lib/pta3/pokemonOrigin'
 
 export async function createStarterPokemon(trainerId: string, formData: FormData) {
   const supabase = await createClient()
@@ -106,6 +107,8 @@ export async function createStarterPokemon(trainerId: string, formData: FormData
   if (linkError) {
     redirect(`/trainers/${trainerId}/starter?error=${encodeURIComponent(linkError.message)}`)
   }
+
+  await setOriginalTrainerIfUnset(supabase, pokemonId, trainerId, obtainMethod?.id ?? null)
 
   redirect(trainer.campaign_id ? `/campaigns/${trainer.campaign_id}` : '/dashboard')
 }
