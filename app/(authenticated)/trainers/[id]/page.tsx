@@ -7,7 +7,7 @@ import { RollInputButton } from '@/components/RollInputButton'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { isBookmarked } from '@/lib/pta3/bookmarks'
-import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
+import { computePokemonLevel, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
 import { computeLevelEligibleEvolutionSet } from '@/lib/pta3/evolution'
 import { MAX_TEAM_SIZE } from '@/lib/pta3/pokemonTeam'
 import { loadTrainerDerived, loadPendingMilestone, loadQualifyingMilestones, computeEffectiveStats, computeMaxHp } from '@/lib/pta3/trainerFeatures'
@@ -158,35 +158,51 @@ export default async function TrainerPage({
   // Team only -- a Trainer's off-Team Pokemon (party_slot null) live in the PC page instead. Since
   // the PC system introduced party_slot, this query now covers only the subset actually on the
   // Team, ordered by slot rather than insertion order.
-  const { data: trainersPokemon } = await supabase
-    .from('trainers_pokemon')
-    .select(
-      `
+  const [{ data: trainersPokemon }, { data: loyaltyRows }] = await Promise.all([
+    supabase
+      .from('trainers_pokemon')
+      .select(
+        `
       obtain_method_id,
       pokemon(
-        id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_id, pokedex_id,
-        pokedex(name, base_hp, sprite_code, growth_rate_id),
-        loyalty:loyalties(name)
+        id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_points, pokedex_id,
+        pokedex(name, base_hp, sprite_code, growth_rate_id)
       )
     `,
-    )
-    .eq('trainer_id', id)
-    .not('party_slot', 'is', null)
-    .order('party_slot')
+      )
+      .eq('trainer_id', id)
+      .not('party_slot', 'is', null)
+      .order('party_slot'),
+    supabase.from('loyalties').select('name, sort_order, min_points'),
+  ])
 
   // Same derivation as the Pokemon detail page -- level is never stored, so the Team list needs to
-  // compute it per Pokemon exactly the same way.
+  // compute it per Pokemon exactly the same way. Loyalty tier is likewise always derived from LP,
+  // never stored, per [[Add a Loyalty editor]].
   const team = await Promise.all(
     (trainersPokemon ?? []).map(async (tp) => {
-      const p = tp.pokemon!
+      // trainers_pokemon.pokemon_id is a primary key, so this reverse embed comes back as a single
+      // object at runtime (same quirk documented throughout this codebase), not the array TS infers.
+      const p = tp.pokemon as unknown as {
+        id: string
+        nickname: string | null
+        current_hp: number
+        ev_hp: number
+        is_shiny: boolean
+        current_exp: number
+        loyalty_points: number
+        pokedex_id: number
+        pokedex: { name: string; base_hp: number; sprite_code: string; growth_rate_id: number | null }
+      }
       const { level } = await computePokemonLevel(supabase, {
         currentExp: p.current_exp,
         isShiny: p.is_shiny,
-        loyaltyId: p.loyalty_id,
+        loyaltyPoints: p.loyalty_points,
         obtainMethodId: tp.obtain_method_id,
         growthRateId: p.pokedex!.growth_rate_id,
       })
-      return { ...p, level, maxHp: p.pokedex!.base_hp + p.ev_hp * 6 }
+      const loyaltyName = computeLoyaltyTier(p.loyalty_points, loyaltyRows ?? [])?.name ?? null
+      return { ...p, level, loyaltyName, maxHp: p.pokedex!.base_hp + p.ev_hp * 6 }
     }),
   )
 
@@ -348,7 +364,7 @@ export default async function TrainerPage({
                         {p.nickname ? `${p.nickname} (${p.pokedex!.name})` : p.pokedex!.name}
                       </Link>
                       <p className="text-xs text-muted">
-                        Level {p.level} · Loyalty: {p.loyalty?.name ?? '—'}
+                        Level {p.level} · Loyalty: {p.loyaltyName ?? '—'}
                       </p>
                       <p className={`font-semibold ${hpColorClass(p.current_hp, p.maxHp)}`}>
                         {p.current_hp} / {p.maxHp} HP

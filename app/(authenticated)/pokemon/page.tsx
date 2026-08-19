@@ -26,13 +26,13 @@ export default async function PokemonListPage({
       supabase.from('campaigns').select('id, name').eq('gm_user_id', user.id).order('created_at', { ascending: false }),
       // Pokemon belonging to one of your own trainers, via trainers_pokemon (not the "Owners can
       // view their pokemon" RLS policy directly, since that alone wouldn't let this query group by
-      // trainer for display). current_exp/loyalty_id/obtain_method_id/growth_rate_id and the two
+      // trainer for display). current_exp/loyalty_points/obtain_method_id/growth_rate_id and the two
       // pokedex type columns are needed for computePokemonLevelsBulk and the type/level filters
       // ([[Improve Pokemon overview search]]), matching what the PC page already fetches.
       supabase
         .from('trainers_pokemon')
         .select(
-          'trainer_id, obtain_method_id, trainers!inner(id, name, user_id, is_npc, campaign_id), pokemon(id, nickname, is_shiny, current_exp, loyalty_id, pokedex_id, pokedex(name, sprite_code, type_1_id, type_2_id, growth_rate_id))',
+          'trainer_id, obtain_method_id, trainers!inner(id, name, user_id, is_npc, campaign_id), pokemon(id, nickname, is_shiny, current_exp, loyalty_points, pokedex_id, pokedex(name, sprite_code, type_1_id, type_2_id, growth_rate_id))',
         )
         .eq('trainers.user_id', user.id),
       // Pool Pokemon this user created -- filtered to unassigned (no trainers_pokemon row) below,
@@ -43,7 +43,7 @@ export default async function PokemonListPage({
       supabase
         .from('pokemon')
         .select(
-          'id, nickname, is_shiny, current_exp, loyalty_id, campaign_id, pokedex_id, pokedex(name, sprite_code, type_1_id, type_2_id, growth_rate_id), trainers_pokemon(trainer_id)',
+          'id, nickname, is_shiny, current_exp, loyalty_points, campaign_id, pokedex_id, pokedex(name, sprite_code, type_1_id, type_2_id, growth_rate_id), trainers_pokemon(trainer_id)',
         )
         .eq('created_by_user_id', user.id),
       // Assignable targets, half one: every trainer you own that ISN'T in a campaign -- a campaign
@@ -72,7 +72,7 @@ export default async function PokemonListPage({
     nickname: string | null
     is_shiny: boolean
     currentExp: number
-    loyaltyId: number | null
+    loyaltyPoints: number
     obtainMethodId: number | null
     pokedexId: number
     pokedex: { name: string; sprite_code: string; type_1_id: number; type_2_id: number | null; growth_rate_id: number | null } | null
@@ -88,21 +88,32 @@ export default async function PokemonListPage({
   // codebase wherever a query is given an explicit result type.
   const assignedRows = ((assignedPokemonRaw ?? [])
     .filter((tp) => tp.pokemon)
-    .map((tp) => ({
-      id: tp.pokemon!.id,
-      nickname: tp.pokemon!.nickname,
-      is_shiny: tp.pokemon!.is_shiny,
-      currentExp: tp.pokemon!.current_exp,
-      loyaltyId: tp.pokemon!.loyalty_id,
-      obtainMethodId: tp.obtain_method_id,
-      pokedexId: tp.pokemon!.pokedex_id,
-      pokedex: tp.pokemon!.pokedex,
-      trainerId: tp.trainer_id,
-      trainerName: tp.trainers?.name ?? null,
-      trainerIsNpc: tp.trainers?.is_npc ?? null,
-      trainerCampaignId: tp.trainers?.campaign_id ?? null,
-      campaignId: null,
-    })) as unknown) as PokemonRow[]
+    .map((tp) => {
+      const p = tp.pokemon as unknown as {
+        id: string
+        nickname: string | null
+        is_shiny: boolean
+        current_exp: number
+        loyalty_points: number
+        pokedex_id: number
+        pokedex: PokemonRow['pokedex']
+      }
+      return {
+        id: p.id,
+        nickname: p.nickname,
+        is_shiny: p.is_shiny,
+        currentExp: p.current_exp,
+        loyaltyPoints: p.loyalty_points,
+        obtainMethodId: tp.obtain_method_id,
+        pokedexId: p.pokedex_id,
+        pokedex: p.pokedex,
+        trainerId: tp.trainer_id,
+        trainerName: tp.trainers?.name ?? null,
+        trainerIsNpc: tp.trainers?.is_npc ?? null,
+        trainerCampaignId: tp.trainers?.campaign_id ?? null,
+        campaignId: null,
+      }
+    }) as unknown) as PokemonRow[]
 
   const poolRows = ((poolPokemonRaw ?? [])
     .filter((p) => !p.trainers_pokemon)
@@ -111,7 +122,7 @@ export default async function PokemonListPage({
       nickname: p.nickname,
       is_shiny: p.is_shiny,
       currentExp: p.current_exp,
-      loyaltyId: p.loyalty_id,
+      loyaltyPoints: p.loyalty_points,
       obtainMethodId: null,
       pokedexId: p.pokedex_id,
       pokedex: p.pokedex,
@@ -130,7 +141,7 @@ export default async function PokemonListPage({
       pokemonId: p.id,
       currentExp: p.currentExp,
       isShiny: p.is_shiny,
-      loyaltyId: p.loyaltyId,
+      loyaltyPoints: p.loyaltyPoints,
       obtainMethodId: p.obtainMethodId,
       growthRateId: p.pokedex?.growth_rate_id ?? null,
     })),

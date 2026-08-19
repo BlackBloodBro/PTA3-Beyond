@@ -37,7 +37,7 @@ export default async function NewPokemonPage({
     species,
     { data: campaigns },
     { data: natures },
-    { data: loyalties },
+    { data: loyaltyTiers },
     { data: obtainMethods },
     { data: items },
     { data: sizes },
@@ -50,7 +50,9 @@ export default async function NewPokemonPage({
     supabase.from('campaigns').select('id, name').eq('gm_user_id', user.id).order('name'),
     // Nature stat preview reuses the exact same query shape as the Pokemon detail page's edit form.
     supabase.from('natures').select('id, name, increased:stats!increased_stat_id(name), decreased:stats!decreased_stat_id(name)').order('name'),
-    supabase.from('loyalties').select('id, name, modifier').order('name'),
+    // Modifier/sort_order/min_points only -- the live level preview derives the current tier from a
+    // typed "Starting LP" number now, per [[Add a Loyalty editor]], not a picked id.
+    supabase.from('loyalties').select('modifier, sort_order, min_points'),
     supabase.from('obtain_methods').select('id, name, modifier').order('name'),
     supabase.from('items').select('id, name').order('name'),
     supabase.from('sizes').select('id, name').order('name'),
@@ -129,7 +131,7 @@ export default async function NewPokemonPage({
       <CreatePokemonForm
         species={species}
         natures={(natures ?? []) as unknown as { id: number; name: string; increased: { name: string } | null; decreased: { name: string } | null }[]}
-        loyalties={loyalties ?? []}
+        loyaltyTiers={loyaltyTiers ?? []}
         obtainMethods={obtainMethods ?? []}
         items={items ?? []}
         types={types}

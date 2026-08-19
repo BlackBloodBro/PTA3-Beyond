@@ -17,6 +17,17 @@ export function deriveLevelFromModifiers(
   return { level: levelRow?.level_number ?? 1, effectiveExp }
 }
 
+export type LoyaltyTierInfo = { sort_order: number; min_points: number }
+
+// The highest-sort_order loyalties row whose min_points threshold a given LP total has reached --
+// the direct Loyalty analogue of exp-to-level, just with no further modifiers of its own. Generic so
+// callers can pass richer rows (id/name/modifier included) and get them back typed. Null only if
+// tierRows is empty (loyalties seed data missing) -- every real LP total (including 0) matches the
+// bottom tier's min_points = 0 row.
+export function computeLoyaltyTier<T extends LoyaltyTierInfo>(loyaltyPoints: number, tierRows: T[]): T | null {
+  return [...tierRows].sort((a, b) => b.sort_order - a.sort_order).find((t) => t.min_points <= loyaltyPoints) ?? null
+}
+
 // Pokemon level is never stored -- it's always derived from current_exp and four multiplicative
 // modifiers (homebrew formula, confirmed with the user): effective_exp = current_exp ×
 // growth_rate.exp_modifier × obtain_method.modifier × shiny_modifier × loyalty_modifier, then
@@ -28,15 +39,13 @@ export async function computePokemonLevel(
   params: {
     currentExp: number
     isShiny: boolean
-    loyaltyId: number | null
+    loyaltyPoints: number
     obtainMethodId: number | null
     growthRateId: number | null
   },
 ): Promise<{ level: number; effectiveExp: number }> {
-  const [{ data: loyalty }, { data: obtainMethod }, { data: growthRate }, { data: shinyModifiers }] = await Promise.all([
-    params.loyaltyId
-      ? supabase.from('loyalties').select('modifier').eq('id', params.loyaltyId).maybeSingle()
-      : Promise.resolve({ data: null }),
+  const [{ data: loyaltyRows }, { data: obtainMethod }, { data: growthRate }, { data: shinyModifiers }] = await Promise.all([
+    supabase.from('loyalties').select('modifier, sort_order, min_points'),
     params.obtainMethodId
       ? supabase.from('obtain_methods').select('modifier').eq('id', params.obtainMethodId).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -46,7 +55,7 @@ export async function computePokemonLevel(
     supabase.from('exp_modifiers_shiny').select('name, modifier'),
   ])
 
-  const loyaltyModifier = loyalty?.modifier ?? 1
+  const loyaltyModifier = computeLoyaltyTier(params.loyaltyPoints, loyaltyRows ?? [])?.modifier ?? 1
   const obtainModifier = obtainMethod?.modifier ?? 1
   const growthModifier = growthRate?.exp_modifier ?? 1
   const shinyRow = (shinyModifiers ?? []).find((r) => r.name === (params.isShiny ? 'Yes' : 'No'))
@@ -79,14 +88,14 @@ export async function computePokemonLevelsBulk(
     pokemonId: string
     currentExp: number
     isShiny: boolean
-    loyaltyId: number | null
+    loyaltyPoints: number
     obtainMethodId: number | null
     growthRateId: number | null
   }[],
 ): Promise<Map<string, { level: number; effectiveExp: number }>> {
-  const [{ data: loyalties }, { data: obtainMethods }, { data: growthRates }, { data: shinyModifiers }, { data: levels }] =
+  const [{ data: loyaltyRows }, { data: obtainMethods }, { data: growthRates }, { data: shinyModifiers }, { data: levels }] =
     await Promise.all([
-      supabase.from('loyalties').select('id, modifier'),
+      supabase.from('loyalties').select('modifier, sort_order, min_points'),
       supabase.from('obtain_methods').select('id, modifier'),
       supabase.from('growth_rates').select('id, exp_modifier'),
       supabase.from('exp_modifiers_shiny').select('name, modifier'),
@@ -96,7 +105,6 @@ export async function computePokemonLevelsBulk(
       supabase.from('levels').select('level_number, cumulative_exp').order('level_number', { ascending: false }),
     ])
 
-  const loyaltyModifierById = new Map((loyalties ?? []).map((l) => [l.id, l.modifier]))
   const obtainModifierById = new Map((obtainMethods ?? []).map((o) => [o.id, o.modifier]))
   const growthModifierById = new Map((growthRates ?? []).map((g) => [g.id, g.exp_modifier]))
   const shinyModifierByName = new Map((shinyModifiers ?? []).map((r) => [r.name, r.modifier]))
@@ -104,7 +112,7 @@ export async function computePokemonLevelsBulk(
 
   const result = new Map<string, { level: number; effectiveExp: number }>()
   for (const p of pokemonList) {
-    const loyaltyModifier = (p.loyaltyId !== null ? loyaltyModifierById.get(p.loyaltyId) : undefined) ?? 1
+    const loyaltyModifier = computeLoyaltyTier(p.loyaltyPoints, loyaltyRows ?? [])?.modifier ?? 1
     const obtainModifier = (p.obtainMethodId !== null ? obtainModifierById.get(p.obtainMethodId) : undefined) ?? 1
     const growthModifier = (p.growthRateId !== null ? growthModifierById.get(p.growthRateId) : undefined) ?? 1
     const shinyModifier = shinyModifierByName.get(p.isShiny ? 'Yes' : 'No') ?? 1

@@ -1,4 +1,5 @@
 import type { createClient } from '@/lib/supabase/server'
+import { computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -93,12 +94,15 @@ export async function computeLevelEligibleEvolutionSet(
   return eligible
 }
 
-// Loyalty 5 is this app's max tier -- the fixed threshold every 'loyalty' trigger requires, per Design
-// (remapped from PokeAPI's min_happiness, no numeric Happiness stat exists in this app to check instead).
-export async function isMaxLoyalty(supabase: SupabaseClient, loyaltyId: number | null): Promise<boolean> {
-  if (loyaltyId === null) return false
-  const { data } = await supabase.from('loyalties').select('id').eq('name', '5').maybeSingle()
-  return data?.id === loyaltyId
+// The top loyalties tier (by sort_order) is this app's max tier -- the fixed threshold every
+// 'loyalty' trigger requires, per Design (remapped from PokeAPI's min_happiness, no numeric Happiness
+// stat exists in this app to check instead). Uses sort_order rather than a fragile name-'5' string
+// match, per [[Add a Loyalty editor]] -- same fix already applied to sizes/weights.
+export async function isMaxLoyalty(supabase: SupabaseClient, loyaltyPoints: number): Promise<boolean> {
+  const { data: rows } = await supabase.from('loyalties').select('sort_order, min_points')
+  if (!rows || rows.length === 0) return false
+  const maxSortOrder = Math.max(...rows.map((r) => r.sort_order))
+  return computeLoyaltyTier(loyaltyPoints, rows)?.sort_order === maxSortOrder
 }
 
 export type EvolutionStoneBagItem = { trainersItemId: string; itemId: number; itemName: string; quantity: number }

@@ -6,7 +6,7 @@ import { pickRandomNatureId } from '@/lib/pta3/nature'
 import { pickRandomGender } from '@/lib/pta3/gender'
 import { pickRandomShiny } from '@/lib/pta3/shiny'
 import { pickFlavorPreferences } from '@/lib/pta3/flavors'
-import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
+import { computePokemonLevel, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
@@ -101,7 +101,7 @@ export type CreatePokemonInput = {
   trainerId: string | null
   natureChoice: 'random' | number
   genderChoice: 'random' | 'male' | 'female' | 'genderless'
-  loyaltyId: number | null
+  loyaltyPoints: number
   obtainMethodId: number | null
   heldItemId: number | null
   shininessChoice: 'no' | 'yes' | 'random'
@@ -189,7 +189,7 @@ export async function createPokemon(input: CreatePokemonInput): Promise<{ error:
       created_by_user_id: user.id,
       nature_id: natureId,
       gender,
-      loyalty_id: input.loyaltyId,
+      loyalty_points: Math.max(0, Math.floor(input.loyaltyPoints) || 0),
       held_item_id: input.heldItemId,
       is_shiny: isShiny,
       type_1_id: input.type1Id,
@@ -486,7 +486,7 @@ async function loadPokemonEvContext(supabase: Awaited<ReturnType<typeof createCl
     .from('pokemon')
     .select(
       `
-      current_exp, current_hp, is_shiny, loyalty_id, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id),
+      current_exp, current_hp, is_shiny, loyalty_points, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id),
       ev_hp, ev_attack, ev_defense, ev_special_attack, ev_special_defense, ev_speed,
       pokedex(growth_rate_id, base_hp),
       trainers_pokemon(obtain_method_id, trainers(user_id, campaigns(gm_user_id)))
@@ -574,7 +574,7 @@ export async function assignPokemonEv(
   const { level } = await computePokemonLevel(supabase, {
     currentExp: ctx.pokemon.current_exp,
     isShiny: ctx.pokemon.is_shiny,
-    loyaltyId: ctx.pokemon.loyalty_id,
+    loyaltyPoints: ctx.pokemon.loyalty_points,
     obtainMethodId: ctx.ownerLink?.obtain_method_id ?? null,
     growthRateId: ctx.pokemon.pokedex?.growth_rate_id ?? null,
   })
@@ -637,7 +637,7 @@ export async function setPokemonEvs(
   const { level } = await computePokemonLevel(supabase, {
     currentExp: ctx.pokemon.current_exp,
     isShiny: ctx.pokemon.is_shiny,
-    loyaltyId: ctx.pokemon.loyalty_id,
+    loyaltyPoints: ctx.pokemon.loyalty_points,
     obtainMethodId: ctx.ownerLink?.obtain_method_id ?? null,
     growthRateId: ctx.pokemon.pokedex?.growth_rate_id ?? null,
   })
@@ -703,7 +703,7 @@ export async function adjustPokemonHp(
   // GM (both have UPDATE rights), same as the trainer HP control.
   const { data: pokemon } = await supabase
     .from('pokemon')
-    .select('current_hp, ev_hp, pokedex(base_hp)')
+    .select('current_hp, ev_hp, loyalty_points, pokedex(base_hp)')
     .eq('id', pokemonId)
     .single()
 
@@ -717,7 +717,17 @@ export async function adjustPokemonHp(
   // death-saving-throw use for negative values, so there's nothing for going below 0 to represent.
   const newHp = sign > 0 ? Math.min(maxHp, pokemon.current_hp + amount) : Math.max(0, pokemon.current_hp - amount)
 
-  const { error } = await supabase.from('pokemon').update({ current_hp: newHp }).eq('id', pokemonId)
+  const updates: { current_hp: number; loyalty_points?: number } = { current_hp: newHp }
+
+  // [[Add a Loyalty editor]]: fainting (a >0 -> 0 HP crossing) costs LP -- checked as a state
+  // transition rather than a one-time flag, so repeated fainting across a session removes LP each
+  // time. Healing back above 0 and fainting again later is a fresh transition, not a repeat.
+  if (pokemon.current_hp > 0 && newHp === 0) {
+    const { data: faintEvent } = await supabase.from('loyalty_point_events').select('points').eq('name', 'Fainted').maybeSingle()
+    updates.loyalty_points = Math.max(0, pokemon.loyalty_points + (faintEvent?.points ?? 0))
+  }
+
+  const { error } = await supabase.from('pokemon').update(updates).eq('id', pokemonId)
 
   if (error) {
     return { error: error.message }
@@ -729,12 +739,14 @@ export async function adjustPokemonHp(
 const POKEMON_GENDER_VALUES = ['male', 'female', 'genderless'] as const
 
 // Nickname is owner-or-GM (relies on the same broad RLS policy as HP/moves). Everything else here
-// -- Gender, Nature, Loyalty, Shininess, Type 1/2, Size, Weight, Held item -- is GM-only per the
-// user's explicit direction ("all of them should be editable by the GM only... let's make it so
-// Gender and Nature are also only editable by the GM"). RLS still broadly permits the owner to
-// UPDATE this table (same policy that lets Nickname through), so GM-ness has to be checked here
-// explicitly -- same technique as addPokemonExp -- rather than relying on RLS to reject an owner
-// who tries to smuggle a Gender/Loyalty/etc change into the request.
+// -- Gender, Nature, Shininess, Type 1/2, Size, Weight, Held item -- is GM-only per the user's
+// explicit direction ("all of them should be editable by the GM only... let's make it so Gender and
+// Nature are also only editable by the GM"). RLS still broadly permits the owner to UPDATE this
+// table (same policy that lets Nickname through), so GM-ness has to be checked here explicitly --
+// same technique as addPokemonExp -- rather than relying on RLS to reject an owner who tries to
+// smuggle a Gender/Shininess/etc change into the request. Loyalty is no longer part of this form at
+// all, per [[Add a Loyalty editor]] -- it's an accumulating LP counter now (LoyaltySection's Add/
+// Remove LP), not a force-a-tier field.
 export async function updatePokemonDetails(pokemonId: string, formData: FormData) {
   const supabase = await createClient()
   const {
@@ -809,9 +821,6 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
       updates.nature_id = null
     }
 
-    const loyaltyIdRaw = (formData.get('loyaltyId') as string)?.trim()
-    updates.loyalty_id = loyaltyIdRaw ? Number(loyaltyIdRaw) : null
-
     updates.is_shiny = formData.get('isShiny') === 'on'
 
     const type1IdRaw = (formData.get('type1Id') as string)?.trim()
@@ -872,7 +881,7 @@ export async function learnMove(
   const { data: pokemon } = await supabase
     .from('pokemon')
     .select(
-      'current_exp, is_shiny, loyalty_id, pokedex_id, pokedex(growth_rate_id), trainers_pokemon(obtain_method_id)',
+      'current_exp, is_shiny, loyalty_points, pokedex_id, pokedex(growth_rate_id), trainers_pokemon(obtain_method_id)',
     )
     .eq('id', pokemonId)
     .single()
@@ -888,9 +897,12 @@ export async function learnMove(
   const { level } = await computePokemonLevel(supabase, {
     currentExp: pokemon.current_exp,
     isShiny: pokemon.is_shiny,
-    loyaltyId: pokemon.loyalty_id,
+    loyaltyPoints: pokemon.loyalty_points,
     obtainMethodId: ownerLink?.obtain_method_id ?? null,
-    growthRateId: pokemon.pokedex?.growth_rate_id ?? null,
+    // Same reverse-embed quirk documented throughout this codebase -- a single-field embed like
+    // pokedex(growth_rate_id) alongside other scalar columns in the same select() infers as an
+    // array here even though it's a single row at runtime.
+    growthRateId: (pokemon.pokedex as unknown as { growth_rate_id: number | null } | null)?.growth_rate_id ?? null,
   })
 
   const { data: known } = await supabase.from('pokemon_moves').select('move_id').eq('pokemon_id', pokemonId)
@@ -1005,7 +1017,7 @@ export async function addPokemonExp(
   const { data: pokemon } = await supabase
     .from('pokemon')
     .select(
-      'current_exp, is_shiny, loyalty_id, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(user_id, campaigns(gm_user_id)))',
+      'current_exp, is_shiny, loyalty_points, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(user_id, campaigns(gm_user_id)))',
     )
     .eq('id', pokemonId)
     .single()
@@ -1052,12 +1064,98 @@ export async function addPokemonExp(
   const { level, effectiveExp } = await computePokemonLevel(supabase, {
     currentExp: newExp,
     isShiny: pokemon.is_shiny,
-    loyaltyId: pokemon.loyalty_id,
+    loyaltyPoints: pokemon.loyalty_points,
     obtainMethodId: ownerLink?.obtain_method_id ?? null,
-    growthRateId: pokemon.pokedex?.growth_rate_id ?? null,
+    // Same reverse-embed quirk documented throughout this codebase -- a single-field embed like
+    // pokedex(growth_rate_id) alongside other scalar columns in the same select() infers as an
+    // array here even though it's a single row at runtime.
+    growthRateId: (pokemon.pokedex as unknown as { growth_rate_id: number | null } | null)?.growth_rate_id ?? null,
   })
 
   return { currentExp: newExp, effectiveExp, level }
+}
+
+// GM-only, mirrors addPokemonExp's shape exactly ((pokemonId, sign, amount) -> new value or error),
+// per [[Add a Loyalty editor]] -- LP replaces the old force-a-tier Loyalty <select>. LP also feeds
+// the exp-to-level formula (loyaltyModifier), so a change here can shift Level too -- recomputed and
+// returned alongside the new LP/tier/modifier so the caller can update both the Loyalty display and
+// the header's Level line without a separate round trip.
+export async function addPokemonLoyaltyPoints(
+  pokemonId: string,
+  sign: 1 | -1,
+  amount: number,
+): Promise<
+  | { error: string }
+  | { loyaltyPoints: number; loyaltyName: string | null; loyaltyModifier: number; level: number; effectiveExp: number }
+> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  if (!Number.isInteger(amount) || amount < 0) {
+    return { error: 'Enter a whole number amount' }
+  }
+
+  const { data: pokemon } = await supabase
+    .from('pokemon')
+    .select(
+      'current_exp, is_shiny, loyalty_points, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(user_id, campaigns(gm_user_id)))',
+    )
+    .eq('id', pokemonId)
+    .single()
+
+  if (!pokemon) {
+    return { error: 'Pokemon not found' }
+  }
+
+  // Same trainers_pokemon-is-a-primary-key quirk as elsewhere -- this reverse embed (and the
+  // forward trainers -> campaigns embed nested inside it) both come back as single objects.
+  const ownerLink = pokemon.trainers_pokemon as unknown as {
+    obtain_method_id: number | null
+    trainers: { user_id: string; campaigns: { gm_user_id: string } | null } | null
+  } | null
+  const campaign = pokemon.campaign as unknown as { gm_user_id: string } | null
+  const isGM = ownerLink
+    ? ownerLink.trainers?.campaigns
+      ? ownerLink.trainers.campaigns.gm_user_id === user.id
+      : ownerLink.trainers?.user_id === user.id
+    : resolveWildPokemonAuthority(
+        { campaignId: pokemon.campaign_id, campaignGmUserId: campaign?.gm_user_id ?? null, createdByUserId: pokemon.created_by_user_id },
+        user.id,
+      )
+
+  if (!isGM) {
+    return { error: 'Only the campaign GM can change Loyalty' }
+  }
+
+  const newLoyaltyPoints = Math.max(0, pokemon.loyalty_points + sign * amount)
+
+  const { error } = await supabase.from('pokemon').update({ loyalty_points: newLoyaltyPoints }).eq('id', pokemonId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  const { data: loyaltyRows } = await supabase.from('loyalties').select('name, modifier, sort_order, min_points')
+  const tier = computeLoyaltyTier(newLoyaltyPoints, loyaltyRows ?? [])
+
+  const { level, effectiveExp } = await computePokemonLevel(supabase, {
+    currentExp: pokemon.current_exp,
+    isShiny: pokemon.is_shiny,
+    loyaltyPoints: newLoyaltyPoints,
+    obtainMethodId: ownerLink?.obtain_method_id ?? null,
+    // Same reverse-embed quirk documented throughout this codebase -- a single-field embed like
+    // pokedex(growth_rate_id) alongside other scalar columns in the same select() infers as an
+    // array here even though it's a single row at runtime.
+    growthRateId: (pokemon.pokedex as unknown as { growth_rate_id: number | null } | null)?.growth_rate_id ?? null,
+  })
+
+  return { loyaltyPoints: newLoyaltyPoints, loyaltyName: tier?.name ?? null, loyaltyModifier: tier?.modifier ?? 1, level, effectiveExp }
 }
 
 export async function forgetMove(pokemonId: string, moveId: number): Promise<{ error?: string }> {
@@ -1106,7 +1204,7 @@ export async function learnPassive(
   const { data: pokemon } = await supabase
     .from('pokemon')
     .select(
-      'current_exp, is_shiny, loyalty_id, pokedex_id, pokedex(growth_rate_id), trainers_pokemon(obtain_method_id)',
+      'current_exp, is_shiny, loyalty_points, pokedex_id, pokedex(growth_rate_id), trainers_pokemon(obtain_method_id)',
     )
     .eq('id', pokemonId)
     .single()
@@ -1128,9 +1226,12 @@ export async function learnPassive(
   const { level } = await computePokemonLevel(supabase, {
     currentExp: pokemon.current_exp,
     isShiny: pokemon.is_shiny,
-    loyaltyId: pokemon.loyalty_id,
+    loyaltyPoints: pokemon.loyalty_points,
     obtainMethodId: ownerLink?.obtain_method_id ?? null,
-    growthRateId: pokemon.pokedex?.growth_rate_id ?? null,
+    // Same reverse-embed quirk documented throughout this codebase -- a single-field embed like
+    // pokedex(growth_rate_id) alongside other scalar columns in the same select() infers as an
+    // array here even though it's a single row at runtime.
+    growthRateId: (pokemon.pokedex as unknown as { growth_rate_id: number | null } | null)?.growth_rate_id ?? null,
   })
 
   const { data: eligible } = await supabase
@@ -1347,7 +1448,7 @@ export async function evolvePokemon(
   const { data: pokemon } = await supabase
     .from('pokemon')
     .select(
-      `current_exp, is_shiny, loyalty_id, pokedex_id, size_id, weight_id, created_by_user_id, campaign_id,
+      `current_exp, is_shiny, loyalty_points, pokedex_id, size_id, weight_id, created_by_user_id, campaign_id,
        campaign:campaign_id(gm_user_id),
        pokedex(evolution_chain_id, growth_rate_id, size_id, weight_id),
        trainers_pokemon(trainer_id, obtain_method_id, trainers(user_id, campaign_id, campaigns(gm_user_id)))`,
@@ -1429,7 +1530,7 @@ export async function evolvePokemon(
     const { level } = await computePokemonLevel(supabase, {
       currentExp: pokemon.current_exp,
       isShiny: pokemon.is_shiny,
-      loyaltyId: pokemon.loyalty_id,
+      loyaltyPoints: pokemon.loyalty_points,
       obtainMethodId: ownerLink?.obtain_method_id ?? null,
       growthRateId: fromSpecies?.growth_rate_id ?? null,
     })
@@ -1442,7 +1543,7 @@ export async function evolvePokemon(
       .in('trigger_type', ['level', 'loyalty'])
 
     const levelSatisfied = (edges ?? []).some((e) => e.trigger_type === 'level' && e.level_requirement !== null && level >= e.level_requirement)
-    const loyaltySatisfied = (edges ?? []).some((e) => e.trigger_type === 'loyalty') && (await isMaxLoyalty(supabase, pokemon.loyalty_id))
+    const loyaltySatisfied = (edges ?? []).some((e) => e.trigger_type === 'loyalty') && (await isMaxLoyalty(supabase, pokemon.loyalty_points))
 
     if (!levelSatisfied && !loyaltySatisfied) {
       // Not a currently-satisfied automatic edge -- only a GM override can do this (skip-ahead,
