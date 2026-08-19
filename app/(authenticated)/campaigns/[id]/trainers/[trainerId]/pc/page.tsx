@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { computePokemonLevelsBulk } from '@/lib/pta3/pokemonLevel'
+import { computePokemonLevelsBulk, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
 import { fetchPokedexFilterOptions } from '@/lib/pta3/pokedexFilter'
 import { computeLevelEligibleEvolutionSet } from '@/lib/pta3/evolution'
 import { PcBoard, type PcPokemon } from '@/app/(authenticated)/trainers/[id]/pc/PcBoard'
@@ -42,24 +42,43 @@ export default async function CampaignTrainerPcPage({ params }: { params: Promis
 
   // Every linked Pokemon, Team and PC alike -- split into the two lists below after computing
   // levels in bulk, rather than two separate queries.
-  const [{ data: trainersPokemon }, { types }] = await Promise.all([
+  const [{ data: trainersPokemon }, { types }, { data: loyaltyRows }] = await Promise.all([
     supabase
       .from('trainers_pokemon')
       .select(
         `
         party_slot, obtain_method_id,
         pokemon(
-          id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_id, pokedex_id,
+          id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_points, pokedex_id,
           pokedex(name, base_hp, sprite_code, growth_rate_id, type_1_id, type_2_id),
-          loyalty:loyalties(name), held_item:items!held_item_id(name)
+          held_item:items!held_item_id(name)
         )
       `,
       )
       .eq('trainer_id', id),
     fetchPokedexFilterOptions(supabase),
+    supabase.from('loyalties').select('name, sort_order, min_points'),
   ])
 
-  const rows = trainersPokemon ?? []
+  // Cast reflects the real runtime shape (pokemon/pokedex/held_item come back as single objects, not
+  // the arrays TS infers for these embeds) -- same reverse-embed quirk documented throughout this
+  // codebase.
+  const rows = (trainersPokemon ?? []) as unknown as {
+    party_slot: number | null
+    obtain_method_id: number | null
+    pokemon: {
+      id: string
+      nickname: string | null
+      current_hp: number
+      ev_hp: number
+      is_shiny: boolean
+      current_exp: number
+      loyalty_points: number
+      pokedex_id: number
+      pokedex: { name: string; base_hp: number; sprite_code: string; growth_rate_id: number | null; type_1_id: number; type_2_id: number | null }
+      held_item: { name: string } | null
+    } | null
+  }[]
 
   // PC-scale level computation -- see lib/pta3/pokemonLevel.ts's computePokemonLevelsBulk for why
   // this is a bulk call rather than the Trainer page's per-Pokemon computePokemonLevel loop.
@@ -69,7 +88,7 @@ export default async function CampaignTrainerPcPage({ params }: { params: Promis
       pokemonId: tp.pokemon!.id,
       currentExp: tp.pokemon!.current_exp,
       isShiny: tp.pokemon!.is_shiny,
-      loyaltyId: tp.pokemon!.loyalty_id,
+      loyaltyPoints: tp.pokemon!.loyalty_points,
       obtainMethodId: tp.obtain_method_id,
       growthRateId: tp.pokemon!.pokedex!.growth_rate_id,
     })),
@@ -94,7 +113,7 @@ export default async function CampaignTrainerPcPage({ params }: { params: Promis
       spriteCode: p.pokedex!.sprite_code,
       speciesName: p.pokedex!.name,
       level: levelsByPokemonId.get(p.id)?.level ?? 1,
-      loyaltyName: p.loyalty?.name ?? null,
+      loyaltyName: computeLoyaltyTier(p.loyalty_points, loyaltyRows ?? [])?.name ?? null,
       type1Id: p.pokedex!.type_1_id,
       type2Id: p.pokedex!.type_2_id,
       partySlot: tp.party_slot,

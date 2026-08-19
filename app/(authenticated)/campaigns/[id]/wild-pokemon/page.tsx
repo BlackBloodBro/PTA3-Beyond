@@ -39,7 +39,7 @@ export default async function CampaignWildPokemonPage({
     supabase
       .from('pokemon')
       .select(
-        `id, nickname, is_shiny, current_exp, loyalty_id,
+        `id, nickname, is_shiny, current_exp, loyalty_points,
         pokedex(name, sprite_code, growth_rate_id, type_1_id, type_2_id),
         trainers_pokemon(trainer_id), pokemon_labels(campaign_labels(id, name, color))`,
       )
@@ -59,7 +59,7 @@ export default async function CampaignWildPokemonPage({
     nickname: string | null
     is_shiny: boolean
     current_exp: number
-    loyalty_id: number | null
+    loyalty_points: number
     pokedex: { name: string; sprite_code: string; growth_rate_id: number | null; type_1_id: number; type_2_id: number | null } | null
     trainers_pokemon: { trainer_id: string } | null
     pokemon_labels: { campaign_labels: { id: string; name: string; color: string } | null }[]
@@ -74,7 +74,7 @@ export default async function CampaignWildPokemonPage({
       pokemonId: p.id,
       currentExp: p.current_exp,
       isShiny: p.is_shiny,
-      loyaltyId: p.loyalty_id,
+      loyaltyPoints: p.loyalty_points,
       obtainMethodId: null,
       growthRateId: p.pokedex!.growth_rate_id,
     })),

@@ -12,6 +12,7 @@ import { PokemonSprite } from '@/components/PokemonSprite'
 import {
   adjustPokemonHp,
   addPokemonExp,
+  addPokemonLoyaltyPoints,
   assignPokemonEv,
   setPokemonEvs,
   setMoveUsesRemaining,
@@ -331,6 +332,7 @@ type PokemonStateValue = {
   growthRateModifier: number
   obtainMethodName: string | null
   obtainMethodModifier: number
+  loyaltyPoints: number
   loyaltyName: string | null
   loyaltyModifier: number
   isShiny: boolean
@@ -343,6 +345,7 @@ type PokemonStateValue = {
   evsSpent: number
   setCurrentHp: (v: number) => void
   setExp: (v: { currentExp: number; effectiveExp: number; level: number }) => void
+  setLoyalty: (v: { loyaltyPoints: number; loyaltyName: string | null; loyaltyModifier: number; level: number; effectiveExp: number }) => void
   setEv: (stat: EvStatKey, value: number) => void
   setEvs: (evs: Record<EvStatKey, number>) => void
   addKnownMove: (entry: KnownMoveEntry) => void
@@ -401,8 +404,9 @@ export function PokemonStateProvider(props: {
   growthRateModifier: number
   obtainMethodName: string | null
   obtainMethodModifier: number
-  loyaltyName: string | null
-  loyaltyModifier: number
+  initialLoyaltyPoints: number
+  initialLoyaltyName: string | null
+  initialLoyaltyModifier: number
   isShiny: boolean
   evolutionTargets: EvolutionTarget[]
   chainMembers: ChainMember[]
@@ -414,6 +418,9 @@ export function PokemonStateProvider(props: {
   const [effectiveExp, setEffectiveExp] = useState(props.initialEffectiveExp)
   const [currentExp, setCurrentExp] = useState(props.initialCurrentExp)
   const [currentHp, setCurrentHpState] = useState(props.initialCurrentHp)
+  const [loyaltyPoints, setLoyaltyPoints] = useState(props.initialLoyaltyPoints)
+  const [loyaltyName, setLoyaltyName] = useState(props.initialLoyaltyName)
+  const [loyaltyModifier, setLoyaltyModifier] = useState(props.initialLoyaltyModifier)
   const [evs, setEvsState] = useState(props.initialEvs)
   const [knownMoves, setKnownMoves] = useState(props.initialKnownMoves)
   const [activeAfflictionIds, setActiveAfflictionIds] = useState(props.initialActiveAfflictionIds)
@@ -484,8 +491,9 @@ export function PokemonStateProvider(props: {
     growthRateModifier: props.growthRateModifier,
     obtainMethodName: props.obtainMethodName,
     obtainMethodModifier: props.obtainMethodModifier,
-    loyaltyName: props.loyaltyName,
-    loyaltyModifier: props.loyaltyModifier,
+    loyaltyPoints,
+    loyaltyName,
+    loyaltyModifier,
     isShiny: props.isShiny,
     evolutionTargets: props.evolutionTargets,
     chainMembers: props.chainMembers,
@@ -499,6 +507,13 @@ export function PokemonStateProvider(props: {
       setCurrentExp(currentExp)
       setEffectiveExp(effectiveExp)
       setLevel(level)
+    },
+    setLoyalty: ({ loyaltyPoints, loyaltyName, loyaltyModifier, level, effectiveExp }) => {
+      setLoyaltyPoints(loyaltyPoints)
+      setLoyaltyName(loyaltyName)
+      setLoyaltyModifier(loyaltyModifier)
+      setLevel(level)
+      setEffectiveExp(effectiveExp)
     },
     setEv: (stat, val) => setEvsState((prev) => ({ ...prev, [stat]: val })),
     setEvs: (newEvs) => setEvsState(newEvs),
@@ -536,8 +551,6 @@ export function ExperienceSection() {
     obtainMethodName,
     obtainMethodModifier,
     isShiny,
-    loyaltyName,
-    loyaltyModifier,
     setExp,
   } = usePokemonState()
   const [amount, setAmount] = useState(0)
@@ -572,9 +585,6 @@ export function ExperienceSection() {
           Obtain method: {obtainMethodName ?? '—'} (×{obtainMethodModifier})
         </p>
         <p>Shiny: {isShiny ? 'Yes' : 'No'}</p>
-        <p>
-          Loyalty: {loyaltyName ?? '—'} (×{loyaltyModifier})
-        </p>
       </div>
 
       <div className="mt-3 flex items-center gap-2 border-t pt-3">
@@ -600,6 +610,71 @@ export function ExperienceSection() {
           className="rounded border border-danger px-3 py-2 text-sm font-semibold text-danger disabled:opacity-30"
         >
           Remove Exp
+        </button>
+      </div>
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+    </section>
+  )
+}
+
+// Mirrors ExperienceSection's exact shape ((pokemonId, sign, amount) action, GM-only, Add/Remove
+// buttons + a typed amount), per [[Add a Loyalty editor]] -- LP replaces the old force-a-tier
+// Loyalty <select>. A change here can also shift Level (LP feeds the exp-to-level formula via
+// loyaltyModifier), so setLoyalty updates both in one go.
+export function LoyaltySection() {
+  const { isGM, pokemonId, loyaltyPoints, loyaltyName, loyaltyModifier, setLoyalty } = usePokemonState()
+  const [amount, setAmount] = useState(0)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  if (!isGM) return null
+
+  async function handleAdjust(sign: 1 | -1) {
+    setPending(true)
+    setError(null)
+    const result = await addPokemonLoyaltyPoints(pokemonId, sign, amount)
+    setPending(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setLoyalty(result)
+    setAmount(0)
+  }
+
+  return (
+    <section className="rounded border border-accent bg-accent/10 p-4">
+      <h2 className="mb-2 font-semibold">Loyalty</h2>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+        <p>Loyalty points: {loyaltyPoints}</p>
+        <p>
+          Tier: {loyaltyName ?? '—'} (×{loyaltyModifier})
+        </p>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 border-t pt-3">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => handleAdjust(1)}
+          className="rounded border border-success px-3 py-2 text-sm font-semibold text-success disabled:opacity-30"
+        >
+          Add LP
+        </button>
+        <input
+          type="number"
+          min={0}
+          value={amount}
+          onChange={(e) => setAmount(Number(e.target.value))}
+          className="bg-surface-subtle w-24 rounded border p-2 text-center"
+        />
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => handleAdjust(-1)}
+          className="rounded border border-danger px-3 py-2 text-sm font-semibold text-danger disabled:opacity-30"
+        >
+          Remove LP
         </button>
       </div>
       {error && <p className="mt-1 text-xs text-danger">{error}</p>}

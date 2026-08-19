@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { SpeciesPicker } from '@/components/SpeciesPicker'
-import { deriveLevelFromModifiers } from '@/lib/pta3/pokemonLevel'
+import { deriveLevelFromModifiers, computeLoyaltyTier, type LoyaltyTierInfo } from '@/lib/pta3/pokemonLevel'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { createPokemon, loadSpeciesCreationData, type MoveOption, type PassiveOption } from '../actions'
 
@@ -26,7 +26,7 @@ type LevelRow = { level_number: number; cumulative_exp: number }
 export function CreatePokemonForm({
   species,
   natures,
-  loyalties,
+  loyaltyTiers,
   obtainMethods,
   items,
   types,
@@ -40,7 +40,7 @@ export function CreatePokemonForm({
 }: {
   species: SpeciesOption[]
   natures: NatureOption[]
-  loyalties: ModifierOption[]
+  loyaltyTiers: (LoyaltyTierInfo & { modifier: number })[]
   obtainMethods: ModifierOption[]
   items: NamedIdOption[]
   types: NamedIdOption[]
@@ -65,7 +65,7 @@ export function CreatePokemonForm({
   const [genderChoice, setGenderChoice] = useState<'random' | 'male' | 'female' | 'genderless'>('random')
   const [campaignId, setCampaignId] = useState(defaultCampaignId)
   const [trainerId, setTrainerId] = useState('')
-  const [loyaltyId, setLoyaltyId] = useState('')
+  const [startingLoyaltyPoints, setStartingLoyaltyPoints] = useState(0)
   const [obtainMethodId, setObtainMethodId] = useState('')
   const [heldItemId, setHeldItemId] = useState('')
   const [shininessChoice, setShininessChoice] = useState<'no' | 'yes' | 'random'>('no')
@@ -110,7 +110,7 @@ export function CreatePokemonForm({
 
   const selectedNature = natures.find((n) => String(n.id) === natureChoice) ?? null
 
-  const loyaltyModifier = loyalties.find((l) => String(l.id) === loyaltyId)?.modifier ?? 1
+  const loyaltyModifier = computeLoyaltyTier(startingLoyaltyPoints, loyaltyTiers)?.modifier ?? 1
   // Obtain method only matters once a Trainer is assigned -- unset otherwise, same as it works for
   // every other Pokemon (a Wild/pool Pokemon has no trainers_pokemon row to hold one).
   const obtainModifier = trainerId ? obtainMethods.find((o) => String(o.id) === obtainMethodId)?.modifier ?? 1 : 1
@@ -166,7 +166,7 @@ export function CreatePokemonForm({
         trainerId: trainerId || null,
         natureChoice: natureChoice === 'random' ? 'random' : Number(natureChoice),
         genderChoice,
-        loyaltyId: loyaltyId ? Number(loyaltyId) : null,
+        loyaltyPoints: startingLoyaltyPoints,
         obtainMethodId: obtainMethodId ? Number(obtainMethodId) : null,
         heldItemId: heldItemId ? Number(heldItemId) : null,
         shininessChoice,
@@ -297,16 +297,6 @@ export function CreatePokemonForm({
 
       <section className="flex flex-col gap-3 rounded border border-accent bg-accent/10 p-4">
         <h2 className="font-semibold">Appearance & Details</h2>
-        <label htmlFor="loyaltyId">Loyalty</label>
-        <select id="loyaltyId" value={loyaltyId} onChange={(e) => setLoyaltyId(e.target.value)} className="bg-surface-subtle rounded border px-3 py-2">
-          <option value="">—</option>
-          {loyalties.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-
         <label htmlFor="heldItemId">Held item</label>
         <select id="heldItemId" value={heldItemId} onChange={(e) => setHeldItemId(e.target.value)} className="bg-surface-subtle rounded border px-3 py-2">
           <option value="">None</option>
@@ -377,6 +367,16 @@ export function CreatePokemonForm({
           className="bg-surface-subtle rounded border px-3 py-2"
         />
         <p className="text-xs text-muted">Computes to Level {levelPreview.level}</p>
+
+        <label htmlFor="startingLoyaltyPoints">Starting LP</label>
+        <input
+          id="startingLoyaltyPoints"
+          type="number"
+          min={0}
+          value={startingLoyaltyPoints}
+          onChange={(e) => setStartingLoyaltyPoints(Math.max(0, Number(e.target.value) || 0))}
+          className="bg-surface-subtle rounded border px-3 py-2"
+        />
 
         <div className="rounded border p-3 text-sm">
           <p className="mb-2 font-medium">EVs ({evsSpent}/{evsAvailable} available)</p>

@@ -778,17 +778,35 @@ export async function restSleep(trainerId: string, formData: FormData) {
   // for fractional game-math (e.g. stat modifier = floor(value / 2)).
   const { data: trainersPokemon } = await supabase
     .from('trainers_pokemon')
-    .select('pokemon(id, current_hp, ev_hp, pokedex(base_hp))')
+    .select('party_slot, pokemon(id, current_hp, ev_hp, loyalty_points, pokedex(base_hp))')
     .eq('trainer_id', trainerId)
+
+  // [[Add a Loyalty editor]]: Sleep awards LP to every Team Pokemon (party_slot not null),
+  // unconditionally -- resting together builds loyalty regardless of HP state. PC-parked Pokemon
+  // don't get it (they weren't part of the rest). Amount is tunable data, not a hardcoded constant.
+  const { data: sleepEvent } = await supabase.from('loyalty_point_events').select('points').eq('name', 'Sleep').maybeSingle()
+  const sleepLoyaltyPoints = sleepEvent?.points ?? 0
 
   await Promise.all(
     (trainersPokemon ?? []).map((tp) => {
-      const pokemon = tp.pokemon
+      // trainers_pokemon.pokemon_id is a primary key, so this reverse embed comes back as a single
+      // object at runtime (same quirk documented throughout this codebase), not the array TS infers.
+      const pokemon = tp.pokemon as unknown as {
+        id: string
+        current_hp: number
+        ev_hp: number
+        loyalty_points: number
+        pokedex: { base_hp: number } | null
+      } | null
       if (!pokemon || !pokemon.pokedex) return Promise.resolve()
       const maxHp = pokemon.pokedex.base_hp + pokemon.ev_hp * 6
       const healAmount = Math.floor(maxHp / 6)
       const newHp = Math.min(maxHp, pokemon.current_hp + healAmount)
-      return supabase.from('pokemon').update({ current_hp: newHp }).eq('id', pokemon.id)
+      const updates: { current_hp: number; loyalty_points?: number } = { current_hp: newHp }
+      if (tp.party_slot !== null) {
+        updates.loyalty_points = Math.max(0, pokemon.loyalty_points + sleepLoyaltyPoints)
+      }
+      return supabase.from('pokemon').update(updates).eq('id', pokemon.id)
     }),
   )
 
@@ -805,7 +823,9 @@ export async function restSleep(trainerId: string, formData: FormData) {
   // restPokemonCenter). Unlike features, uses_remaining lives directly on pokemon_moves rather than
   // a separate "uses" table, so there's nothing to delete -- each move's cap is re-derived from its
   // frequency ("N/day" -> N) and written back, the same parsing learnMove used to set it initially.
-  const pokemonIds = (trainersPokemon ?? []).map((tp) => tp.pokemon?.id).filter((v): v is string => !!v)
+  const pokemonIds = (trainersPokemon ?? [])
+    .map((tp) => (tp.pokemon as unknown as { id: string } | null)?.id)
+    .filter((v): v is string => !!v)
   if (pokemonIds.length > 0) {
     const { data: movesToReset } = await supabase
       .from('pokemon_moves')
@@ -856,15 +876,38 @@ export async function restPokemonCenter(trainerId: string) {
   // trainer's own HP or activatable features (that's what Sleep is for).
   const { data: trainersPokemon } = await supabase
     .from('trainers_pokemon')
-    .select('pokemon(id, ev_hp, pokedex(base_hp))')
+    .select('pokemon(id, current_hp, ev_hp, loyalty_points, pokedex(base_hp))')
     .eq('trainer_id', trainerId)
+
+  // [[Add a Loyalty editor]]: awards LP to every linked Pokemon (Team or PC) that was actually
+  // damaged before the heal -- checked against current_hp BEFORE it's overwritten below, since
+  // afterward everyone reads as full HP. Not a blanket award -- only Pokemon that were hurt and got
+  // looked after.
+  const { data: centerEvent } = await supabase
+    .from('loyalty_point_events')
+    .select('points')
+    .eq('name', 'Pokemon Center (damaged)')
+    .maybeSingle()
+  const centerLoyaltyPoints = centerEvent?.points ?? 0
 
   await Promise.all(
     (trainersPokemon ?? []).map((tp) => {
-      const pokemon = tp.pokemon
+      // Same reverse-embed quirk as restSleep above.
+      const pokemon = tp.pokemon as unknown as {
+        id: string
+        current_hp: number
+        ev_hp: number
+        loyalty_points: number
+        pokedex: { base_hp: number } | null
+      } | null
       if (!pokemon || !pokemon.pokedex) return Promise.resolve()
       const maxHp = pokemon.pokedex.base_hp + pokemon.ev_hp * 6
-      return supabase.from('pokemon').update({ current_hp: maxHp }).eq('id', pokemon.id)
+      const wasDamaged = pokemon.current_hp < maxHp
+      const updates: { current_hp: number; loyalty_points?: number } = { current_hp: maxHp }
+      if (wasDamaged) {
+        updates.loyalty_points = Math.max(0, pokemon.loyalty_points + centerLoyaltyPoints)
+      }
+      return supabase.from('pokemon').update(updates).eq('id', pokemon.id)
     }),
   )
 

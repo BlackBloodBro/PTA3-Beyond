@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { updatePokemonDetails } from '../actions'
-import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
+import { computePokemonLevel, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
@@ -18,6 +18,7 @@ import {
   PokemonStateProvider,
   LevelLine,
   ExperienceSection,
+  LoyaltySection,
   EvolveButton,
   GmOverrideEvolutionPicker,
   StatsSection,
@@ -64,13 +65,13 @@ export default async function PokemonPage({
 
   // No .eq('user_id', ...) filter -- pokemon's RLS already scopes this to the owner, the
   // campaign's GM, or a fellow campaign member, same reasoning as the trainer page.
-  const { data: pokemon } = await supabase
+  const { data: pokemonRaw } = await supabase
     .from('pokemon')
     .select(
       `
       id, nickname, current_exp, current_hp, temporary_hp, gender, is_shiny,
       ev_hp, ev_attack, ev_defense, ev_special_attack, ev_special_defense, ev_speed,
-      pokedex_id, nature_id, loyalty_id, type_1_id, type_2_id, size_id, weight_id, held_item_id,
+      pokedex_id, nature_id, loyalty_points, type_1_id, type_2_id, size_id, weight_id, held_item_id,
       created_by_user_id, campaign:campaign_id(id, name, gm_user_id),
       pokedex:pokedex_id (
         name, description, base_hp, base_atk, base_def, base_sp_atk, base_sp_def, base_speed,
@@ -89,7 +90,6 @@ export default async function PokemonPage({
         decreased:stats!decreased_stat_id(name)
       ),
       pokemon_flavor_preferences(liked, flavor:flavors(name)),
-      loyalty:loyalties!loyalty_id(name, modifier),
       held_item:items!held_item_id(name),
       trainers_pokemon(
         trainer_id, obtain_method_id,
@@ -100,6 +100,67 @@ export default async function PokemonPage({
     )
     .eq('id', pokemonId)
     .single()
+
+  // Cast reflects the real runtime shape (every embed above comes back as a single object, not the
+  // array TS infers for these reverse/forward embeds) -- same quirk documented throughout this
+  // codebase, applied once here for the whole row rather than at each of its ~50 read sites below.
+  const pokemon = pokemonRaw as unknown as {
+    id: string
+    nickname: string | null
+    current_exp: number
+    current_hp: number
+    temporary_hp: number
+    gender: string | null
+    is_shiny: boolean
+    ev_hp: number
+    ev_attack: number
+    ev_defense: number
+    ev_special_attack: number
+    ev_special_defense: number
+    ev_speed: number
+    pokedex_id: number
+    nature_id: number | null
+    loyalty_points: number
+    type_1_id: number | null
+    type_2_id: number | null
+    size_id: number | null
+    weight_id: number | null
+    held_item_id: number | null
+    created_by_user_id: string
+    campaign: { id: string; name: string; gm_user_id: string } | null
+    pokedex: {
+      name: string
+      description: string | null
+      base_hp: number
+      base_atk: number
+      base_def: number
+      base_sp_atk: number
+      base_sp_def: number
+      base_speed: number
+      egg_hatch_rate: number | null
+      growth_rate_id: number | null
+      sprite_code: string
+      evolution_chain_id: number | null
+      type_1: { name: string } | null
+      type_2: { name: string } | null
+      size: { name: string } | null
+      weight: { name: string } | null
+      growth_rate: { name: string; exp_modifier: number } | null
+    } | null
+    override_type_1: { name: string } | null
+    override_type_2: { name: string } | null
+    override_size: { name: string } | null
+    override_weight: { name: string } | null
+    nature: { name: string; increased: { name: string } | null; decreased: { name: string } | null } | null
+    pokemon_flavor_preferences: { liked: boolean; flavor: { name: string } | null }[]
+    held_item: { name: string } | null
+    trainers_pokemon: {
+      trainer_id: string
+      obtain_method_id: number | null
+      trainers: { name: string; user_id: string; is_npc: boolean; campaigns: { id: string; name: string; gm_user_id: string } | null } | null
+      obtain_method: { name: string; modifier: number } | null
+    } | null
+  } | null
 
   if (!pokemon) {
     redirect('/pokemon')
@@ -189,10 +250,15 @@ export default async function PokemonPage({
   const { level, effectiveExp } = await computePokemonLevel(supabase, {
     currentExp: pokemon.current_exp,
     isShiny: pokemon.is_shiny,
-    loyaltyId: pokemon.loyalty_id,
+    loyaltyPoints: pokemon.loyalty_points,
     obtainMethodId: ownerLink?.obtain_method_id ?? null,
     growthRateId: species.growth_rate_id,
   })
+
+  // Loyalty tier is likewise never stored -- always derived from loyalty_points, per
+  // [[Add a Loyalty editor]]. Small reference table (6 rows), cheap to fetch unconditionally.
+  const { data: loyaltyRows } = await supabase.from('loyalties').select('name, modifier, sort_order, min_points')
+  const loyaltyTier = computeLoyaltyTier(pokemon.loyalty_points, loyaltyRows ?? [])
 
   // [[Add Evolution functionality]]: every outgoing evolution edge from this species, every other
   // species in its chain (for the GM-override picker), whether this Pokemon is at max Loyalty, and
@@ -200,7 +266,7 @@ export default async function PokemonPage({
   const [evolutionTargets, chainMembers, isMaxLoyaltyPokemon, bagStoneItems] = await Promise.all([
     loadEvolutionTargets(supabase, pokemon.pokedex_id),
     loadEvolutionChainMembers(supabase, species.evolution_chain_id, pokemon.pokedex_id),
-    isMaxLoyalty(supabase, pokemon.loyalty_id),
+    isMaxLoyalty(supabase, pokemon.loyalty_points),
     trainerId ? loadEvolutionStoneBagItems(supabase, trainerId) : Promise.resolve([]),
   ])
 
@@ -343,7 +409,6 @@ export default async function PokemonPage({
   // tables, no point loading them for a read-only view or a non-GM editing just the Nickname.
   const [
     { data: allNatures },
-    { data: allLoyalties },
     { data: allTypes },
     { data: allSizes },
     { data: allWeights },
@@ -353,14 +418,13 @@ export default async function PokemonPage({
     isEditingInfo && isGM
       ? await Promise.all([
           supabase.from('natures').select('id, name').order('name'),
-          supabase.from('loyalties').select('id, name').order('name'),
           supabase.from('types').select('id, name').neq('name', 'Special/Variable').order('name'),
           supabase.from('sizes').select('id, name').order('name'),
           supabase.from('weights').select('id, name').order('name'),
           supabase.from('items').select('id, name').order('name'),
           supabase.from('obtain_methods').select('id, name').order('name'),
         ])
-      : [{ data: null }, { data: null }, { data: null }, { data: null }, { data: null }, { data: null }, { data: null }]
+      : [{ data: null }, { data: null }, { data: null }, { data: null }, { data: null }, { data: null }]
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -413,8 +477,9 @@ export default async function PokemonPage({
         growthRateModifier={species.growth_rate?.exp_modifier ?? 1}
         obtainMethodName={ownerLink?.obtain_method?.name ?? null}
         obtainMethodModifier={ownerLink?.obtain_method?.modifier ?? 1}
-        loyaltyName={pokemon.loyalty?.name ?? null}
-        loyaltyModifier={pokemon.loyalty?.modifier ?? 1}
+        initialLoyaltyPoints={pokemon.loyalty_points}
+        initialLoyaltyName={loyaltyTier?.name ?? null}
+        initialLoyaltyModifier={loyaltyTier?.modifier ?? 1}
         isShiny={pokemon.is_shiny}
         evolutionTargets={evolutionTargets}
         chainMembers={chainMembers}
@@ -489,7 +554,7 @@ export default async function PokemonPage({
                           </p>
                         )}
                         <p>Obtain method: {ownerLink?.obtain_method?.name ?? '—'}</p>
-                        <p>Loyalty: {pokemon.loyalty?.name ?? '—'}</p>
+                        <p>Loyalty: {loyaltyTier?.name ?? '—'}</p>
                       </div>
                       <div className="flex flex-col gap-1">
                         <p>Nature: {pokemon.nature?.name ?? '—'}</p>
@@ -551,16 +616,6 @@ export default async function PokemonPage({
                     {(allObtainMethods ?? []).map((om) => (
                       <option key={om.id} value={om.id}>
                         {om.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <label htmlFor="loyaltyId">Loyalty</label>
-                  <select id="loyaltyId" name="loyaltyId" className="bg-surface-subtle rounded border p-2" defaultValue={pokemon.loyalty_id ?? ''}>
-                    <option value="">—</option>
-                    {(allLoyalties ?? []).map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
                       </option>
                     ))}
                   </select>
@@ -676,7 +731,7 @@ export default async function PokemonPage({
                   </p>
                 )}
                 <p>Obtain method: {ownerLink?.obtain_method?.name ?? '—'}</p>
-                <p>Loyalty: {pokemon.loyalty?.name ?? '—'}</p>
+                <p>Loyalty: {loyaltyTier?.name ?? '—'}</p>
               </div>
               <div className="flex flex-col gap-1">
                 <p>Nature: {pokemon.nature?.name ?? '—'}</p>
@@ -704,6 +759,8 @@ export default async function PokemonPage({
 
         <div className="flex flex-1 flex-col gap-4">
         <ExperienceSection />
+
+        <LoyaltySection />
 
         <StatsSection />
 
