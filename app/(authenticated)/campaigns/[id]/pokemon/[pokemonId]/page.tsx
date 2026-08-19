@@ -20,6 +20,7 @@ import {
   ExperienceSection,
   LoyaltySection,
   EvolveButton,
+  GiftPokemonButton,
   GmOverrideEvolutionPicker,
   StatsSection,
   MovesSection,
@@ -78,6 +79,9 @@ export default async function CampaignPokemonPage({
       ev_hp, ev_attack, ev_defense, ev_special_attack, ev_special_defense, ev_speed,
       pokedex_id, nature_id, loyalty_points, type_1_id, type_2_id, size_id, weight_id, held_item_id,
       created_by_user_id, campaign:campaign_id(id, name, gm_user_id),
+      original_trainer_id, original_obtain_method_id,
+      original_trainer:trainers!original_trainer_id(name, is_npc, campaign_id),
+      original_obtain_method:obtain_methods!original_obtain_method_id(name),
       pokedex:pokedex_id (
         name, description, base_hp, base_atk, base_def, base_sp_atk, base_sp_def, base_speed,
         egg_hatch_rate, growth_rate_id, sprite_code, evolution_chain_id,
@@ -133,6 +137,10 @@ export default async function CampaignPokemonPage({
     held_item_id: number | null
     created_by_user_id: string
     campaign: { id: string; name: string; gm_user_id: string } | null
+    original_trainer_id: string | null
+    original_obtain_method_id: number | null
+    original_trainer: { name: string; is_npc: boolean; campaign_id: string | null } | null
+    original_obtain_method: { name: string } | null
     pokedex: {
       name: string
       description: string | null
@@ -186,6 +194,12 @@ export default async function CampaignPokemonPage({
   const trainerId = ownerLink?.trainer_id ?? null
   const trainerLinkHref =
     trainerId && trainer ? trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaigns?.id ?? null }) : null
+  // Read-only/system-managed -- shown only when it differs from the current Trainer, to avoid noise
+  // on the (common) case of a Pokemon that's never been gifted away from its original owner.
+  const originalTrainerHref =
+    pokemon.original_trainer && pokemon.original_trainer_id !== trainerId
+      ? trainerHref({ id: pokemon.original_trainer_id!, is_npc: pokemon.original_trainer.is_npc, campaign_id: pokemon.original_trainer.campaign_id })
+      : null
   // Campaign comes from wherever it actually lives: a trainer-assigned Pokemon's campaign is its
   // trainer's campaign; a Wild/pool Pokemon carries its own campaign_id directly (the "which
   // campaign's pool is this in" tag from the Wild Pokemon list / /pokemon/new).
@@ -227,6 +241,13 @@ export default async function CampaignPokemonPage({
     canEditInfo && trainerId && pokemon.held_item_id === null
       ? (await loadBagSnapshot(supabase, trainerId)).items.filter((it) => it.holdable && it.quantity > 0).map((it) => ({ id: it.id, name: it.name }))
       : []
+  // [[Add Pokemon gifting]]: every other Trainer/NPC in this same Campaign -- only fetched when
+  // actually needed (nothing to gift for a non-owner/GM viewer), same convention as givableItems above.
+  const { data: giftableTrainersRaw } =
+    canEditInfo && trainerId
+      ? await supabase.from('trainers').select('id, name, is_npc').eq('campaign_id', campaignId).neq('id', trainerId).order('name')
+      : { data: null }
+  const giftableTrainers = giftableTrainersRaw ?? []
   const bookmarked = await isBookmarked(supabase, user.id, 'pokemon', pokemonId)
   const species = pokemon.pokedex
 
@@ -486,12 +507,16 @@ export default async function CampaignPokemonPage({
         chainMembers={chainMembers}
         isMaxLoyaltyPokemon={isMaxLoyaltyPokemon}
         bagStoneItems={bagStoneItems}
+        giftableTrainers={giftableTrainers}
+        originalTrainerId={pokemon.original_trainer_id}
+        originalObtainMethodName={pokemon.original_obtain_method?.name ?? null}
       >
       <div className="flex w-full max-w-6xl items-center gap-3">
         <Link href={trainerLinkHref!} className="text-sm underline">
           ← {trainer?.name ?? 'Trainer'}
         </Link>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <GiftPokemonButton />
           <EvolveButton />
         </div>
       </div>
@@ -538,6 +563,14 @@ export default async function CampaignPokemonPage({
                             '—'
                           )}
                         </p>
+                        {originalTrainerHref && (
+                          <p>
+                            Original trainer:{' '}
+                            <Link href={originalTrainerHref} className="underline">
+                              {pokemon.original_trainer?.name ?? '—'}
+                            </Link>
+                          </p>
+                        )}
                         {campaign && (
                           <p>
                             Campaign:{' '}
@@ -575,6 +608,14 @@ export default async function CampaignPokemonPage({
                           '—'
                         )}
                       </p>
+                      {originalTrainerHref && (
+                        <p>
+                          Original trainer:{' '}
+                          <Link href={originalTrainerHref} className="underline">
+                            {pokemon.original_trainer?.name ?? '—'}
+                          </Link>
+                        </p>
+                      )}
                       {campaign && (
                         <p>
                           Campaign:{' '}
@@ -715,6 +756,14 @@ export default async function CampaignPokemonPage({
                     '—'
                   )}
                 </p>
+                {originalTrainerHref && (
+                  <p>
+                    Original trainer:{' '}
+                    <Link href={originalTrainerHref} className="underline">
+                      {pokemon.original_trainer?.name ?? '—'}
+                    </Link>
+                  </p>
+                )}
                 {campaign && (
                   <p>
                     Campaign:{' '}
