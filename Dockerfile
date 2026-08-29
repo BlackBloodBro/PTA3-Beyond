@@ -8,7 +8,7 @@ RUN corepack enable
 # --- deps: install dependencies from the committed pnpm-lock.yaml only (no lockfile drift) ---
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # --- builder: build the app. NEXT_PUBLIC_* vars are inlined into the client bundle at this step,
