@@ -772,6 +772,10 @@ export function StatsSection() {
   const [assignError, setAssignError] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [draftEvs, setDraftEvs] = useState(evs)
+  // [[Warn a GM before overwriting a Trainer's own build choices]]: a GM redistributing EVs on a
+  // Pokemon they don't own is overwriting a choice the Trainer made themselves -- gated on
+  // isGM && !isOwner (not on tracking who set the value), matching Evolve/Gift's confirm-panel shape.
+  const [pendingEvsDiff, setPendingEvsDiff] = useState<{ key: EvStatKey; label: string; from: number; to: number }[] | null>(null)
 
   const speedRow = statRows.find((s) => s.key === 'speed')!
   const movementFeet = Math.max(5, speedRow.value * 5)
@@ -799,6 +803,7 @@ export function StatsSection() {
   function openEditPanel() {
     setDraftEvs(evs)
     setEditError(null)
+    setPendingEvsDiff(null)
     setEditOpen(true)
   }
 
@@ -806,18 +811,36 @@ export function StatsSection() {
     setDraftEvs(evs)
     setEditError(null)
     setEditOpen(false)
+    setPendingEvsDiff(null)
   }
 
-  async function handleSaveEvs() {
+  async function commitEvs(nextEvs: Record<EvStatKey, number>) {
     setEditError(null)
-    const result = await setPokemonEvs(pokemonId, draftEvs)
+    const result = await setPokemonEvs(pokemonId, nextEvs)
     if ('error' in result) {
       setEditError(result.error)
       return
     }
     setEvs(result.evs)
     setCurrentHp(result.currentHp)
+    setPendingEvsDiff(null)
     setEditOpen(false)
+  }
+
+  function handleSaveEvs() {
+    if (isGM && !isOwner) {
+      const diff = EV_ROWS.filter((row) => draftEvs[row.key] !== evs[row.key]).map((row) => ({
+        key: row.key,
+        label: row.label,
+        from: evs[row.key],
+        to: draftEvs[row.key],
+      }))
+      if (diff.length > 0) {
+        setPendingEvsDiff(diff)
+        return
+      }
+    }
+    commitEvs(draftEvs)
   }
 
   return (
@@ -926,33 +949,60 @@ export function StatsSection() {
 
       {editOpen && (
         <div className="mt-3 flex flex-col gap-2 border-t pt-3 text-sm">
-          <p className="text-xs text-muted">
-            Redistribute EVs (max {MAX_EV_PER_STAT}/stat, {evsAvailable} total at this level)
-          </p>
-          {EV_ROWS.map((row) => (
-            <label key={row.key} className="flex items-center justify-between gap-2">
-              {row.label}
-              <select
-                value={draftEvs[row.key]}
-                onChange={(e) => setDraftEvs((prev) => ({ ...prev, [row.key]: Number(e.target.value) }))}
-                className="bg-surface-subtle rounded border p-1"
-              >
-                {Array.from({ length: MAX_EV_PER_STAT + 1 }, (_, n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
+          {pendingEvsDiff ? (
+            <>
+              <p>This will change EVs the Trainer chose themselves:</p>
+              <ul className="list-inside list-disc text-warning">
+                {pendingEvsDiff.map((d) => (
+                  <li key={d.key}>
+                    {d.label}: {d.from} → {d.to}
+                  </li>
                 ))}
-              </select>
-            </label>
-          ))}
-          <div className="mt-1 flex gap-2">
-            <button type="button" onClick={handleSaveEvs} className="rounded bg-accent px-4 py-2 text-accent-foreground">
-              Save
-            </button>
-            <button type="button" onClick={cancelEditPanel} className="rounded border px-4 py-2">
-              Cancel
-            </button>
-          </div>
+              </ul>
+              <div className="mt-1 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => commitEvs(draftEvs)}
+                  className="rounded bg-accent px-4 py-2 text-accent-foreground"
+                >
+                  Confirm
+                </button>
+                <button type="button" onClick={() => setPendingEvsDiff(null)} className="rounded border px-4 py-2">
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-muted">
+                Redistribute EVs (max {MAX_EV_PER_STAT}/stat, {evsAvailable} total at this level)
+              </p>
+              {EV_ROWS.map((row) => (
+                <label key={row.key} className="flex items-center justify-between gap-2">
+                  {row.label}
+                  <select
+                    value={draftEvs[row.key]}
+                    onChange={(e) => setDraftEvs((prev) => ({ ...prev, [row.key]: Number(e.target.value) }))}
+                    className="bg-surface-subtle rounded border p-1"
+                  >
+                    {Array.from({ length: MAX_EV_PER_STAT + 1 }, (_, n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+              <div className="mt-1 flex gap-2">
+                <button type="button" onClick={handleSaveEvs} className="rounded bg-accent px-4 py-2 text-accent-foreground">
+                  Save
+                </button>
+                <button type="button" onClick={cancelEditPanel} className="rounded border px-4 py-2">
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
           {editError && <p className="text-xs text-danger">{editError}</p>}
         </div>
       )}
@@ -965,6 +1015,8 @@ export function MovesSection() {
     pokemonId,
     basePath,
     isEditingMoves,
+    isOwner,
+    isGM,
     knownMoves,
     fullLearnset,
     statRows,
@@ -985,6 +1037,10 @@ export function MovesSection() {
   const [replaceMoveId, setReplaceMoveId] = useState('')
   const [defType1, setDefType1] = useState('')
   const [defType2, setDefType2] = useState('')
+  // [[Warn a GM before overwriting a Trainer's own build choices]]: a GM forgetting a move on a
+  // Pokemon they don't own is removing a move the Trainer chose to learn -- same isGM && !isOwner
+  // gate as the EV warning above; the Trainer forgetting their own move is unaffected.
+  const [confirmForgetMoveId, setConfirmForgetMoveId] = useState<number | null>(null)
 
   const knownMoveIds = knownMoves.map((km) => km.move_id)
 
@@ -1033,7 +1089,16 @@ export function MovesSection() {
       setError(result.error)
       return
     }
+    setConfirmForgetMoveId(null)
     removeKnownMove(moveId)
+  }
+
+  function requestForget(moveId: number) {
+    if (isGM && !isOwner) {
+      setConfirmForgetMoveId(moveId)
+      return
+    }
+    handleForget(moveId)
   }
 
   // At the 6-move cap, learning a new move means picking one of the 6 known moves to forget first --
@@ -1156,15 +1221,32 @@ export function MovesSection() {
                     ) : (
                       <span className="text-xs text-muted">At will</span>
                     )}
-                    {isEditingMoves && (
-                      <button
-                        type="button"
-                        onClick={() => handleForget(km.move_id)}
-                        className="rounded border border-danger px-2 py-0.5 text-xs text-danger"
-                      >
-                        Remove
-                      </button>
-                    )}
+                    {isEditingMoves &&
+                      (confirmForgetMoveId === km.move_id ? (
+                        <span className="flex items-center gap-1 text-xs">
+                          <span className="text-warning" title="The Trainer chose to learn this.">
+                            Forget {move.name}? The Trainer chose this.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleForget(km.move_id)}
+                            className="rounded border border-danger px-2 py-0.5 text-danger"
+                          >
+                            Confirm
+                          </button>
+                          <button type="button" onClick={() => setConfirmForgetMoveId(null)} className="rounded border px-2 py-0.5">
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => requestForget(km.move_id)}
+                          className="rounded border border-danger px-2 py-0.5 text-xs text-danger"
+                        >
+                          Remove
+                        </button>
+                      ))}
                   </div>
                 </div>
                 <p className="mt-1 text-sm">
