@@ -1,0 +1,27 @@
+# Runs on the HOSTING server (not your dev machine). See deploy/README.md for the one-time setup.
+#
+# app: the PTA3 Beyond image, built and pushed by .github/workflows/docker-publish.yml on every push
+# to the `production` branch. No env vars needed here -- the two Supabase values are already baked
+# into the image at build time (see the Dockerfile).
+#
+# watchtower: polls ghcr.io for a newer `:latest` tag and auto-pulls + restarts `app` when one shows
+# up. --label-enable means it only ever touches containers explicitly labeled below, so it's safe to
+# run alongside other unrelated containers on the same server.
+
+services:
+  app:
+    image: ghcr.io/blackbloodbro/pta3-tool:latest
+    container_name: pta3-tool
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --interval 300
