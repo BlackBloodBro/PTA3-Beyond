@@ -2,7 +2,7 @@
 # self-hosted -- this image only ever needs to run the Next.js server and reach out to Supabase's
 # API over the network, using the two NEXT_PUBLIC_* values baked in at build time below.
 
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 RUN corepack enable
 
 # --- deps: install dependencies from the committed pnpm-lock.yaml only (no lockfile drift) ---
