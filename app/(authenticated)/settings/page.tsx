@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { signOut } from '@/app/auth/actions'
 import { LABEL_COLORS, LABEL_SWATCH_CLASSES } from '@/lib/pta3/labelColors'
 import { updateThemePreferences, updateUsername, updatePassword } from './actions'
+import packageJson from '@/package.json'
 
 export default async function SettingsPage({
   searchParams,
@@ -123,6 +124,8 @@ export default async function SettingsPage({
           Sign out
         </button>
       </form>
+
+      <p className="text-xs text-muted">Version {packageJson.version}</p>
     </main>
   )
 }
