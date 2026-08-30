@@ -44,6 +44,15 @@ export const MILESTONE_HP_GAIN = 4
 // are resolved -- there's no stat/level formula involved.
 export const BASE_MAX_HP = 20
 
+// [[Bug - Advanced Class milestones broken since the Aug 10 feature rename]]: the milestone-trigger
+// feature used to be named 'Advanced class' (matched exactly below), but 20260810100000/20260810110000/
+// 20260810120000/20260810130000/20260810140000 merged it with the old separate 'Stat increase' row into
+// one combined 'Stat Increase and Advanced Class' row per level -- the code was never updated to match,
+// so every milestone lookup silently found nothing from that date on. Comparing lowercased against this
+// constant (rather than a case-sensitive exact match) also papers over Ace trainer's rows being seeded
+// as all-lowercase-after-the-first-word while every other class's are Title Case.
+const ADVANCED_CLASS_MILESTONE_NAME = 'stat increase and advanced class'
+
 // The single query everything below is built from: every trainer_milestones row this trainer has
 // actually "earned" at their CURRENT level. A milestone resolved at level 7 stops counting the
 // moment level drops back below 7 (it's just excluded by the .lte filter) and starts counting again
@@ -185,7 +194,7 @@ export async function loadPendingMilestone(
       .select('level_required')
       .eq('class_id', params.classId)
       .is('subclass_id', null)
-      .eq('name', 'Advanced class')
+      .ilike('name', ADVANCED_CLASS_MILESTONE_NAME)
       .order('level_required'),
     supabase.from('trainer_milestones').select('level').eq('trainer_id', params.trainerId),
   ])
@@ -272,7 +281,7 @@ export async function loadClassBuilderData(
   const baseFeatures = (baseFeaturesData ?? []) as TrainerFeature[]
   const allMilestones = (allMilestonesData ?? []) as TrainerMilestoneRow[]
   const milestoneByLevel = new Map(allMilestones.map((m) => [m.level, m]))
-  const triggerRows = baseFeatures.filter((f) => f.name === 'Advanced class')
+  const triggerRows = baseFeatures.filter((f) => f.name.toLowerCase() === ADVANCED_CLASS_MILESTONE_NAME)
   const qualifyingMilestones = allMilestones.filter((m) => m.level <= params.level)
 
   const higherLevelPreview = baseFeatures
@@ -288,7 +297,7 @@ export async function loadClassBuilderData(
   const unlocked: { card: ClassBuilderCard; unlockLevel: number }[] = []
 
   for (const f of baseFeatures) {
-    if (f.level_required > params.level || f.name === 'Advanced class') continue
+    if (f.level_required > params.level || f.name.toLowerCase() === ADVANCED_CLASS_MILESTONE_NAME) continue
     unlocked.push({ card: { kind: 'feature', feature: f, subclassName: null }, unlockLevel: f.level_required })
   }
 

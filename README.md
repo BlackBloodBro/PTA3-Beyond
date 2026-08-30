@@ -350,11 +350,14 @@ removed the trainer and redirected to the dashboard.
 ### D&D Beyond-style level-up (subclass + stat increase + HP), and active/passive features
 
 - **Milestone levels aren't hardcoded.** A class's "subclass + stat increase" levels (3/7/11 for
-  the two classes seeded so far) are derived by querying `features` for that class's "Advanced
-  class" rows (`class_id` match, `subclass_id is null`, `name = 'Advanced class'`) — the same
-  levels this data already encoded. This means the level-up flow works correctly for a class with
-  no milestones seeded yet (a plain level bump, nothing more) and doesn't need updating if a
-  class's milestone levels turn out to differ once the other 3 classes get their features seeded.
+  all five seeded classes) are derived by querying `features` for that class's milestone-trigger
+  rows (`class_id` match, `subclass_id is null`, name matching "Stat Increase and Advanced Class"
+  case-insensitively) — the same levels this data already encoded. This means the level-up flow
+  works correctly for a class with no milestones seeded yet (a plain level bump, nothing more) and
+  doesn't need updating if a class's milestone levels turn out to differ. (Was named just "Advanced
+  class" before 2026-08-10, when it got merged with the old separate "Stat increase" row into one
+  combined row per level — see [[Bug - Advanced Class milestones broken since the Aug 10 feature
+  rename]] for the app code having silently kept checking the old name for three weeks.)
 - **HP increases by a flat +4 at each milestone level** (added to both `max_hp` and `current_hp`).
   An earlier migration comment had assumed this was a 1d4 roll — the user corrected that
   assumption to a flat +4, which is what's implemented; that comment is now stale and safe to
