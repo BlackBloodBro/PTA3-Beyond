@@ -4,9 +4,13 @@
 # to the `production` branch. No env vars needed here -- the two Supabase values are already baked
 # into the image at build time (see the Dockerfile).
 #
-# watchtower: polls ghcr.io for a newer `:latest` tag and auto-pulls + restarts `app` when one shows
-# up. --label-enable means it only ever touches containers explicitly labeled below, so it's safe to
-# run alongside other unrelated containers on the same server.
+# watchtower: ONE way to auto-update -- polls ghcr.io for a newer `:latest` tag and auto-pulls +
+# restarts `app` when one shows up. --label-enable means it only ever touches containers explicitly
+# labeled below, so it's safe to run alongside other unrelated containers on the same server. Not the
+# only option: a server that already has its own scheduled task (e.g. a daily cron running
+# `docker compose pull && docker compose up -d`) doesn't need this service at all -- drop it and keep
+# just `app` in that case. Either way the update cadence is whatever that mechanism's own schedule is,
+# not instant.
 
 services:
   app:

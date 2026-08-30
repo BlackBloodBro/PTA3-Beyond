@@ -17,10 +17,14 @@ Supabase CLI installed.
    whatever domain you want to use, and set up HTTPS the way you normally do. That part isn't included
    here since it depends on your existing setup.
 
-That's it. From here on, updates are fully automatic: pushing to this project's `production` branch
-builds a new image and publishes it to GitHub Container Registry; the `watchtower` container in
-`docker-compose.yml` polls for that and pulls + restarts `app` on its own, no action needed on this
-server.
+That's it. From here on, updates are automatic: pushing to this project's `production` branch builds a
+new image and publishes it to GitHub Container Registry as `:latest`. What actually pulls and restarts
+`app` from there depends on which update mechanism this specific server runs (the `watchtower` container
+in `docker-compose.yml` is one option -- polls on an interval and updates immediately; a daily cron/task
+that runs `docker compose pull && docker compose up -d` at a fixed time is just as valid, just with a
+coarser update cadence). Either way, no manual image-pulling is expected once one of these is running --
+just be aware that a fixed-time daily check means a fix pushed to `production` right after that day's
+check has already run won't reach this server until the next one, not within minutes.
 
 ## If the image is private
 
