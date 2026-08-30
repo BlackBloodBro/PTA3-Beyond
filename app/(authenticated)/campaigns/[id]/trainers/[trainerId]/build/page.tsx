@@ -82,6 +82,7 @@ export default async function CampaignTrainerBuildPage({
     skillTalents,
     classFavoredStats,
     builderData,
+    { count: pokemonCount },
   ] = await Promise.all([
     loadTrainerDerived(supabase, id, { classId: trainer.class_id, level: trainer.level }),
     loadPendingMilestone(supabase, { trainerId: id, classId: trainer.class_id, level: trainer.level }),
@@ -89,7 +90,11 @@ export default async function CampaignTrainerBuildPage({
     loadTrainerSkillTalents(supabase, id),
     loadClassFavoredStats(supabase),
     loadClassBuilderData(supabase, id, { classId: trainer.class_id, originId: trainer.origin_id, level: trainer.level }),
+    // Gates the "Continue to starter Pokémon" link below -- only meaningful for a brand-new Trainer
+    // who doesn't have one yet; head:true + count:'exact' with no select body just gets the count.
+    supabase.from('trainers_pokemon').select('*', { count: 'exact', head: true }).eq('trainer_id', id),
   ])
+  const hasPokemon = (pokemonCount ?? 0) > 0
 
   const { data: featureUses } = await supabase.from('trainer_feature_uses').select('feature_id, uses_remaining').eq('trainer_id', id)
   const usesRemainingByFeature = Object.fromEntries((featureUses ?? []).map((fu) => [fu.feature_id, fu.uses_remaining]))
@@ -157,7 +162,7 @@ export default async function CampaignTrainerBuildPage({
         />
       </TrainerStateProvider>
 
-      {isOwner && (
+      {isOwner && !hasPokemon && (
         <div className="w-full max-w-3xl">
           <Link href={`${basePath}/starter`} className="rounded bg-accent px-4 py-2 text-sm text-accent-foreground">
             Continue to starter Pokémon
