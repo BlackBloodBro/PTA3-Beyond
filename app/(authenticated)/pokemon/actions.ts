@@ -1047,36 +1047,47 @@ export async function learnMove(
     return { error: 'That move is already known' }
   }
 
-  const { data: eligible } = await supabase
-    .from('pokedex_moves')
-    .select('level_learned, moves(frequency)')
-    .eq('pokedex_id', pokemon.pokedex_id)
-    .eq('move_id', moveId)
-    .maybeSingle()
+  const [{ data: eligible }, { data: grant }] = await Promise.all([
+    supabase.from('pokedex_moves').select('level_learned, moves(frequency)').eq('pokedex_id', pokemon.pokedex_id).eq('move_id', moveId).maybeSingle(),
+    // [[Let a GM force-teach any Move]]: a grant skips both the level and Proficiency gates below
+    // entirely, no partial bypass -- it doesn't touch the MAX_KNOWN_MOVES cap or the already-known
+    // check above, those are structural limits, not eligibility rules.
+    supabase.from('pokemon_move_grants').select('move_id').eq('pokemon_id', pokemonId).eq('move_id', moveId).maybeSingle(),
+  ])
 
-  if (!eligible || (eligible.level_learned !== null && eligible.level_learned > level)) {
-    return { error: 'That move is not eligible to learn yet' }
-  }
+  if (!grant) {
+    if (!eligible || (eligible.level_learned !== null && eligible.level_learned > level)) {
+      return { error: 'That move is not eligible to learn yet' }
+    }
 
-  // TM/tutor-eligible (level_learned null) additionally requires overlap between the species'
-  // Proficiencies and the move's -- a move with zero tagged Proficiencies is unrestricted. Natural
-  // level-up moves (level_learned set) were never gated by Proficiency, so this only applies here.
-  if (eligible.level_learned === null) {
-    const [{ data: moveProficiencies }, { data: pokedexProficiencies }] = await Promise.all([
-      supabase.from('moves_proficiencies').select('proficiency_id').eq('move_id', moveId),
-      supabase.from('pokedex_proficiencies').select('proficiency_id').eq('pokedex_id', pokemon.pokedex_id),
-    ])
+    // TM/tutor-eligible (level_learned null) additionally requires overlap between the species'
+    // Proficiencies and the move's -- a move with zero tagged Proficiencies is unrestricted. Natural
+    // level-up moves (level_learned set) were never gated by Proficiency, so this only applies here.
+    if (eligible.level_learned === null) {
+      const [{ data: moveProficiencies }, { data: pokedexProficiencies }] = await Promise.all([
+        supabase.from('moves_proficiencies').select('proficiency_id').eq('move_id', moveId),
+        supabase.from('pokedex_proficiencies').select('proficiency_id').eq('pokedex_id', pokemon.pokedex_id),
+      ])
 
-    const requiredProficiencyIds = (moveProficiencies ?? []).map((p) => p.proficiency_id)
-    if (requiredProficiencyIds.length > 0) {
-      const heldProficiencyIds = new Set((pokedexProficiencies ?? []).map((p) => p.proficiency_id))
-      if (!requiredProficiencyIds.some((id) => heldProficiencyIds.has(id))) {
-        return { error: 'This Pokémon does not have a matching Proficiency for that move' }
+      const requiredProficiencyIds = (moveProficiencies ?? []).map((p) => p.proficiency_id)
+      if (requiredProficiencyIds.length > 0) {
+        const heldProficiencyIds = new Set((pokedexProficiencies ?? []).map((p) => p.proficiency_id))
+        if (!requiredProficiencyIds.some((id) => heldProficiencyIds.has(id))) {
+          return { error: 'This Pokémon does not have a matching Proficiency for that move' }
+        }
       }
     }
   }
 
-  const { maxUses, resetsOn } = parseMoveFrequency(eligible.moves?.frequency ?? '')
+  // A grant for a move this species' pokedex_moves has no row for at all (eligible is null) still
+  // needs its frequency to size uses_remaining -- fetch it directly rather than relying on the
+  // pokedex_moves join, which only carries `moves` data when a matching row exists.
+  let frequency = eligible?.moves?.frequency ?? null
+  if (frequency === null) {
+    const { data: moveRow } = await supabase.from('moves').select('frequency').eq('id', moveId).single()
+    frequency = moveRow?.frequency ?? ''
+  }
+  const { maxUses, resetsOn } = parseMoveFrequency(frequency)
 
   const { error } = await supabase
     .from('pokemon_moves')
@@ -1087,6 +1098,59 @@ export async function learnMove(
   }
 
   return { usesRemaining: maxUses, resetsOn }
+}
+
+// [[Let a GM force-teach any Move]]: grants eligibility only -- does not touch pokemon_moves at
+// all. The Trainer still teaches the move themselves through the normal learnMove flow whenever
+// they choose, spending one of their own 6 slots exactly like any other move. GM-only, unlike
+// learnMove/setMoveUsesRemaining above (an everyday owner-or-GM action) -- narratively deciding a
+// Pokemon can learn something unusual is a GM call, same tier as Loyalty (addPokemonLoyaltyPoints).
+export async function grantMoveEligibility(pokemonId: string, moveId: number): Promise<{ error: string } | { moveId: number }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: pokemon } = await supabase
+    .from('pokemon')
+    .select('campaign_id, created_by_user_id, campaign:campaign_id(gm_user_id), trainers_pokemon(trainers(user_id, campaigns(gm_user_id)))')
+    .eq('id', pokemonId)
+    .single()
+
+  if (!pokemon) {
+    return { error: 'Pokemon not found' }
+  }
+
+  // Same trainers_pokemon-is-a-primary-key quirk as elsewhere -- this reverse embed (and the
+  // forward trainers -> campaigns embed nested inside it) both come back as single objects.
+  const ownerLink = pokemon.trainers_pokemon as unknown as {
+    trainers: { user_id: string; campaigns: { gm_user_id: string } | null } | null
+  } | null
+  const campaign = pokemon.campaign as unknown as { gm_user_id: string } | null
+  const isGM = ownerLink
+    ? ownerLink.trainers?.campaigns
+      ? ownerLink.trainers.campaigns.gm_user_id === user.id
+      : ownerLink.trainers?.user_id === user.id
+    : resolveWildPokemonAuthority(
+        { campaignId: pokemon.campaign_id, campaignGmUserId: campaign?.gm_user_id ?? null, createdByUserId: pokemon.created_by_user_id },
+        user.id,
+      )
+
+  if (!isGM) {
+    return { error: 'Only the campaign GM can grant Move eligibility' }
+  }
+
+  const { error } = await supabase.from('pokemon_move_grants').upsert({ pokemon_id: pokemonId, move_id: moveId }, { onConflict: 'pokemon_id,move_id' })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { moveId }
 }
 
 // "Usable" means tracking uses only -- no hit/damage rolling, per the user's explicit scope. The
