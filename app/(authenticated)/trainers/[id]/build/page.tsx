@@ -136,6 +136,7 @@ export default async function BuildPage({
         initialName={trainer.name}
         initialLevel={trainer.level}
         initialCurrentHp={trainer.current_hp}
+        initialTemporaryHp={trainer.temporary_hp}
         initialMaxHp={maxHp}
         initialStats={effectiveStats}
         initialAdvancedClasses={advancedClasses}

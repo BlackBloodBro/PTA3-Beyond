@@ -5,7 +5,14 @@ import { useRouter } from 'next/navigation'
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { statModifier } from '@/lib/pta3/pointBuy'
 import { talentBonus } from '@/lib/pta3/skillTalents'
-import { adjustTrainerHp, updateTrainerInfo, useFeatureCharge, resetFeatureUses } from '@/app/(authenticated)/trainers/actions'
+import {
+  adjustTrainerHp,
+  grantTrainerTemporaryHp,
+  clearTrainerTemporaryHp,
+  updateTrainerInfo,
+  useFeatureCharge,
+  resetFeatureUses,
+} from '@/app/(authenticated)/trainers/actions'
 import type { TrainerFeature, TrainerAdvancedClass } from '@/lib/pta3/trainerFeatures'
 import { ClickTooltip } from '@/components/ClickTooltip'
 
@@ -35,6 +42,7 @@ type TrainerState = {
   name: string
   level: number
   currentHp: number
+  temporaryHp: number
   maxHp: number
   attack: number
   defense: number
@@ -83,6 +91,7 @@ type TrainerContextValue = TrainerState & {
   isGM: boolean
   applyInfoSnapshot: (snapshot: InfoSnapshot, classId: number, originId: number) => void
   setCurrentHp: (hp: number) => void
+  setTemporaryHp: (hp: number) => void
   setFeatureUses: (featureId: number, usesRemaining: number) => void
 }
 
@@ -102,6 +111,7 @@ export function TrainerStateProvider({
   initialName,
   initialLevel,
   initialCurrentHp,
+  initialTemporaryHp,
   initialMaxHp,
   initialStats,
   initialAdvancedClasses,
@@ -124,6 +134,7 @@ export function TrainerStateProvider({
   initialName: string
   initialLevel: number
   initialCurrentHp: number
+  initialTemporaryHp: number
   initialMaxHp: number
   initialStats: { attack: number; defense: number; special_attack: number; special_defense: number; speed: number }
   initialAdvancedClasses: TrainerAdvancedClass[]
@@ -143,6 +154,7 @@ export function TrainerStateProvider({
     name: initialName,
     level: initialLevel,
     currentHp: initialCurrentHp,
+    temporaryHp: initialTemporaryHp,
     maxHp: initialMaxHp,
     ...initialStats,
     advancedClasses: initialAdvancedClasses,
@@ -188,6 +200,7 @@ export function TrainerStateProvider({
         nextMilestoneLevel: snapshot.nextMilestoneLevel,
       })),
     setCurrentHp: (hp) => setState((prev) => ({ ...prev, currentHp: hp })),
+    setTemporaryHp: (hp) => setState((prev) => ({ ...prev, temporaryHp: hp })),
     setFeatureUses: (featureId, usesRemaining) =>
       setState((prev) => ({ ...prev, usesRemainingByFeature: { ...prev.usesRemainingByFeature, [featureId]: usesRemaining } })),
   }
@@ -448,30 +461,64 @@ export function TrainerInfoSection({
   )
 }
 
-export function TrainerHpSection({ trainerId, temporaryHp }: { trainerId: string; temporaryHp: number }) {
-  const { currentHp, maxHp, setCurrentHp } = useTrainerState()
+// [[Let Temporary HP actually be set]]: Grant adds to whatever Temp HP already exists (stacks from
+// multiple sources) rather than replacing it. Damage now spends Temp HP first, down to a floor of
+// 0, before touching current HP at all -- adjustTrainerHp's own return carries both resulting
+// values so a single click updates both without a refetch. Clear is the manual "fight's over"
+// button; Temp HP also clears automatically on the next Sleep rest as a backstop (restSleep).
+export function TrainerHpSection({ trainerId }: { trainerId: string }) {
+  const { currentHp, temporaryHp, maxHp, setCurrentHp, setTemporaryHp } = useTrainerState()
   const [amount, setAmount] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
 
   async function handleAdjust(sign: 1 | -1) {
     setError(null)
+    setPending(true)
     const result = await adjustTrainerHp(trainerId, sign, amount)
+    setPending(false)
     if ('error' in result) {
       setError(result.error)
       return
     }
     setCurrentHp(result.currentHp)
+    setTemporaryHp(result.temporaryHp)
+  }
+
+  async function handleGrant() {
+    setError(null)
+    setPending(true)
+    const result = await grantTrainerTemporaryHp(trainerId, amount)
+    setPending(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setTemporaryHp(result.temporaryHp)
+  }
+
+  async function handleClear() {
+    setError(null)
+    setPending(true)
+    const result = await clearTrainerTemporaryHp(trainerId)
+    setPending(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setTemporaryHp(result.temporaryHp)
   }
 
   return (
     <section className="rounded border border-accent bg-accent/10 p-4">
       <h2 className="mb-2 font-semibold">Hit Points</h2>
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            disabled={pending}
             onClick={() => handleAdjust(1)}
-            className="rounded border border-success px-3 py-2 text-sm font-semibold text-success"
+            className="rounded border border-success px-3 py-2 text-sm font-semibold text-success disabled:opacity-30"
           >
             Heal
           </button>
@@ -484,11 +531,30 @@ export function TrainerHpSection({ trainerId, temporaryHp }: { trainerId: string
           />
           <button
             type="button"
+            disabled={pending}
             onClick={() => handleAdjust(-1)}
-            className="rounded border border-danger px-3 py-2 text-sm font-semibold text-danger"
+            className="rounded border border-danger px-3 py-2 text-sm font-semibold text-danger disabled:opacity-30"
           >
             Damage
           </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={handleGrant}
+            className="rounded border border-accent px-3 py-2 text-sm font-semibold text-accent disabled:opacity-30"
+          >
+            Grant Temp HP
+          </button>
+          {temporaryHp > 0 && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={handleClear}
+              className="rounded border px-3 py-2 text-sm disabled:opacity-30"
+            >
+              Clear Temp HP
+            </button>
+          )}
         </div>
         <div className="text-right">
           <p className="text-2xl font-bold leading-none">

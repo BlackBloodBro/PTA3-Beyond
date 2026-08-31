@@ -492,7 +492,7 @@ export default async function WildPokemonPage({
         initialEffectiveExp={effectiveExp}
         initialCurrentExp={pokemon.current_exp}
         initialCurrentHp={pokemon.current_hp}
-        temporaryHp={pokemon.temporary_hp}
+        initialTemporaryHp={pokemon.temporary_hp}
         initialEvs={{
           hp: pokemon.ev_hp,
           attack: pokemon.ev_attack,

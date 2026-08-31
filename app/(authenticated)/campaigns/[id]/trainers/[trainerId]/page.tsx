@@ -241,6 +241,7 @@ export default async function CampaignTrainerPage({
         initialName={trainer.name}
         initialLevel={trainer.level}
         initialCurrentHp={trainer.current_hp}
+        initialTemporaryHp={trainer.temporary_hp}
         initialMaxHp={maxHp}
         initialStats={effectiveStats}
         initialAdvancedClasses={advancedClasses}
@@ -287,7 +288,7 @@ export default async function CampaignTrainerPage({
         <aside className="flex w-64 shrink-0 flex-col gap-4">
           <TrainerInfoSection trainerId={id} campaign={campaign} classes={classes ?? []} origins={origins ?? []} />
 
-          <TrainerHpSection trainerId={id} temporaryHp={trainer.temporary_hp} />
+          <TrainerHpSection trainerId={id} />
 
           <section className="rounded border border-accent bg-accent/10 p-4">
             <h2 className="mb-2 font-semibold">Rest</h2>

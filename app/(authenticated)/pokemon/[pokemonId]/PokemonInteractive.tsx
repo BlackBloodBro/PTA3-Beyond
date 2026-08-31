@@ -11,6 +11,8 @@ import { ClickTooltip } from '@/components/ClickTooltip'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import {
   adjustPokemonHp,
+  grantPokemonTemporaryHp,
+  clearPokemonTemporaryHp,
   addPokemonExp,
   addPokemonLoyaltyPoints,
   assignPokemonEv,
@@ -358,6 +360,7 @@ type PokemonStateValue = {
   evsAvailable: number
   evsSpent: number
   setCurrentHp: (v: number) => void
+  setTemporaryHp: (v: number) => void
   setExp: (v: { currentExp: number; effectiveExp: number; level: number }) => void
   setLoyalty: (v: { loyaltyPoints: number; loyaltyName: string | null; loyaltyModifier: number; level: number; effectiveExp: number }) => void
   setEv: (stat: EvStatKey, value: number) => void
@@ -401,7 +404,7 @@ export function PokemonStateProvider(props: {
   initialEffectiveExp: number
   initialCurrentExp: number
   initialCurrentHp: number
-  temporaryHp: number
+  initialTemporaryHp: number
   initialEvs: Record<EvStatKey, number>
   species: SpeciesStats
   natureIncreasedName: string | null
@@ -438,6 +441,7 @@ export function PokemonStateProvider(props: {
   const [effectiveExp, setEffectiveExp] = useState(props.initialEffectiveExp)
   const [currentExp, setCurrentExp] = useState(props.initialCurrentExp)
   const [currentHp, setCurrentHpState] = useState(props.initialCurrentHp)
+  const [temporaryHp, setTemporaryHpState] = useState(props.initialTemporaryHp)
   const [loyaltyPoints, setLoyaltyPoints] = useState(props.initialLoyaltyPoints)
   const [loyaltyName, setLoyaltyName] = useState(props.initialLoyaltyName)
   const [loyaltyModifier, setLoyaltyModifier] = useState(props.initialLoyaltyModifier)
@@ -496,7 +500,7 @@ export function PokemonStateProvider(props: {
     effectiveExp,
     currentExp,
     currentHp,
-    temporaryHp: props.temporaryHp,
+    temporaryHp,
     evs,
     knownMoves,
     fullLearnset: props.fullLearnset,
@@ -529,6 +533,7 @@ export function PokemonStateProvider(props: {
     evsAvailable,
     evsSpent,
     setCurrentHp: setCurrentHpState,
+    setTemporaryHp: setTemporaryHpState,
     setExp: ({ currentExp, effectiveExp, level }) => {
       setCurrentExp(currentExp)
       setEffectiveExp(effectiveExp)
@@ -709,8 +714,13 @@ export function LoyaltySection() {
   )
 }
 
+// [[Let Temporary HP actually be set]]: Grant adds to whatever Temp HP already exists (stacks from
+// multiple sources) rather than replacing it. Damage now spends Temp HP first, down to a floor of
+// 0, before touching current HP at all -- adjustPokemonHp's own return carries both resulting
+// values so a single click updates both without a refetch. Clear is the manual "fight's over"
+// button; Temp HP also clears automatically on the next Sleep/Pokemon Center rest as a backstop.
 export function HpSection() {
-  const { pokemonId, currentHp, temporaryHp, species, evs, setCurrentHp } = usePokemonState()
+  const { pokemonId, currentHp, temporaryHp, species, evs, setCurrentHp, setTemporaryHp } = usePokemonState()
   const [amount, setAmount] = useState(0)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -726,7 +736,33 @@ export function HpSection() {
       return
     }
     setCurrentHp(result.currentHp)
+    setTemporaryHp(result.temporaryHp)
     setAmount(0)
+  }
+
+  async function handleGrant() {
+    setPending(true)
+    setError(null)
+    const result = await grantPokemonTemporaryHp(pokemonId, amount)
+    setPending(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setTemporaryHp(result.temporaryHp)
+    setAmount(0)
+  }
+
+  async function handleClear() {
+    setPending(true)
+    setError(null)
+    const result = await clearPokemonTemporaryHp(pokemonId)
+    setPending(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setTemporaryHp(result.temporaryHp)
   }
 
   return (
@@ -772,6 +808,26 @@ export function HpSection() {
           >
             Damage
           </button>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={handleGrant}
+            className="flex-1 rounded border border-accent px-3 py-2 text-sm font-semibold text-accent disabled:opacity-30"
+          >
+            Grant Temp HP
+          </button>
+          {temporaryHp > 0 && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={handleClear}
+              className="flex-1 rounded border px-3 py-2 text-sm disabled:opacity-30"
+            >
+              Clear Temp HP
+            </button>
+          )}
         </div>
         {error && <p className="text-xs text-danger">{error}</p>}
       </div>
