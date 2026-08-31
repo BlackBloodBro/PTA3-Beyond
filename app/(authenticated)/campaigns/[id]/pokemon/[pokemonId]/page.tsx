@@ -79,6 +79,7 @@ export default async function CampaignPokemonPage({
       `
       id, nickname, current_exp, current_hp, temporary_hp, gender, is_shiny,
       ev_hp, ev_attack, ev_defense, ev_special_attack, ev_special_defense, ev_speed,
+      bonus_base_hp, bonus_base_atk, bonus_base_def, bonus_base_sp_atk, bonus_base_sp_def, bonus_base_speed,
       pokedex_id, nature_id, loyalty_points, type_1_id, type_2_id, size_id, weight_id, held_item_id,
       created_by_user_id, campaign:campaign_id(id, name, gm_user_id),
       original_trainer_id, original_obtain_method_id,
@@ -129,6 +130,12 @@ export default async function CampaignPokemonPage({
     ev_special_attack: number
     ev_special_defense: number
     ev_speed: number
+    bonus_base_hp: number
+    bonus_base_atk: number
+    bonus_base_def: number
+    bonus_base_sp_atk: number
+    bonus_base_sp_def: number
+    bonus_base_speed: number
     pokedex_id: number
     nature_id: number | null
     loyalty_points: number
@@ -470,6 +477,14 @@ export default async function CampaignPokemonPage({
       {error && <p className="w-full max-w-6xl text-danger">{error}</p>}
 
       <PokemonStateProvider
+        // [[Let a GM override a Pokemon's individual base stats]]: the bonus_base_hp field lives in
+        // this same Info Edit form (a plain <form action> submit + redirect, not a client-driven
+        // fetch), and current_hp is the one context value mirrored into useState -- a plain redirect
+        // back to this route reuses the same client component instance, so useState's initial value
+        // is never re-read from the fresh server prop. Keying on the server-fresh current_hp forces
+        // exactly the remount needed when it actually changed, without affecting purely client-side
+        // Heal/Damage clicks (those never trigger a new page load, so this key never changes then).
+        key={pokemon.current_hp}
         pokemonId={pokemonId}
         basePath={basePath}
         isOwner={isOwner}
@@ -494,12 +509,15 @@ export default async function CampaignPokemonPage({
           speed: pokemon.ev_speed,
         }}
         species={{
-          base_hp: species.base_hp,
-          base_atk: species.base_atk,
-          base_def: species.base_def,
-          base_sp_atk: species.base_sp_atk,
-          base_sp_def: species.base_sp_def,
-          base_speed: species.base_speed,
+          // [[Let a GM override a Pokemon's individual base stats]]: additive, always applied --
+          // an effective base stat is species.base_x + pokemon.bonus_base_x, baked in once here so
+          // every downstream consumer (computeStatRows, the Stats section's maxHp) needs no changes.
+          base_hp: species.base_hp + pokemon.bonus_base_hp,
+          base_atk: species.base_atk + pokemon.bonus_base_atk,
+          base_def: species.base_def + pokemon.bonus_base_def,
+          base_sp_atk: species.base_sp_atk + pokemon.bonus_base_sp_atk,
+          base_sp_def: species.base_sp_def + pokemon.bonus_base_sp_def,
+          base_speed: species.base_speed + pokemon.bonus_base_speed,
         }}
         natureIncreasedName={pokemon.nature?.increased?.name ?? null}
         natureDecreasedName={pokemon.nature?.decreased?.name ?? null}
@@ -745,6 +763,67 @@ export default async function CampaignPokemonPage({
                     <input type="checkbox" name="isShiny" defaultChecked={pokemon.is_shiny} />
                     Shiny
                   </label>
+
+                  {/* [[Let a GM override a Pokemon's individual base stats]]: additive bonus, not a
+                      replacement -- can be negative (a runt) or positive (an outlier), added on top
+                      of the species' own base stat everywhere it's read. */}
+                  <p className="mt-1 font-medium">Base stat bonuses (added to species base)</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-1">
+                      HP
+                      <input
+                        type="number"
+                        name="bonusBaseHp"
+                        defaultValue={pokemon.bonus_base_hp}
+                        className="bg-surface-subtle rounded border p-2"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      Attack
+                      <input
+                        type="number"
+                        name="bonusBaseAtk"
+                        defaultValue={pokemon.bonus_base_atk}
+                        className="bg-surface-subtle rounded border p-2"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      Defense
+                      <input
+                        type="number"
+                        name="bonusBaseDef"
+                        defaultValue={pokemon.bonus_base_def}
+                        className="bg-surface-subtle rounded border p-2"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      Special Attack
+                      <input
+                        type="number"
+                        name="bonusBaseSpAtk"
+                        defaultValue={pokemon.bonus_base_sp_atk}
+                        className="bg-surface-subtle rounded border p-2"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      Special Defense
+                      <input
+                        type="number"
+                        name="bonusBaseSpDef"
+                        defaultValue={pokemon.bonus_base_sp_def}
+                        className="bg-surface-subtle rounded border p-2"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      Speed
+                      <input
+                        type="number"
+                        name="bonusBaseSpeed"
+                        defaultValue={pokemon.bonus_base_speed}
+                        className="bg-surface-subtle rounded border p-2"
+                      />
+                    </label>
+                  </div>
 
                   <GmOverrideEvolutionPicker />
                 </>

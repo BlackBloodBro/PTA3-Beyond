@@ -619,7 +619,7 @@ async function loadPokemonEvContext(supabase: Awaited<ReturnType<typeof createCl
     .select(
       `
       current_exp, current_hp, is_shiny, loyalty_points, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id),
-      ev_hp, ev_attack, ev_defense, ev_special_attack, ev_special_defense, ev_speed,
+      ev_hp, ev_attack, ev_defense, ev_special_attack, ev_special_defense, ev_speed, bonus_base_hp,
       pokedex(growth_rate_id, base_hp),
       trainers_pokemon(obtain_method_id, trainers(user_id, campaigns(gm_user_id)))
     `,
@@ -725,7 +725,7 @@ export async function assignPokemonEv(
   // free heal that only shows up the next time something else touches current_hp).
   let newCurrentHp = ctx.pokemon.current_hp
   if (stat === 'hp') {
-    const newMaxHp = (ctx.pokemon.pokedex?.base_hp ?? 0) + newEv * 6
+    const newMaxHp = (ctx.pokemon.pokedex?.base_hp ?? 0) + ctx.pokemon.bonus_base_hp + newEv * 6
     newCurrentHp = Math.min(newMaxHp, ctx.pokemon.current_hp + 6)
     updates.current_hp = newCurrentHp
   }
@@ -799,7 +799,7 @@ export async function setPokemonEvs(
   const hpDelta = (newEvs.hp - ctx.currentEvs.hp) * 6
   let newCurrentHp = ctx.pokemon.current_hp
   if (hpDelta !== 0) {
-    const newMaxHp = (ctx.pokemon.pokedex?.base_hp ?? 0) + newEvs.hp * 6
+    const newMaxHp = (ctx.pokemon.pokedex?.base_hp ?? 0) + ctx.pokemon.bonus_base_hp + newEvs.hp * 6
     newCurrentHp = Math.max(0, Math.min(newMaxHp, ctx.pokemon.current_hp + hpDelta))
     updates.current_hp = newCurrentHp
   }
@@ -835,7 +835,7 @@ export async function adjustPokemonHp(
   // GM (both have UPDATE rights), same as the trainer HP control.
   const { data: pokemon } = await supabase
     .from('pokemon')
-    .select('current_hp, ev_hp, loyalty_points, pokedex(base_hp)')
+    .select('current_hp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp)')
     .eq('id', pokemonId)
     .single()
 
@@ -843,7 +843,7 @@ export async function adjustPokemonHp(
     return { error: 'Pokemon not found' }
   }
 
-  const maxHp = pokemon.pokedex.base_hp + pokemon.ev_hp * 6
+  const maxHp = pokemon.pokedex.base_hp + pokemon.bonus_base_hp + pokemon.ev_hp * 6
 
   // Healing caps at max HP, damage floors at 0 -- unlike the trainer HP control, Pokemon HP has no
   // death-saving-throw use for negative values, so there's nothing for going below 0 to represent.
@@ -892,7 +892,7 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
   const { data: pokemon } = await supabase
     .from('pokemon')
     .select(
-      'created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), trainers_pokemon(trainers(user_id, campaign_id, campaigns(gm_user_id)))',
+      'created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), current_hp, ev_hp, bonus_base_hp, pokedex(base_hp), trainers_pokemon(trainers(user_id, campaign_id, campaigns(gm_user_id)))',
     )
     .eq('id', pokemonId)
     .single()
@@ -969,6 +969,35 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
 
     const heldItemIdRaw = (formData.get('heldItemId') as string)?.trim()
     updates.held_item_id = heldItemIdRaw ? Number(heldItemIdRaw) : null
+
+    // [[Let a GM override a Pokemon's individual base stats]]: additive bonus columns, can be
+    // negative (a runt) or positive (an outlier) -- a blank/non-integer input is treated as 0, same
+    // "no change" default as the column itself, rather than rejecting the whole form.
+    const parseBonus = (field: string) => {
+      const raw = (formData.get(field) as string)?.trim()
+      const n = Number(raw)
+      return raw && Number.isInteger(n) ? n : 0
+    }
+    const bonusBaseHp = parseBonus('bonusBaseHp')
+    updates.bonus_base_hp = bonusBaseHp
+    updates.bonus_base_atk = parseBonus('bonusBaseAtk')
+    updates.bonus_base_def = parseBonus('bonusBaseDef')
+    updates.bonus_base_sp_atk = parseBonus('bonusBaseSpAtk')
+    updates.bonus_base_sp_def = parseBonus('bonusBaseSpDef')
+    updates.bonus_base_speed = parseBonus('bonusBaseSpeed')
+
+    // Same precedent as setPokemonEvs -- current HP moves the same direction and amount as max HP
+    // whenever the HP bonus changes, clamped to the new [0, max] range. The other 5 stats have no
+    // analogous "current value" to keep in sync.
+    const hpDelta = bonusBaseHp - pokemon.bonus_base_hp
+    if (hpDelta !== 0) {
+      // Same reverse-embed quirk documented throughout this codebase -- a single-field embed like
+      // pokedex(base_hp) alongside other scalar columns in the same select() infers as an array
+      // here even though it's a single row at runtime.
+      const pokedexRow = pokemon.pokedex as unknown as { base_hp: number } | null
+      const newMaxHp = (pokedexRow?.base_hp ?? 0) + bonusBaseHp + pokemon.ev_hp * 6
+      updates.current_hp = Math.max(0, Math.min(newMaxHp, pokemon.current_hp + hpDelta))
+    }
   }
 
   const { error } = await supabase.from('pokemon').update(updates).eq('id', pokemonId)

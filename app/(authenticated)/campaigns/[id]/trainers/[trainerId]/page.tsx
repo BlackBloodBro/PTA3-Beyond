@@ -167,7 +167,7 @@ export default async function CampaignTrainerPage({
         `
       obtain_method_id,
       pokemon(
-        id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_points, pokedex_id,
+        id, nickname, current_hp, ev_hp, bonus_base_hp, is_shiny, current_exp, loyalty_points, pokedex_id,
         pokedex(name, base_hp, sprite_code, growth_rate_id)
       )
     `,
@@ -190,6 +190,7 @@ export default async function CampaignTrainerPage({
         nickname: string | null
         current_hp: number
         ev_hp: number
+        bonus_base_hp: number
         is_shiny: boolean
         current_exp: number
         loyalty_points: number
@@ -204,7 +205,7 @@ export default async function CampaignTrainerPage({
         growthRateId: p.pokedex!.growth_rate_id,
       })
       const loyaltyName = computeLoyaltyTier(p.loyalty_points, loyaltyRows ?? [])?.name ?? null
-      return { ...p, level, loyaltyName, maxHp: p.pokedex!.base_hp + p.ev_hp * 6 }
+      return { ...p, level, loyaltyName, maxHp: p.pokedex!.base_hp + p.bonus_base_hp + p.ev_hp * 6 }
     }),
   )
 
