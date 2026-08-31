@@ -135,6 +135,7 @@ export default async function CampaignTrainerBuildPage({
         initialName={trainer.name}
         initialLevel={trainer.level}
         initialCurrentHp={trainer.current_hp}
+        initialTemporaryHp={trainer.temporary_hp}
         initialMaxHp={maxHp}
         initialStats={effectiveStats}
         initialAdvancedClasses={advancedClasses}

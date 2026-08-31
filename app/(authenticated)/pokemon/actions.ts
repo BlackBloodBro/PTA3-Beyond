@@ -817,7 +817,7 @@ export async function adjustPokemonHp(
   pokemonId: string,
   sign: 1 | -1,
   amount: number,
-): Promise<{ error: string } | { currentHp: number }> {
+): Promise<{ error: string } | { currentHp: number; temporaryHp: number }> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -835,7 +835,7 @@ export async function adjustPokemonHp(
   // GM (both have UPDATE rights), same as the trainer HP control.
   const { data: pokemon } = await supabase
     .from('pokemon')
-    .select('current_hp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp)')
+    .select('current_hp, temporary_hp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp)')
     .eq('id', pokemonId)
     .single()
 
@@ -845,11 +845,22 @@ export async function adjustPokemonHp(
 
   const maxHp = pokemon.pokedex.base_hp + pokemon.bonus_base_hp + pokemon.ev_hp * 6
 
-  // Healing caps at max HP, damage floors at 0 -- unlike the trainer HP control, Pokemon HP has no
-  // death-saving-throw use for negative values, so there's nothing for going below 0 to represent.
-  const newHp = sign > 0 ? Math.min(maxHp, pokemon.current_hp + amount) : Math.max(0, pokemon.current_hp - amount)
+  let newHp: number
+  let newTempHp = pokemon.temporary_hp
+  if (sign > 0) {
+    // Healing caps at max HP -- unlike the trainer HP control, Pokemon HP has no death-saving-throw
+    // use for negative values, so there's nothing for going below 0 to represent. Healing never
+    // restores or is absorbed by Temp HP -- see [[Let Temporary HP actually be set]].
+    newHp = Math.min(maxHp, pokemon.current_hp + amount)
+  } else {
+    // [[Let Temporary HP actually be set]]: damage spends temporary_hp first, down to a floor of 0
+    // -- only the remainder (if any) reduces current_hp, which still floors at 0 as before.
+    const absorbed = Math.min(pokemon.temporary_hp, amount)
+    newTempHp = pokemon.temporary_hp - absorbed
+    newHp = Math.max(0, pokemon.current_hp - (amount - absorbed))
+  }
 
-  const updates: { current_hp: number; loyalty_points?: number } = { current_hp: newHp }
+  const updates: { current_hp: number; temporary_hp: number; loyalty_points?: number } = { current_hp: newHp, temporary_hp: newTempHp }
 
   // [[Add a Loyalty editor]]: fainting (a >0 -> 0 HP crossing) costs LP -- checked as a state
   // transition rather than a one-time flag, so repeated fainting across a session removes LP each
@@ -865,7 +876,62 @@ export async function adjustPokemonHp(
     return { error: error.message }
   }
 
-  return { currentHp: newHp }
+  return { currentHp: newHp, temporaryHp: newTempHp }
+}
+
+// [[Let Temporary HP actually be set]]: adds to whatever Temp HP already exists (stacks from
+// multiple sources, per the user) rather than replacing with the higher value. Owner-or-GM, same
+// tier as adjustPokemonHp above -- granting Temp HP mid-fight is as everyday as healing/damaging.
+export async function grantPokemonTemporaryHp(pokemonId: string, amount: number): Promise<{ error: string } | { temporaryHp: number }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  if (!Number.isInteger(amount) || amount <= 0) {
+    return { error: 'Enter a whole number amount' }
+  }
+
+  const { data: pokemon } = await supabase.from('pokemon').select('temporary_hp').eq('id', pokemonId).single()
+
+  if (!pokemon) {
+    return { error: 'Pokemon not found' }
+  }
+
+  const newTempHp = pokemon.temporary_hp + amount
+  const { error } = await supabase.from('pokemon').update({ temporary_hp: newTempHp }).eq('id', pokemonId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { temporaryHp: newTempHp }
+}
+
+// [[Let Temporary HP actually be set]]: the manual "fight's over" trigger -- the GM's own stand-in
+// for an encounter-end reset until [[Add a combat encounter tracker]] exists to signal that
+// automatically. Owner-or-GM, same tier as the grant/adjust actions above.
+export async function clearPokemonTemporaryHp(pokemonId: string): Promise<{ error: string } | { temporaryHp: number }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { error } = await supabase.from('pokemon').update({ temporary_hp: 0 }).eq('id', pokemonId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { temporaryHp: 0 }
 }
 
 const POKEMON_GENDER_VALUES = ['male', 'female', 'genderless'] as const

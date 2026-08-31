@@ -626,7 +626,11 @@ export async function updateBuilderLevel(trainerId: string, level: number): Prom
 
 // Called directly from a client component (no <form action>, no redirect) -- mirrors
 // adjustPokemonHp's shape so a Heal/Damage click updates the trainer page in place.
-export async function adjustTrainerHp(trainerId: string, sign: 1 | -1, amount: number): Promise<{ error: string } | { currentHp: number }> {
+export async function adjustTrainerHp(
+  trainerId: string,
+  sign: 1 | -1,
+  amount: number,
+): Promise<{ error: string } | { currentHp: number; temporaryHp: number }> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -644,7 +648,7 @@ export async function adjustTrainerHp(trainerId: string, sign: 1 | -1, amount: n
   // GM (both have UPDATE rights), and this control should work for either.
   const { data: trainer } = await supabase
     .from('trainers')
-    .select('current_hp, level')
+    .select('current_hp, temporary_hp, level')
     .eq('id', trainerId)
     .single()
 
@@ -656,17 +660,82 @@ export async function adjustTrainerHp(trainerId: string, sign: 1 | -1, amount: n
   // qualifying milestones every time it's needed, same as everywhere else it's used.
   const maxHp = computeMaxHp(await loadQualifyingMilestones(supabase, trainerId, trainer.level))
 
-  // Healing caps at max_hp; damage has no floor, since going negative matters for the
-  // death-saving-throw rules.
-  const newHp = sign > 0 ? Math.min(maxHp, trainer.current_hp + amount) : trainer.current_hp - amount
+  let newHp: number
+  let newTempHp = trainer.temporary_hp
+  if (sign > 0) {
+    // Healing caps at max_hp. Healing never restores or is absorbed by Temp HP -- see
+    // [[Let Temporary HP actually be set]].
+    newHp = Math.min(maxHp, trainer.current_hp + amount)
+  } else {
+    // [[Let Temporary HP actually be set]]: damage spends temporary_hp first, down to a floor of 0
+    // -- only the remainder (if any) reduces current_hp, which still has no floor (going negative
+    // matters for the death-saving-throw rules, unchanged from before).
+    const absorbed = Math.min(trainer.temporary_hp, amount)
+    newTempHp = trainer.temporary_hp - absorbed
+    newHp = trainer.current_hp - (amount - absorbed)
+  }
 
-  const { error } = await supabase.from('trainers').update({ current_hp: newHp }).eq('id', trainerId)
+  const { error } = await supabase.from('trainers').update({ current_hp: newHp, temporary_hp: newTempHp }).eq('id', trainerId)
 
   if (error) {
     return { error: error.message }
   }
 
-  return { currentHp: newHp }
+  return { currentHp: newHp, temporaryHp: newTempHp }
+}
+
+// [[Let Temporary HP actually be set]]: adds to whatever Temp HP already exists (stacks, per the
+// user) rather than replacing with the higher value. Owner-or-GM, same tier as adjustTrainerHp.
+export async function grantTrainerTemporaryHp(trainerId: string, amount: number): Promise<{ error: string } | { temporaryHp: number }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  if (!Number.isInteger(amount) || amount <= 0) {
+    return { error: 'Enter a whole number amount' }
+  }
+
+  const { data: trainer } = await supabase.from('trainers').select('temporary_hp').eq('id', trainerId).single()
+
+  if (!trainer) {
+    return { error: 'Trainer not found' }
+  }
+
+  const newTempHp = trainer.temporary_hp + amount
+  const { error } = await supabase.from('trainers').update({ temporary_hp: newTempHp }).eq('id', trainerId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { temporaryHp: newTempHp }
+}
+
+// [[Let Temporary HP actually be set]]: the manual "fight's over" trigger -- the GM's own stand-in
+// for an encounter-end reset until [[Add a combat encounter tracker]] exists to signal that
+// automatically. Owner-or-GM, same tier as the grant/adjust actions above.
+export async function clearTrainerTemporaryHp(trainerId: string): Promise<{ error: string } | { temporaryHp: number }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { error } = await supabase.from('trainers').update({ temporary_hp: 0 }).eq('id', trainerId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { temporaryHp: 0 }
 }
 
 // Called directly from a client component -- see adjustTrainerHp above.
@@ -762,9 +831,11 @@ export async function restSleep(trainerId: string, formData: FormData) {
   const roll = Math.max(1, Math.min(6, Math.floor(Number(formData.get('roll'))) || 1))
   const newTrainerHp = Math.min(maxHp, trainer.current_hp + roll)
 
+  // [[Let Temporary HP actually be set]]: a Sleep rest is one of the two automatic clear triggers
+  // -- anything not manually cleared at encounter-end survives until the next rest at the latest.
   const { error: trainerError } = await supabase
     .from('trainers')
-    .update({ current_hp: newTrainerHp })
+    .update({ current_hp: newTrainerHp, temporary_hp: 0 })
     .eq('id', trainerId)
 
   if (trainerError) {
@@ -803,7 +874,10 @@ export async function restSleep(trainerId: string, formData: FormData) {
       const maxHp = pokemon.pokedex.base_hp + pokemon.bonus_base_hp + pokemon.ev_hp * 6
       const healAmount = Math.floor(maxHp / 6)
       const newHp = Math.min(maxHp, pokemon.current_hp + healAmount)
-      const updates: { current_hp: number; loyalty_points?: number } = { current_hp: newHp }
+      // [[Let Temporary HP actually be set]]: same automatic clear trigger as the Trainer's own HP
+      // above -- applies to every linked Pokemon (Team or PC), matching this loop's existing
+      // healing scope.
+      const updates: { current_hp: number; temporary_hp: number; loyalty_points?: number } = { current_hp: newHp, temporary_hp: 0 }
       if (tp.party_slot !== null) {
         updates.loyalty_points = Math.max(0, pokemon.loyalty_points + sleepLoyaltyPoints)
       }
@@ -905,7 +979,10 @@ export async function restPokemonCenter(trainerId: string) {
       if (!pokemon || !pokemon.pokedex) return Promise.resolve()
       const maxHp = pokemon.pokedex.base_hp + pokemon.bonus_base_hp + pokemon.ev_hp * 6
       const wasDamaged = pokemon.current_hp < maxHp
-      const updates: { current_hp: number; loyalty_points?: number } = { current_hp: maxHp }
+      // [[Let Temporary HP actually be set]]: the other automatic clear trigger. Trainer-level Temp
+      // HP is untouched here -- this action never touches the Trainer's own HP either, that's
+      // Sleep's job (see restSleep).
+      const updates: { current_hp: number; temporary_hp: number; loyalty_points?: number } = { current_hp: maxHp, temporary_hp: 0 }
       if (wasDamaged) {
         updates.loyalty_points = Math.max(0, pokemon.loyalty_points + centerLoyaltyPoints)
       }
