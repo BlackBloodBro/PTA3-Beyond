@@ -1,0 +1,64 @@
+[
+  {
+    "version": "1.0.2",
+    "date": "2026-08-30",
+    "entries": [
+      { "category": "fix", "summary": "Fixed Advanced Class milestones not triggering, broken since an Aug 10 feature rename." },
+      { "category": "improve", "summary": "The \"Continue to starter Pokémon\" link on a Trainer's build page now hides itself once that Trainer already has one." }
+    ]
+  },
+  {
+    "version": "1.0.1",
+    "date": "2026-08-29",
+    "entries": [
+      { "category": "feature", "summary": "The app's version number is now shown on the Settings page." },
+      { "category": "improve", "summary": "Set up automatic build publishing for the app, the first step toward running it on a dedicated live server." }
+    ]
+  },
+  {
+    "version": "1.0.0",
+    "date": "2026-08-29",
+    "entries": [
+      { "category": "feature", "summary": "The GM is now warned before an action would overwrite a Trainer's own build choices." },
+      { "category": "fix", "summary": "Cleaned up a name collision on Intimidate and some duplicate Stat Passive seed data." }
+    ]
+  },
+  {
+    "version": "0.1.0",
+    "date": "2026-08-19",
+    "entries": [
+      { "category": "feature", "summary": "Gift a Pokémon from one Trainer to another." },
+      { "category": "feature", "summary": "Added an LP-based Loyalty editor, replacing the old fixed Loyalty-tier selector." },
+      { "category": "feature", "summary": "Added type immunities." },
+      { "category": "feature", "summary": "Added Pokémon Evolution." },
+      { "category": "feature", "summary": "Search across your Pokémon overview." },
+      { "category": "feature", "summary": "Added Classes and Origins reference data to the Pokédex." },
+      { "category": "feature", "summary": "Reworked HP restoration." },
+      { "category": "feature", "summary": "Added Pokémon Likes and Dislikes." },
+      { "category": "feature", "summary": "Choose which move a TM teaches." },
+      { "category": "feature", "summary": "Added an opponent type selector for quick effectiveness checks." },
+      { "category": "feature", "summary": "Implemented full type effectiveness (super-effective / not-very-effective) calculations." },
+      { "category": "feature", "summary": "Added Breeder, Coordinator, and Ranger class Features." },
+      { "category": "feature", "summary": "Added a workflow to relearn previously-forgotten moves." },
+      { "category": "feature", "summary": "Added a full Pokédex reference browser covering Moves, Skills, Classes, and Origins." },
+      { "category": "feature", "summary": "Added a Trainer inventory (Bag) system." },
+      { "category": "feature", "summary": "Filled out the Items catalog." },
+      { "category": "feature", "summary": "Change your username and password from Settings." },
+      { "category": "feature", "summary": "Added Favored Stats." },
+      { "category": "feature", "summary": "Added Talents." },
+      { "category": "feature", "summary": "Filled out the Pokédex with full species data." },
+      { "category": "feature", "summary": "Live search filters across the Pokédex and other lists." },
+      { "category": "feature", "summary": "Locking in a Trainer's chosen Move Proficiencies." },
+      { "category": "feature", "summary": "Tagging moves with the Proficiencies they require." },
+      { "category": "feature", "summary": "Display names are now shown throughout the app instead of raw usernames." },
+      { "category": "feature", "summary": "Added Bookmarks, for quick links to your favorite Campaigns, Trainers, and Pokémon." },
+      { "category": "feature", "summary": "Added campaign-scoped pages for Trainers, NPCs, and Wild Pokémon." },
+      { "category": "feature", "summary": "Added personal Trainer/Pokémon ownership permissions." },
+      { "category": "feature", "summary": "Added the Afflictions system (Burned, Poisoned, Paralyzed, and more)." },
+      { "category": "feature", "summary": "Added a persistent section-navigation sidebar." },
+      { "category": "feature", "summary": "Campaigns can have a GM-editable name and description." },
+      { "category": "feature", "summary": "Added a Settings page with light/dark theme support." },
+      { "category": "feature", "summary": "Added the PC system for storing a Trainer's Pokémon." }
+    ]
+  }
+]

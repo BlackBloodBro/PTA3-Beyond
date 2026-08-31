@@ -36,9 +36,14 @@ export default async function AuthenticatedLayout({ children }: { children: Reac
         <Link href="/dashboard" className="font-bold">
           PTA3 Tool
         </Link>
-        <Link href="/settings" className="text-sm underline">
-          Settings
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/settings" className="text-sm underline">
+            Settings
+          </Link>
+          <Link href="/changelog" className="text-sm underline">
+            Changelog
+          </Link>
+        </div>
       </header>
       <div className="flex">
         <Sidebar bookmarks={bookmarks} />
