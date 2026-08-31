@@ -24,11 +24,13 @@ import {
   GmOverrideEvolutionPicker,
   StatsSection,
   MovesSection,
+  GrantMoveSection,
   AfflictionsSection,
   PassivesSection,
   HpSection,
   type KnownMoveEntry,
   type LearnsetEntry,
+  type MoveInfo,
   type AfflictionInfo,
   type PassiveInfo,
   type KnownPassiveEntry,
@@ -353,6 +355,21 @@ export default async function CampaignPokemonPage({
 
   const fullLearnset = (learnableRowsRaw ?? []).filter((r) => r.move) as unknown as LearnsetEntry[]
 
+  // [[Let a GM force-teach any Move]]: this Pokemon's own grants (if any), plus the full global
+  // Move catalog for the GM's search picker -- RLS already scopes the grants read to the owner/GM,
+  // same as every other Pokemon-scoped table on this page.
+  const [{ data: grantRowsRaw }, { data: moveCatalogRaw }] = await Promise.all([
+    supabase
+      .from('pokemon_move_grants')
+      .select('move:moves(id, name, range, damage_stat, frequency, damage_dice, description, types(name))')
+      .eq('pokemon_id', pokemonId),
+    supabase.from('moves').select('id, name, range, damage_stat, frequency, damage_dice, description, types(name)').order('name'),
+  ])
+  const initialGrantedLearnset: LearnsetEntry[] = ((grantRowsRaw ?? []) as unknown as { move: MoveInfo | null }[])
+    .filter((r): r is { move: MoveInfo } => r.move !== null)
+    .map((r) => ({ level_learned: null, move: r.move, granted: true }))
+  const moveCatalog = (moveCatalogRaw ?? []) as unknown as MoveInfo[]
+
   // Small, unconditional reference data -- always needed for the Moves section's opponent-type
   // picker (see [[Add an opponent type selector for move effectiveness]]): the 112-row effectiveness
   // matrix, the 18 real type names for the picker's dropdowns, and the full species list (986 rows,
@@ -488,6 +505,8 @@ export default async function CampaignPokemonPage({
         natureDecreasedName={pokemon.nature?.decreased?.name ?? null}
         initialKnownMoves={initialKnownMoves}
         fullLearnset={fullLearnset}
+        initialGrantedLearnset={initialGrantedLearnset}
+        moveCatalog={moveCatalog}
         isEditingMoves={isEditingMoves}
         allAfflictions={allAfflictions}
         initialActiveAfflictionIds={initialActiveAfflictionIds}
@@ -807,6 +826,8 @@ export default async function CampaignPokemonPage({
         <StatsSection />
 
         <MovesSection />
+
+        <GrantMoveSection />
 
         <section className="rounded border border-accent bg-accent/10 p-4">
           <h2 className="mb-2 font-semibold">Move Proficiencies</h2>

@@ -18,6 +18,7 @@ import {
   setMoveUsesRemaining,
   learnMove,
   forgetMove,
+  grantMoveEligibility,
   addAffliction,
   removeAffliction,
   learnPassive,
@@ -228,6 +229,11 @@ export type KnownMoveEntry = {
 export type LearnsetEntry = {
   level_learned: number | null
   move: MoveInfo
+  // [[Let a GM force-teach any Move]]: a grant entry (from pokemon_move_grants, always
+  // level_learned: null) is tagged so the Learn picker can show "(GM-granted)" instead of
+  // "(always known)" and so a grant merged onto an existing too-high-level natural entry still
+  // reads as GM-granted rather than silently losing that context.
+  granted?: boolean
 }
 
 export type AfflictionInfo = {
@@ -323,6 +329,8 @@ type PokemonStateValue = {
   evs: Record<EvStatKey, number>
   knownMoves: KnownMoveEntry[]
   fullLearnset: LearnsetEntry[]
+  grantedLearnset: LearnsetEntry[]
+  moveCatalog: MoveInfo[]
   isEditingMoves: boolean
   allAfflictions: AfflictionInfo[]
   activeAfflictionIds: number[]
@@ -357,6 +365,7 @@ type PokemonStateValue = {
   addKnownMove: (entry: KnownMoveEntry) => void
   removeKnownMove: (moveId: number) => void
   updateMoveUses: (moveId: number, usesRemaining: number) => void
+  addGrantedMove: (entry: LearnsetEntry) => void
   setAfflictionActive: (afflictionId: number, isActive: boolean) => void
   addKnownPassive: (entry: KnownPassiveEntry) => void
   removeKnownPassive: (passiveId: number) => void
@@ -399,6 +408,8 @@ export function PokemonStateProvider(props: {
   natureDecreasedName: string | null
   initialKnownMoves: KnownMoveEntry[]
   fullLearnset: LearnsetEntry[]
+  initialGrantedLearnset: LearnsetEntry[]
+  moveCatalog: MoveInfo[]
   isEditingMoves: boolean
   allAfflictions: AfflictionInfo[]
   initialActiveAfflictionIds: number[]
@@ -432,6 +443,7 @@ export function PokemonStateProvider(props: {
   const [loyaltyModifier, setLoyaltyModifier] = useState(props.initialLoyaltyModifier)
   const [evs, setEvsState] = useState(props.initialEvs)
   const [knownMoves, setKnownMoves] = useState(props.initialKnownMoves)
+  const [grantedLearnset, setGrantedLearnset] = useState(props.initialGrantedLearnset)
   const [activeAfflictionIds, setActiveAfflictionIds] = useState(props.initialActiveAfflictionIds)
   const [knownStatPassives, setKnownStatPassives] = useState(props.initialKnownStatPassives)
 
@@ -488,6 +500,8 @@ export function PokemonStateProvider(props: {
     evs,
     knownMoves,
     fullLearnset: props.fullLearnset,
+    grantedLearnset,
+    moveCatalog: props.moveCatalog,
     isEditingMoves: props.isEditingMoves,
     allAfflictions: props.allAfflictions,
     activeAfflictionIds,
@@ -533,6 +547,7 @@ export function PokemonStateProvider(props: {
     removeKnownMove: (moveId) => setKnownMoves((prev) => prev.filter((km) => km.move_id !== moveId)),
     updateMoveUses: (moveId, usesRemaining) =>
       setKnownMoves((prev) => prev.map((km) => (km.move_id === moveId ? { ...km, uses_remaining: usesRemaining } : km))),
+    addGrantedMove: (entry) => setGrantedLearnset((prev) => [...prev, entry]),
     setAfflictionActive: (afflictionId, isActive) =>
       setActiveAfflictionIds((prev) => (isActive ? [...prev, afflictionId] : prev.filter((id) => id !== afflictionId))),
     addKnownPassive: (entry) => setKnownStatPassives((prev) => [...prev, entry]),
@@ -1019,6 +1034,7 @@ export function MovesSection() {
     isGM,
     knownMoves,
     fullLearnset,
+    grantedLearnset,
     statRows,
     effectiveType1,
     effectiveType2,
@@ -1057,8 +1073,19 @@ export function MovesSection() {
 
   // fullLearnset carries the species' entire learnset regardless of level (unlike the old
   // level-filtered query) so a level-up from Add Exp can reveal newly-eligible moves here without
-  // a fresh request.
-  const learnableMoves = fullLearnset.filter((r) => (r.level_learned === null || r.level_learned <= level) && !knownMoveIds.includes(r.move.id))
+  // a fresh request. grantedLearnset ([[Let a GM force-teach any Move]]) is merged in on top --
+  // keyed by move id so a grant for a move that's ALSO a natural (but too-high-level) learnset
+  // entry overrides that entry's gate rather than appearing twice, while a grant for a move outside
+  // the species' learnset entirely just adds a new entry. Either way `granted: true` wins so the
+  // picker always shows "(GM-granted)" for it, and eligibility below skips the level gate entirely.
+  const learnsetById = new Map<number, LearnsetEntry>(fullLearnset.map((r) => [r.move.id, r]))
+  for (const g of grantedLearnset) {
+    learnsetById.set(g.move.id, { ...(learnsetById.get(g.move.id) ?? g), granted: true })
+  }
+  const mergedLearnset = [...learnsetById.values()]
+  const learnableMoves = mergedLearnset.filter(
+    (r) => (r.granted || r.level_learned === null || r.level_learned <= level) && !knownMoveIds.includes(r.move.id),
+  )
 
   async function handleUse(moveId: number, target: number) {
     setError(null)
@@ -1077,7 +1104,7 @@ export function MovesSection() {
       setError(result.error)
       return
     }
-    const entry = fullLearnset.find((r) => r.move.id === moveId)
+    const entry = mergedLearnset.find((r) => r.move.id === moveId)
     if (!entry) return
     addKnownMove({ move_id: moveId, uses_remaining: result.usesRemaining, resets_on: result.resetsOn, moves: entry.move })
   }
@@ -1119,7 +1146,7 @@ export function MovesSection() {
       setError(learnResult.error)
       return
     }
-    const entry = fullLearnset.find((r) => r.move.id === newMoveId)
+    const entry = mergedLearnset.find((r) => r.move.id === newMoveId)
     if (entry) {
       addKnownMove({ move_id: newMoveId, uses_remaining: learnResult.usesRemaining, resets_on: learnResult.resetsOn, moves: entry.move })
     }
@@ -1285,7 +1312,7 @@ export function MovesSection() {
             <p className="text-sm text-muted">No new moves available to learn right now.</p>
           ) : (
             <ul className="flex flex-col gap-2">
-              {learnableMoves.map(({ level_learned, move }) => {
+              {learnableMoves.map(({ level_learned, move, granted }) => {
                 const atCap = knownMoveIds.length >= MAX_KNOWN_MOVES
                 const isRelearning = relearnForMoveId === move.id
                 return (
@@ -1295,7 +1322,7 @@ export function MovesSection() {
                         <p className="font-medium">
                           {move.name}{' '}
                           <span className="text-xs font-normal text-muted">
-                            ({level_learned === null ? 'always known' : `level ${level_learned}`})
+                            ({granted ? 'GM-granted' : level_learned === null ? 'always known' : `level ${level_learned}`})
                           </span>
                         </p>
                         <p className="text-xs text-muted">
@@ -1348,6 +1375,93 @@ export function MovesSection() {
           )}
         </div>
       )}
+    </section>
+  )
+}
+
+// [[Let a GM force-teach any Move]]: deliberately a separate GM-only control, not folded into the
+// Trainer's own "Learn a Move" picker above -- the GM only grants *eligibility* here (a persistent
+// pokemon_move_grants row), the Trainer still does the actual teaching through the normal picker,
+// spending one of their own 6 slots whenever they choose. Same name-filtered-search shape as
+// TargetTypePicker (full 651-row global catalog is too big for a plain list/select).
+export function GrantMoveSection() {
+  const { pokemonId, isGM, moveCatalog, grantedLearnset, knownMoves, addGrantedMove } = usePokemonState()
+  const [searchText, setSearchText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState<number | null>(null)
+
+  if (!isGM) return null
+
+  const knownMoveIds = knownMoves.map((km) => km.move_id)
+  const grantedMoveIds = new Set(grantedLearnset.map((g) => g.move.id))
+  const needle = searchText.trim().toLowerCase()
+  const matches = needle ? moveCatalog.filter((m) => m.name.toLowerCase().includes(needle)).slice(0, 8) : []
+
+  async function handleGrant(move: MoveInfo) {
+    setError(null)
+    setPending(move.id)
+    const result = await grantMoveEligibility(pokemonId, move.id)
+    setPending(null)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    addGrantedMove({ level_learned: null, move, granted: true })
+    setSearchText('')
+  }
+
+  return (
+    <section className="rounded border border-accent bg-accent/10 p-4">
+      <details>
+        <summary className="cursor-pointer font-semibold">
+          GM: Grant a Move
+          {grantedLearnset.length > 0 && <span className="ml-1 text-sm font-normal text-muted">({grantedLearnset.length} granted)</span>}
+        </summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <p className="text-xs text-muted">
+            Grants this Pokémon eligibility to learn a Move it otherwise couldn't -- the Trainer still teaches it themselves through the
+            usual picker above, spending one of their own move slots.
+          </p>
+          <input
+            type="text"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            placeholder="Search the Move catalog…"
+            className="bg-surface-subtle rounded border px-2 py-1 text-sm"
+          />
+          {needle && (
+            <ul className="flex flex-col gap-1">
+              {matches.length === 0 ? (
+                <li className="text-sm text-muted">No moves match.</li>
+              ) : (
+                matches.map((move) => {
+                  const alreadyGranted = grantedMoveIds.has(move.id)
+                  const alreadyKnown = knownMoveIds.includes(move.id)
+                  return (
+                    <li key={move.id} className="flex items-center justify-between gap-2 rounded border p-2 text-sm">
+                      <div>
+                        <span className="font-medium">{move.name}</span>{' '}
+                        <span className="text-xs text-muted">
+                          {move.types?.name} · {move.range} · {move.damage_stat.replace('_', ' ')}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={alreadyGranted || alreadyKnown || pending === move.id}
+                        onClick={() => handleGrant(move)}
+                        className="shrink-0 rounded border px-2 py-1 text-xs disabled:opacity-30"
+                      >
+                        {alreadyKnown ? 'Already known' : alreadyGranted ? 'Granted' : 'Grant'}
+                      </button>
+                    </li>
+                  )
+                })
+              )}
+            </ul>
+          )}
+          {error && <p className="text-xs text-danger">{error}</p>}
+        </div>
+      </details>
     </section>
   )
 }
