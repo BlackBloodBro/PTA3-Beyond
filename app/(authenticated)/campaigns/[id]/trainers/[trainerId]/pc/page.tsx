@@ -49,7 +49,7 @@ export default async function CampaignTrainerPcPage({ params }: { params: Promis
         `
         party_slot, obtain_method_id,
         pokemon(
-          id, nickname, current_hp, ev_hp, is_shiny, current_exp, loyalty_points, pokedex_id,
+          id, nickname, current_hp, ev_hp, bonus_base_hp, is_shiny, current_exp, loyalty_points, pokedex_id,
           pokedex(name, base_hp, sprite_code, growth_rate_id, type_1_id, type_2_id),
           held_item:items!held_item_id(name)
         )
@@ -71,6 +71,7 @@ export default async function CampaignTrainerPcPage({ params }: { params: Promis
       nickname: string | null
       current_hp: number
       ev_hp: number
+      bonus_base_hp: number
       is_shiny: boolean
       current_exp: number
       loyalty_points: number
@@ -108,7 +109,7 @@ export default async function CampaignTrainerPcPage({ params }: { params: Promis
       id: p.id,
       nickname: p.nickname,
       currentHp: p.current_hp,
-      maxHp: p.pokedex!.base_hp + p.ev_hp * 6,
+      maxHp: p.pokedex!.base_hp + p.bonus_base_hp + p.ev_hp * 6,
       isShiny: p.is_shiny,
       spriteCode: p.pokedex!.sprite_code,
       speciesName: p.pokedex!.name,

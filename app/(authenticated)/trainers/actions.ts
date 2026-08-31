@@ -778,7 +778,7 @@ export async function restSleep(trainerId: string, formData: FormData) {
   // for fractional game-math (e.g. stat modifier = floor(value / 2)).
   const { data: trainersPokemon } = await supabase
     .from('trainers_pokemon')
-    .select('party_slot, pokemon(id, current_hp, ev_hp, loyalty_points, pokedex(base_hp))')
+    .select('party_slot, pokemon(id, current_hp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp))')
     .eq('trainer_id', trainerId)
 
   // [[Add a Loyalty editor]]: Sleep awards LP to every Team Pokemon (party_slot not null),
@@ -795,11 +795,12 @@ export async function restSleep(trainerId: string, formData: FormData) {
         id: string
         current_hp: number
         ev_hp: number
+        bonus_base_hp: number
         loyalty_points: number
         pokedex: { base_hp: number } | null
       } | null
       if (!pokemon || !pokemon.pokedex) return Promise.resolve()
-      const maxHp = pokemon.pokedex.base_hp + pokemon.ev_hp * 6
+      const maxHp = pokemon.pokedex.base_hp + pokemon.bonus_base_hp + pokemon.ev_hp * 6
       const healAmount = Math.floor(maxHp / 6)
       const newHp = Math.min(maxHp, pokemon.current_hp + healAmount)
       const updates: { current_hp: number; loyalty_points?: number } = { current_hp: newHp }
@@ -876,7 +877,7 @@ export async function restPokemonCenter(trainerId: string) {
   // trainer's own HP or activatable features (that's what Sleep is for).
   const { data: trainersPokemon } = await supabase
     .from('trainers_pokemon')
-    .select('pokemon(id, current_hp, ev_hp, loyalty_points, pokedex(base_hp))')
+    .select('pokemon(id, current_hp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp))')
     .eq('trainer_id', trainerId)
 
   // [[Add a Loyalty editor]]: awards LP to every linked Pokemon (Team or PC) that was actually
@@ -897,11 +898,12 @@ export async function restPokemonCenter(trainerId: string) {
         id: string
         current_hp: number
         ev_hp: number
+        bonus_base_hp: number
         loyalty_points: number
         pokedex: { base_hp: number } | null
       } | null
       if (!pokemon || !pokemon.pokedex) return Promise.resolve()
-      const maxHp = pokemon.pokedex.base_hp + pokemon.ev_hp * 6
+      const maxHp = pokemon.pokedex.base_hp + pokemon.bonus_base_hp + pokemon.ev_hp * 6
       const wasDamaged = pokemon.current_hp < maxHp
       const updates: { current_hp: number; loyalty_points?: number } = { current_hp: maxHp }
       if (wasDamaged) {
