@@ -12,6 +12,9 @@ const MAX_STAT_PASSIVES = 3
 
 type NatureOption = { id: number; name: string; increased: { name: string } | null; decreased: { name: string } | null }
 type NamedIdOption = { id: number; name: string }
+// campaigns (unlike items/types/sizes/weights above) has a uuid id, not a numeric catalog id --
+// its own type rather than reusing NamedIdOption.
+type CampaignOption = { id: string; name: string }
 type ModifierOption = { id: number; name: string; modifier: number }
 type SpeciesOption = { id: number; name: string; sprite_code: string; growth_rate_id: number | null }
 type TrainerOption = { id: string; name: string; campaigns: { name: string } | null }
@@ -48,7 +51,7 @@ export function CreatePokemonForm({
   weights: NamedIdOption[]
   levels: LevelRow[]
   shinyModifiers: { name: string; modifier: number }[]
-  campaigns: NamedIdOption[]
+  campaigns: CampaignOption[]
   trainers: TrainerOption[]
   defaultCampaignId: string
 }) {

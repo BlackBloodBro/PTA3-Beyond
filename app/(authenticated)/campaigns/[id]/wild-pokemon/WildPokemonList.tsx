@@ -20,6 +20,11 @@ export type WildPokemon = {
   type1Id: number
   type2Id: number | null
   labelIds: string[]
+  // [[Users should be able to add Pokemon to their Trainers in a Campaign]]: identified by the
+  // creator's own Trainer in this campaign (matches how this app identifies people everywhere else),
+  // null for a pre-existing pool Pokemon created before this field existed, or a creator who's since
+  // left the campaign.
+  createdBy: string | null
 }
 
 // Owns the whole Wild Pokemon list client-side so assigning a Pokemon (it leaves the list) and
@@ -367,6 +372,7 @@ function WildPokemonRow({
             <span>
               {pokemon.nickname ? `${pokemon.nickname} (${pokemon.pokedex?.name})` : pokemon.pokedex?.name}
               <span className="ml-2 text-xs text-muted">Level {pokemon.level}</span>
+              {pokemon.createdBy && <span className="ml-2 text-xs text-muted">Created by {pokemon.createdBy}</span>}
             </span>
           </Link>
           {trainers.length > 0 && (

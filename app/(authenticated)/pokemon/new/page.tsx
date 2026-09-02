@@ -35,7 +35,8 @@ export default async function NewPokemonPage({
   const [
     { types, habitats },
     species,
-    { data: campaigns },
+    { data: gmCampaigns },
+    { data: playerCampaignTrainers },
     { data: natures },
     { data: loyaltyTiers },
     { data: obtainMethods },
@@ -48,6 +49,10 @@ export default async function NewPokemonPage({
     fetchPokedexFilterOptions(supabase),
     fetchFilteredSpecies(supabase, { typeIds: selectedTypeIds, habitatIds: selectedHabitatIds }),
     supabase.from('campaigns').select('id, name').eq('gm_user_id', user.id).order('name'),
+    // [[Users should be able to add Pokemon to their Trainers in a Campaign]]: a player who isn't a
+    // GM can still tag a new Pokemon into a campaign's pool, as long as they have a Trainer there --
+    // createPokemon enforces the same check server-side, this is just what populates the picker.
+    supabase.from('trainers').select('campaigns(id, name)').eq('user_id', user.id).not('campaign_id', 'is', null),
     // Nature stat preview reuses the exact same query shape as the Pokemon detail page's edit form.
     supabase.from('natures').select('id, name, increased:stats!increased_stat_id(name), decreased:stats!decreased_stat_id(name)').order('name'),
     // Modifier/sort_order/min_points only -- the live level preview derives the current tier from a
@@ -62,12 +67,23 @@ export default async function NewPokemonPage({
   ])
 
   // Trainers assignable at creation time -- any trainer in a campaign this user GMs, regardless of
-  // which campaign (if any) the new Pokemon itself is tagged with above.
+  // which campaign (if any) the new Pokemon itself is tagged with above. Direct-to-Trainer
+  // assignment stays GM-only, unlike the pool-tagging picker below.
   const { data: trainers } = await supabase
     .from('trainers')
     .select('id, name, campaigns!inner(name, gm_user_id)')
     .eq('campaigns.gm_user_id', user.id)
     .order('name')
+
+  // Merge GM'd campaigns with campaigns the user merely plays in (has a Trainer there) -- both are
+  // valid pools to tag a new Pokemon into, deduped by id since a GM who's also somehow a player in
+  // their own campaign would otherwise appear twice.
+  const campaignMap = new Map<string, { id: string; name: string }>()
+  for (const c of gmCampaigns ?? []) campaignMap.set(c.id, c)
+  for (const row of (playerCampaignTrainers ?? []) as unknown as { campaigns: { id: string; name: string } | null }[]) {
+    if (row.campaigns) campaignMap.set(row.campaigns.id, row.campaigns)
+  }
+  const campaigns = [...campaignMap.values()].sort((a, b) => a.name.localeCompare(b.name))
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -139,7 +155,7 @@ export default async function NewPokemonPage({
         weights={weights ?? []}
         levels={levels ?? []}
         shinyModifiers={shinyModifiers ?? []}
-        campaigns={campaigns ?? []}
+        campaigns={campaigns}
         trainers={(trainers ?? []) as unknown as { id: string; name: string; campaigns: { name: string } | null }[]}
         defaultCampaignId={campaignId ?? ''}
       />
