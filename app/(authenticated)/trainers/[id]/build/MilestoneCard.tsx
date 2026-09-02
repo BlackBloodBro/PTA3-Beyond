@@ -20,6 +20,7 @@ export function MilestoneCard({
   description,
   triggerLevel,
   resolved,
+  showBonusTalent,
   current,
   options,
   focused,
@@ -108,6 +109,8 @@ export function MilestoneCard({
           initialChosenStat={current?.chosenStat ?? ''}
           initialChosenTypeId={current?.chosenTypeId ? String(current.chosenTypeId) : ''}
           initialTalentSkillId={current?.talentSkillId ? String(current.talentSkillId) : ''}
+          showBonusTalent={showBonusTalent}
+          initialBonusTalentSkillId={current?.bonusTalentSkillId ? String(current.bonusTalentSkillId) : ''}
         />
         {error && <p className="text-danger text-sm">{error}</p>}
         <button

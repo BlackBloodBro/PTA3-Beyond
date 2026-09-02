@@ -92,7 +92,12 @@ export default async function NpcBuildPage({
     supabase.from('classes').select('id, name').order('name'),
     loadTrainerSkillTalents(supabase, id),
     loadClassFavoredStats(supabase),
-    loadClassBuilderData(supabase, id, { classId: trainer.class_id, originId: trainer.origin_id, level: trainer.level }),
+    loadClassBuilderData(supabase, id, {
+      classId: trainer.class_id,
+      originId: trainer.origin_id,
+      originName: trainer.origins?.name ?? null,
+      level: trainer.level,
+    }),
   ])
 
   const { data: featureUses } = await supabase.from('trainer_feature_uses').select('feature_id, uses_remaining').eq('trainer_id', id)
