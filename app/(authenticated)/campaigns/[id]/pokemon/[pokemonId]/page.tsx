@@ -250,12 +250,18 @@ export default async function CampaignPokemonPage({
     canEditInfo && trainerId && pokemon.held_item_id === null
       ? (await loadBagSnapshot(supabase, trainerId)).items.filter((it) => it.holdable && it.quantity > 0).map((it) => ({ id: it.id, name: it.name }))
       : []
-  // [[Add Pokemon gifting]]: every other Trainer/NPC in this same Campaign -- only fetched when
-  // actually needed (nothing to gift for a non-owner/GM viewer), same convention as givableItems above.
-  const { data: giftableTrainersRaw } =
+  // [[Add Pokemon gifting]]: every other Trainer in this same Campaign -- only fetched when actually
+  // needed (nothing to gift for a non-owner/GM viewer), same convention as givableItems above.
+  // [['Gift to' shows NPC's]]: NPCs stay valid gift targets for the GM (they're the GM's own tool,
+  // e.g. handing a Pokemon to an NPC shopkeeper), just hidden from a non-GM viewer's own gift list.
+  let giftableTrainersQuery =
     canEditInfo && trainerId
-      ? await supabase.from('trainers').select('id, name, is_npc').eq('campaign_id', campaignId).neq('id', trainerId).order('name')
-      : { data: null }
+      ? supabase.from('trainers').select('id, name, is_npc').eq('campaign_id', campaignId).neq('id', trainerId).order('name')
+      : null
+  if (giftableTrainersQuery && !isGM) {
+    giftableTrainersQuery = giftableTrainersQuery.eq('is_npc', false)
+  }
+  const { data: giftableTrainersRaw } = giftableTrainersQuery ? await giftableTrainersQuery : { data: null }
   const giftableTrainers = giftableTrainersRaw ?? []
   const bookmarked = await isBookmarked(supabase, user.id, 'pokemon', pokemonId)
   const species = pokemon.pokedex
