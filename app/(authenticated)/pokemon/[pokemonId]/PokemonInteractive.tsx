@@ -151,7 +151,7 @@ function TargetTypePicker({
     <div className="mb-3 flex flex-col gap-2 rounded border border-accent bg-accent/10 p-2 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">Against:</span>
-        <select value={defType1} onChange={(e) => onChangeDefType1(e.target.value)} className="rounded border px-2 py-1">
+        <select value={defType1} onChange={(e) => onChangeDefType1(e.target.value)} className="bg-surface-subtle rounded border px-2 py-1">
           <option value="">Type 1</option>
           {allTypeNames.map((t) => (
             <option key={t} value={t}>
@@ -159,7 +159,7 @@ function TargetTypePicker({
             </option>
           ))}
         </select>
-        <select value={defType2} onChange={(e) => onChangeDefType2(e.target.value)} className="rounded border px-2 py-1">
+        <select value={defType2} onChange={(e) => onChangeDefType2(e.target.value)} className="bg-surface-subtle rounded border px-2 py-1">
           <option value="">Type 2</option>
           {allTypeNames.map((t) => (
             <option key={t} value={t}>
@@ -186,10 +186,10 @@ function TargetTypePicker({
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           placeholder="Or search a species to fill in its types..."
-          className="w-full rounded border px-2 py-1"
+          className="bg-surface-subtle w-full rounded border px-2 py-1"
         />
         {matches.length > 0 && (
-          <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded border bg-surface shadow">
+          <ul className="bg-page absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded border shadow">
             {matches.map((s) => (
               <li key={s.name}>
                 <button
