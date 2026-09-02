@@ -107,6 +107,7 @@ export function MilestoneCard({
           initialChoice={initialChoice}
           initialChosenStat={current?.chosenStat ?? ''}
           initialChosenTypeId={current?.chosenTypeId ? String(current.chosenTypeId) : ''}
+          initialTalentSkillId={current?.talentSkillId ? String(current.talentSkillId) : ''}
         />
         {error && <p className="text-danger text-sm">{error}</p>}
         <button

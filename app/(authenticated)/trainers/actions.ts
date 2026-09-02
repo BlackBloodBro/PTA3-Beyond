@@ -19,7 +19,7 @@ import {
   type TrainerAdvancedClass,
   type ClassBuilderCard,
 } from '@/lib/pta3/trainerFeatures'
-import { validateCreationSkillTalentPicks, applySkillTalentPicks, loadTrainerSkillTalents } from '@/lib/pta3/skillTalents'
+import { validateCreationSkillTalentPicks, applySkillTalentPicks, removeSkillTalentPick, loadTrainerSkillTalents } from '@/lib/pta3/skillTalents'
 
 export async function createTrainer(formData: FormData) {
   const supabase = await createClient()
@@ -252,6 +252,27 @@ export async function updateTrainerInfo(
   const classId = canEditGmTier ? input.classId : current.class_id
   const originId = canEditGmTier ? input.originId : current.origin_id
 
+  // [[Class can't be edited when editing subclass or level]]: a milestone under the old Class doesn't
+  // carry over -- the Trainer re-resolves Stats/Subclass/Talent fresh at each qualifying level under
+  // the new Class, same as leveling into it for the first time. trainer_milestones rows are never
+  // deleted anywhere else in this codebase (see the note's own Data-integrity finding), so this is a
+  // real, deliberate one-way action -- the caller is expected to have already shown an in-page confirm
+  // step naming what's being lost (this app's established warn-before-overwrite convention, see
+  // [[Warn a GM before overwriting a Trainer's own build choices]]), not a server-side re-confirmation,
+  // matching that same convention's "purely client-side gate" precedent.
+  if (classId !== current.class_id) {
+    const { data: staleMilestones } = await supabase.from('trainer_milestones').select('talent_skill_id').eq('trainer_id', trainerId)
+    for (const m of staleMilestones ?? []) {
+      if (m.talent_skill_id) {
+        await removeSkillTalentPick(supabase, trainerId, m.talent_skill_id)
+      }
+    }
+    const { error: deleteError } = await supabase.from('trainer_milestones').delete().eq('trainer_id', trainerId)
+    if (deleteError) {
+      return { error: deleteError.message }
+    }
+  }
+
   const milestones = await loadQualifyingMilestones(supabase, trainerId, level)
 
   // Max HP is always recalculated from scratch here rather than trusted as whatever was already
@@ -445,7 +466,7 @@ export async function saveMilestone(trainerId: string, level: number, formData: 
 
   const { data: existing } = await supabase
     .from('trainer_milestones')
-    .select('subclass_id')
+    .select('subclass_id, talent_skill_id')
     .eq('trainer_id', trainerId)
     .eq('level', level)
     .maybeSingle()
@@ -464,9 +485,36 @@ export async function saveMilestone(trainerId: string, level: number, formData: 
   }
 
   if (existing) {
+    // [[Class can't be edited when editing subclass or level]]: "replace," not "add" -- undo this
+    // milestone's own previous Skill Talent pick (if it had one) before applying whatever's now
+    // submitted, rather than stacking a second pick on top or leaving the stale one in place. Absent
+    // talentSkillIdRaw means the picker didn't render at all (every eligible skill already capped
+    // elsewhere) -- leave the existing pick untouched in that case, nothing to replace it with.
+    const talentSkillIdRaw = formData.get('talentSkillId') as string
+    const nextTalentSkillId = talentSkillIdRaw ? Number(talentSkillIdRaw) : existing.talent_skill_id
+    if (talentSkillIdRaw && nextTalentSkillId !== existing.talent_skill_id) {
+      if (existing.talent_skill_id) {
+        const removeResult = await removeSkillTalentPick(supabase, trainerId, existing.talent_skill_id)
+        if ('error' in removeResult) {
+          return { error: removeResult.error }
+        }
+      }
+      const applyResult = await applySkillTalentPicks(supabase, trainerId, [nextTalentSkillId])
+      if ('error' in applyResult) {
+        return { error: applyResult.error }
+      }
+    }
+
     const { error } = await supabase
       .from('trainer_milestones')
-      .update({ subclass_id: subclass.id, stat_a: statA, stat_b: statB, chosen_stat: chosenStat, chosen_type_id: chosenTypeId })
+      .update({
+        subclass_id: subclass.id,
+        stat_a: statA,
+        stat_b: statB,
+        chosen_stat: chosenStat,
+        chosen_type_id: chosenTypeId,
+        talent_skill_id: nextTalentSkillId,
+      })
       .eq('trainer_id', trainerId)
       .eq('level', level)
     if (error) {
@@ -486,6 +534,11 @@ export async function saveMilestone(trainerId: string, level: number, formData: 
       return { error: hpError.message }
     }
 
+    // Optional -- absent when every skill this Advanced Class could offer was already at the 2-pick
+    // cap from an earlier source, in which case the picker shows no Skill Talent field at all.
+    const talentSkillIdRaw = formData.get('talentSkillId') as string
+    const talentSkillId = talentSkillIdRaw ? Number(talentSkillIdRaw) : null
+
     const { error: insertError } = await supabase.from('trainer_milestones').insert({
       trainer_id: trainerId,
       level,
@@ -495,16 +548,14 @@ export async function saveMilestone(trainerId: string, level: number, formData: 
       hp_gain: MILESTONE_HP_GAIN,
       chosen_stat: chosenStat,
       chosen_type_id: chosenTypeId,
+      talent_skill_id: talentSkillId,
     })
     if (insertError) {
       return { error: insertError.message }
     }
 
-    // Optional -- absent when every skill this Advanced Class could offer was already at the 2-pick
-    // cap from an earlier source, in which case the picker shows no Skill Talent field at all.
-    const talentSkillIdRaw = formData.get('talentSkillId') as string
-    if (talentSkillIdRaw) {
-      await applySkillTalentPicks(supabase, trainerId, [Number(talentSkillIdRaw)])
+    if (talentSkillId) {
+      await applySkillTalentPicks(supabase, trainerId, [talentSkillId])
     }
   }
 

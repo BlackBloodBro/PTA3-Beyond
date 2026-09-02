@@ -260,6 +260,11 @@ export function TrainerInfoSection({
 
   const [isEditing, setIsEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // [[Class can't be edited when editing subclass or level]]: changing Class deletes every Advanced
+  // Class milestone (server-side, updateTrainerInfo) -- an in-page confirm step naming exactly what's
+  // lost before that happens, matching [[Warn a GM before overwriting a Trainer's own build choices]]'s
+  // established shape (purely client-side gate, no server-side re-confirmation needed).
+  const [pendingClassChange, setPendingClassChange] = useState(false)
 
   const [draftName, setDraftName] = useState(name)
   const [draftClassId, setDraftClassId] = useState(classId)
@@ -280,11 +285,21 @@ export function TrainerInfoSection({
     setDraftLevel(level)
     setDraftOriginId(originId)
     setError(null)
+    setPendingClassChange(false)
     setIsEditing(true)
   }
 
-  async function handleSave() {
+  function handleSave() {
+    if (draftClassId !== classId && advancedClasses.length > 0) {
+      setPendingClassChange(true)
+      return
+    }
+    commitSave()
+  }
+
+  async function commitSave() {
     setError(null)
+    setPendingClassChange(false)
     const result = await updateTrainerInfo(trainerId, {
       name: isOwner ? draftName : null,
       classId: draftClassId,
@@ -400,14 +415,37 @@ export function TrainerInfoSection({
 
           {error && <p className="text-danger">{error}</p>}
 
-          <div className="flex gap-2">
-            <button type="button" onClick={handleSave} className="rounded bg-accent px-3 py-1 text-accent-foreground">
-              Save
-            </button>
-            <button type="button" onClick={() => setIsEditing(false)} className="rounded border px-3 py-1">
-              Cancel
-            </button>
-          </div>
+          {pendingClassChange ? (
+            <div className="flex flex-col gap-2 rounded border-accent bg-accent/20 p-2 text-sm">
+              <p>
+                Changing Class will remove{' '}
+                {advancedClasses.map((ac, i) => (
+                  <span key={ac.grantedAtLevel}>
+                    {i > 0 && ', '}
+                    {ac.name} (Level {ac.grantedAtLevel})
+                  </span>
+                ))}
+                . {name} will need to re-resolve these under the new Class.
+              </p>
+              <div className="flex gap-2">
+                <button type="button" onClick={commitSave} className="rounded border border-danger px-3 py-1 text-sm text-danger">
+                  Confirm
+                </button>
+                <button type="button" onClick={() => setPendingClassChange(false)} className="rounded border px-3 py-1">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <button type="button" onClick={handleSave} className="rounded bg-accent px-3 py-1 text-accent-foreground">
+                Save
+              </button>
+              <button type="button" onClick={() => setIsEditing(false)} className="rounded border px-3 py-1">
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-2 text-sm">

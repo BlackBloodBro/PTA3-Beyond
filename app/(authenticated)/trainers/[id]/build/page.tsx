@@ -80,6 +80,7 @@ export default async function BuildPage({
     { advancedClasses, activeFeatures, passiveFeatures },
     { hasPendingMilestone, nextMilestoneLevel },
     { data: skills },
+    { data: classes },
     skillTalents,
     classFavoredStats,
     builderData,
@@ -88,6 +89,9 @@ export default async function BuildPage({
     loadTrainerDerived(supabase, id, { classId: trainer.class_id, level: trainer.level }),
     loadPendingMilestone(supabase, { trainerId: id, classId: trainer.class_id, level: trainer.level }),
     supabase.from('skills').select('id, name, stats(name)').order('name'),
+    // [[Class can't be edited when editing subclass or level]]: lets the Class Builder page offer a
+    // Class control too, not just Info's -- same picker, same option list.
+    supabase.from('classes').select('id, name').order('name'),
     loadTrainerSkillTalents(supabase, id),
     loadClassFavoredStats(supabase),
     loadClassBuilderData(supabase, id, { classId: trainer.class_id, originId: trainer.origin_id, level: trainer.level }),
@@ -153,6 +157,8 @@ export default async function BuildPage({
       >
         <ClassBuilder
           trainerId={id}
+          classes={classes ?? []}
+          canEditClass={isOwner}
           initialCards={builderData.cards}
           initialHigherLevelPreview={builderData.higherLevelPreview}
           statBreakdown={statBreakdown}
