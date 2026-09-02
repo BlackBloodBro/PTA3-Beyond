@@ -33,18 +33,19 @@ export default async function CampaignWildPokemonPage({
 
   const [{ data: allLabels }, { data: poolRaw }, { data: trainers }, { types }] = await Promise.all([
     supabase.from('campaign_labels').select('id, name, color').eq('campaign_id', id).order('name'),
-    // Same unassigned-pool pattern as the dashboard: created_by_user_id is what actually grants
-    // access (matches "Creator manages their own unassigned pokemon" RLS), scoped here to this
-    // campaign's pool specifically.
+    // [[Users should be able to add Pokemon to their Trainers in a Campaign]]: this used to filter
+    // to created_by_user_id = the viewing GM, back when only a GM could ever create a pool Pokemon
+    // for their own campaign in the first place. Now a player can too, so this shows every pool
+    // Pokemon tagged to this campaign regardless of who created it -- the new GM-scoped RLS policy
+    // ("GM manages own campaign's unassigned pokemon") is what actually authorizes seeing them.
     supabase
       .from('pokemon')
       .select(
-        `id, nickname, is_shiny, current_exp, loyalty_points,
+        `id, nickname, is_shiny, current_exp, loyalty_points, created_by_user_id,
         pokedex(name, sprite_code, growth_rate_id, type_1_id, type_2_id),
         trainers_pokemon(trainer_id), pokemon_labels(campaign_labels(id, name, color))`,
       )
-      .eq('campaign_id', id)
-      .eq('created_by_user_id', user.id),
+      .eq('campaign_id', id),
     // Assignable targets: every trainer (player or NPC) in this campaign.
     supabase.from('trainers').select('id, name, is_npc').eq('campaign_id', id).order('name'),
     fetchPokedexFilterOptions(supabase),
@@ -60,11 +61,23 @@ export default async function CampaignWildPokemonPage({
     is_shiny: boolean
     current_exp: number
     loyalty_points: number
+    created_by_user_id: string | null
     pokedex: { name: string; sprite_code: string; growth_rate_id: number | null; type_1_id: number; type_2_id: number | null } | null
     trainers_pokemon: { trainer_id: string } | null
     pokemon_labels: { campaign_labels: { id: string; name: string; color: string } | null }[]
   }
   const wildPokemon = ((poolRaw ?? []) as unknown as PoolRow[]).filter((p) => !p.trainers_pokemon)
+
+  // [[Users should be able to add Pokemon to their Trainers in a Campaign]]: surfaces *who* created
+  // each pool Pokemon, so the GM can tell which player is waiting on which one -- identified by that
+  // person's own Trainer in this campaign, matching how this app identifies people everywhere else
+  // (never by account display_name, which the GM has no RLS access to read for another user anyway).
+  const creatorIds = [...new Set(wildPokemon.map((p) => p.created_by_user_id).filter((v): v is string => v !== null))]
+  const { data: creatorTrainers } =
+    creatorIds.length > 0
+      ? await supabase.from('trainers').select('user_id, name').eq('campaign_id', id).in('user_id', creatorIds)
+      : { data: [] }
+  const creatorNameByUserId = new Map((creatorTrainers ?? []).map((t) => [t.user_id, t.name]))
 
   // Wild Pokemon have no trainers_pokemon row (unowned), so obtainMethodId is always null here --
   // computePokemonLevelsBulk defaults that modifier to 1, same as an "unset" obtain method anywhere else.
@@ -109,6 +122,7 @@ export default async function CampaignWildPokemonPage({
             type1Id: p.pokedex!.type_1_id,
             type2Id: p.pokedex!.type_2_id,
             labelIds: (p.pokemon_labels ?? []).map((pl) => pl.campaign_labels?.id).filter((v): v is string => Boolean(v)),
+            createdBy: p.created_by_user_id ? (creatorNameByUserId.get(p.created_by_user_id) ?? null) : null,
           }),
         )}
         initialLabels={(allLabels ?? []).map((l) => ({ id: l.id, name: l.name, color: l.color as LabelColor }))}

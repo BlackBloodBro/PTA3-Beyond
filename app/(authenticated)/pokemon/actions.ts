@@ -138,11 +138,25 @@ export async function createPokemon(input: CreatePokemonInput): Promise<{ error:
   }
 
   // "Which pool does this belong to" (organizational only -- not what actually grants assignment
-  // rights below) -- must be a campaign this user GMs.
+  // rights below) -- either this user GMs that campaign, or [[Users should be able to add Pokemon
+  // to their Trainers in a Campaign]] has them there as a player (their own Trainer belongs to it).
+  // Direct-to-Trainer assignment (input.trainerId below) stays GM-only, unchanged -- a player's new
+  // Pokemon lands in the pool for the GM to actually hand off, same as a GM's own pool Pokemon do.
   if (input.campaignId) {
-    const { data: campaign } = await supabase.from('campaigns').select('id').eq('id', input.campaignId).eq('gm_user_id', user.id).maybeSingle()
+    const { data: campaign } = await supabase.from('campaigns').select('id, gm_user_id').eq('id', input.campaignId).maybeSingle()
     if (!campaign) {
-      return { error: 'You are not the GM of that campaign' }
+      return { error: 'Campaign not found' }
+    }
+    if (campaign.gm_user_id !== user.id) {
+      const { data: ownTrainer } = await supabase
+        .from('trainers')
+        .select('id')
+        .eq('campaign_id', input.campaignId)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      if (!ownTrainer) {
+        return { error: 'You need a Trainer in that campaign to add a Pokémon to its pool' }
+      }
     }
   }
 
