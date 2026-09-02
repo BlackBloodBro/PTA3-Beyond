@@ -10,7 +10,7 @@ import {
   grantTrainerTemporaryHp,
   clearTrainerTemporaryHp,
   updateTrainerInfo,
-  useFeatureCharge,
+  setFeatureUsesRemaining,
   resetFeatureUses,
 } from '@/app/(authenticated)/trainers/actions'
 import type { TrainerFeature, TrainerAdvancedClass } from '@/lib/pta3/trainerFeatures'
@@ -696,9 +696,9 @@ export function ActiveFeaturesSection({ trainerId }: { trainerId: string }) {
   const { activeFeatures, usesRemainingByFeature, setFeatureUses, isOwner } = useTrainerState()
   const [error, setError] = useState<string | null>(null)
 
-  async function handleUse(featureId: number, maxUses: number) {
+  async function handleUse(featureId: number, target: number) {
     setError(null)
-    const result = await useFeatureCharge(trainerId, featureId, maxUses)
+    const result = await setFeatureUsesRemaining(trainerId, featureId, target)
     if ('error' in result) {
       setError(result.error)
       return
@@ -741,29 +741,68 @@ export function ActiveFeaturesSection({ trainerId }: { trainerId: string }) {
                   </summary>
                   <p className="mt-1 text-sm text-muted">{f.description}</p>
                 </details>
-                {f.max_uses !== null && (
-                  <div className="mt-2 flex items-center gap-2 text-sm">
-                    <span>
-                      {usesRemaining} / {f.max_uses} uses
-                      {f.uses_reset_on && ` (resets on ${f.uses_reset_on})`}
-                    </span>
-                    {isOwner && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => handleUse(f.id, f.max_uses!)}
-                          disabled={usesRemaining !== null && usesRemaining <= 0}
-                          className="rounded border px-2 py-0.5 disabled:opacity-30"
-                        >
-                          Use
-                        </button>
-                        <button type="button" onClick={() => handleReset(f.id, f.max_uses!)} className="rounded border px-2 py-0.5">
-                          Reset
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
+                {f.max_uses !== null &&
+                  (() => {
+                    // [[Add checkboxes for Trainer features that have uses per day]]: same
+                    // row-of-boxes pattern MovesSection already renders per known move -- each box
+                    // only ever toggles its own state by ±1, so checking any one unchecked box
+                    // consumes exactly 1 use and unchecking any one checked box restores exactly 1,
+                    // regardless of which position was clicked.
+                    const slotCount = f.max_uses
+                    const usedCount = slotCount - usesRemaining
+                    return (
+                      <div className="mt-2 flex items-center gap-2 text-sm">
+                        {f.uses_reset_on && <span className="text-xs text-muted">Resets on {f.uses_reset_on}</span>}
+                        {isOwner ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleUse(f.id, slotCount - (usedCount + 1))}
+                              disabled={usedCount >= slotCount}
+                              className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:opacity-30"
+                            >
+                              Use
+                            </button>
+                            <div className="flex items-center gap-1">
+                              {Array.from({ length: slotCount }, (_, slot) => {
+                                const isUsed = slot < usedCount
+                                const target = isUsed ? slotCount - (usedCount - 1) : slotCount - (usedCount + 1)
+                                return (
+                                  <button
+                                    key={slot}
+                                    type="button"
+                                    onClick={() => handleUse(f.id, target)}
+                                    aria-label={isUsed ? 'Mark use available' : 'Mark use consumed'}
+                                    className={`flex h-5 w-5 items-center justify-center rounded border text-xs leading-none ${
+                                      isUsed ? 'border-accent bg-accent text-accent-foreground' : 'border text-transparent'
+                                    }`}
+                                  >
+                                    ✓
+                                  </button>
+                                )
+                              })}
+                            </div>
+                            <button type="button" onClick={() => handleReset(f.id, f.max_uses!)} className="rounded border px-2 py-0.5 text-xs">
+                              Reset
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            {Array.from({ length: slotCount }, (_, slot) => (
+                              <span
+                                key={slot}
+                                className={`flex h-5 w-5 items-center justify-center rounded border text-xs leading-none ${
+                                  slot < usedCount ? 'border-accent bg-accent text-accent-foreground' : 'border text-transparent'
+                                }`}
+                              >
+                                ✓
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
               </li>
             )
           })}

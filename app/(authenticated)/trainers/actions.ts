@@ -842,11 +842,16 @@ export async function clearTrainerTemporaryHp(trainerId: string): Promise<{ erro
   return { temporaryHp: 0 }
 }
 
-// Called directly from a client component -- see adjustTrainerHp above.
-export async function useFeatureCharge(
+// [[Add checkboxes for Trainer features that have uses per day]]: mirrors setMoveUsesRemaining
+// (app/pokemon/actions.ts) exactly -- sets uses_remaining to an explicit caller-computed value,
+// rather than always decrementing by 1 (that was the old single-button design's only need; the
+// row-of-checkboxes pattern needs to set an arbitrary target either direction, same as Moves'
+// own checkboxes already do). Upsert, not update -- unlike pokemon_moves (a row always exists once
+// a move is known), trainer_feature_uses rows are created lazily, absence reads as full uses.
+export async function setFeatureUsesRemaining(
   trainerId: string,
   featureId: number,
-  maxUses: number,
+  newUsesRemaining: number,
 ): Promise<{ error: string } | { usesRemaining: number }> {
   const supabase = await createClient()
   const {
@@ -857,27 +862,17 @@ export async function useFeatureCharge(
     redirect('/login')
   }
 
-  // No stored row yet means the feature hasn't been used this cycle -- treat it as starting at
-  // max_uses (matching how trainer_moves.uses_remaining works for granted moves).
-  const { data: existing } = await supabase
-    .from('trainer_feature_uses')
-    .select('uses_remaining')
-    .eq('trainer_id', trainerId)
-    .eq('feature_id', featureId)
-    .maybeSingle()
-
-  const current = existing?.uses_remaining ?? maxUses
-  const newRemaining = Math.max(0, current - 1)
+  const clamped = Math.max(0, newUsesRemaining)
 
   const { error } = await supabase
     .from('trainer_feature_uses')
-    .upsert({ trainer_id: trainerId, feature_id: featureId, uses_remaining: newRemaining })
+    .upsert({ trainer_id: trainerId, feature_id: featureId, uses_remaining: clamped })
 
   if (error) {
     return { error: error.message }
   }
 
-  return { usesRemaining: newRemaining }
+  return { usesRemaining: clamped }
 }
 
 // Called directly from a client component -- see adjustTrainerHp above.
