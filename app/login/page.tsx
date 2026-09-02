@@ -22,6 +22,10 @@ export default async function LoginPage({
         <label htmlFor="password">Password</label>
         <input id="password" name="password" type="password" required className="bg-surface-subtle rounded border px-3 py-2" />
 
+        <Link href="/forgot-password" className="self-end text-sm underline">
+          Forgot password?
+        </Link>
+
         <button type="submit" className="mt-2 rounded bg-accent px-4 py-2 text-accent-foreground">
           Log in
         </button>
