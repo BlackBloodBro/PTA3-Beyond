@@ -241,6 +241,7 @@ export function ClassBuilder({
                 description={card.description}
                 triggerLevel={card.triggerLevel}
                 resolved={card.resolved}
+                showBonusTalent={card.showBonusTalent}
                 current={card.current}
                 options={card.options}
                 focused={card.triggerLevel === focusLevel}

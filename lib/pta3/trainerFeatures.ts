@@ -1,6 +1,7 @@
 import type { createClient } from '@/lib/supabase/server'
 import { loadAdvancedClassOptions } from '@/lib/pta3/advancedClassOptions'
 import { loadTrainerSkillTalents, type SkillOption } from '@/lib/pta3/skillTalents'
+import { isRaringToGoOrigin, RARING_TO_GO_BONUS_TALENT_LEVELS } from '@/lib/pta3/originBonuses'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -34,6 +35,7 @@ export type TrainerMilestoneRow = {
   chosen_stat: StatColumn | null
   chosen_type_id: number | null
   talent_skill_id: number | null
+  bonus_talent_skill_id: number | null
 }
 
 // Flat HP gain applied at a class's milestone levels (see resolveMilestone), per the user's
@@ -67,7 +69,7 @@ export async function loadQualifyingMilestones(
 ): Promise<TrainerMilestoneRow[]> {
   const { data } = await supabase
     .from('trainer_milestones')
-    .select('level, subclass_id, stat_a, stat_b, chosen_stat, chosen_type_id, talent_skill_id')
+    .select('level, subclass_id, stat_a, stat_b, chosen_stat, chosen_type_id, talent_skill_id, bonus_talent_skill_id')
     .eq('trainer_id', trainerId)
     .lte('level', level)
     .order('level')
@@ -220,6 +222,10 @@ export type ClassBuilderCard =
       description: string
       triggerLevel: number
       resolved: boolean
+      // [[Origin - Raring to go has additional feature]]: true only for this Trainer's Origin/level
+      // combination that grants a bonus Skill Talent pick at this milestone -- lets the card offer
+      // that second picker regardless of resolved/unresolved state.
+      showBonusTalent: boolean
       // present only when resolved -- lets the card pre-fill AdvancedClassPicker + the 2 stat selects.
       current: {
         subclassId: number
@@ -228,6 +234,7 @@ export type ClassBuilderCard =
         statA: StatColumn
         statB: StatColumn
         talentSkillId: number | null
+        bonusTalentSkillId: number | null
       } | null
       // Computed server-side per card (not shared/filtered client-side) since eligibility genuinely
       // differs per milestone -- excludes every OTHER milestone's already-chosen subclass, same as
@@ -259,7 +266,9 @@ export type ClassBuilderCard =
 export async function loadClassBuilderData(
   supabase: SupabaseClient,
   trainerId: string,
-  params: { classId: number; originId: number; level: number },
+  // originName drives [[Origin - Raring to go has additional feature]]'s bonus Skill Talent gate --
+  // callers already have it on hand from their own trainer query, cheaper than a second lookup here.
+  params: { classId: number; originId: number; originName: string | null; level: number },
 ): Promise<{
   cards: ClassBuilderCard[]
   higherLevelPreview: { name: string; levelRequired: number }[]
@@ -276,7 +285,10 @@ export async function loadClassBuilderData(
     // ALL of this trainer's milestones, not just qualifying ones -- a milestone trigger at level 7
     // with the trainer currently at level 5 is neither resolved nor pending yet, it just doesn't
     // render as a card at all until level reaches 7.
-    supabase.from('trainer_milestones').select('level, subclass_id, stat_a, stat_b, chosen_stat, chosen_type_id, talent_skill_id').eq('trainer_id', trainerId),
+    supabase
+      .from('trainer_milestones')
+      .select('level, subclass_id, stat_a, stat_b, chosen_stat, chosen_type_id, talent_skill_id, bonus_talent_skill_id')
+      .eq('trainer_id', trainerId),
     supabase
       .from('features')
       .select('id, name, description, level_required, requires_activation, max_uses, uses_reset_on')
@@ -306,6 +318,8 @@ export async function loadClassBuilderData(
     unlocked.push({ card: { kind: 'feature', feature: f, subclassName: null }, unlockLevel: f.level_required })
   }
 
+  const isRaringToGo = isRaringToGoOrigin(params.originName)
+
   await Promise.all(
     triggerRows
       .filter((trigger) => trigger.level_required <= params.level)
@@ -315,6 +329,17 @@ export async function loadClassBuilderData(
         // same scoping resolveMilestone/editMilestone always used.
         const heldSubclassIds = qualifyingMilestones.filter((q) => q.level !== trigger.level_required).map((q) => q.subclass_id)
         const options = await loadAdvancedClassOptions(supabase, params.classId, heldSubclassIds)
+
+        // This card's own current picks (talent + bonus talent) subtracted back out of the held-count
+        // map first, so neither wrongly shows as already at the 2-pick cap and gets excluded from its
+        // own re-edit options.
+        const cardHeldSkillTalents = { ...heldSkillTalents }
+        if (m) {
+          for (const skillId of [m.talent_skill_id, m.bonus_talent_skill_id]) {
+            if (skillId) cardHeldSkillTalents[skillId] = Math.max(0, (cardHeldSkillTalents[skillId] ?? 0) - 1)
+          }
+        }
+
         unlocked.push({
           card: {
             kind: 'milestone',
@@ -322,6 +347,7 @@ export async function loadClassBuilderData(
             description: trigger.description,
             triggerLevel: trigger.level_required,
             resolved: !!m,
+            showBonusTalent: isRaringToGo && RARING_TO_GO_BONUS_TALENT_LEVELS.includes(trigger.level_required),
             current: m
               ? {
                   subclassId: m.subclass_id,
@@ -330,15 +356,13 @@ export async function loadClassBuilderData(
                   statA: m.stat_a,
                   statB: m.stat_b,
                   talentSkillId: m.talent_skill_id,
+                  bonusTalentSkillId: m.bonus_talent_skill_id,
                 }
               : null,
             options: {
               ...options,
               skillTalentOptionsByChoice: options.skillTalentOptionsByChoice,
-              heldSkillTalents:
-                m && m.talent_skill_id
-                  ? { ...heldSkillTalents, [m.talent_skill_id]: Math.max(0, (heldSkillTalents[m.talent_skill_id] ?? 0) - 1) }
-                  : heldSkillTalents,
+              heldSkillTalents: cardHeldSkillTalents,
             },
           },
           unlockLevel: trigger.level_required,

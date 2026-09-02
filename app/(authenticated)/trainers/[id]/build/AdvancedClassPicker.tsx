@@ -13,6 +13,8 @@ export function AdvancedClassPicker({
   initialChosenStat = '',
   initialChosenTypeId = '',
   initialTalentSkillId = '',
+  showBonusTalent = false,
+  initialBonusTalentSkillId = '',
 }: {
   subclassOptions: { value: string; label: string }[]
   statOptions: { value: string; label: string }[]
@@ -28,9 +30,19 @@ export function AdvancedClassPicker({
   initialChosenStat?: string
   initialChosenTypeId?: string
   initialTalentSkillId?: string
+  // [[Origin - Raring to go has additional feature]]: true only for the Origin/level combination that
+  // grants a bonus Skill Talent pick at this milestone, from the same Advanced Class list as the
+  // primary pick above.
+  showBonusTalent?: boolean
+  initialBonusTalentSkillId?: string
 }) {
   const [choice, setChoice] = useState(initialChoice)
+  // Controlled (not defaultValue, unlike the other selects here) so the bonus picker below can
+  // exclude whatever's live-selected here -- picking the same skill in both fields at once would
+  // double-grant it from a single Advanced Class's 2-skill list.
+  const [talentPick, setTalentPick] = useState(initialTalentSkillId)
   const talentOptions = (skillTalentOptionsByChoice[choice] ?? []).filter((s) => (heldSkillTalents[s.id] ?? 0) < 2)
+  const bonusTalentOptions = talentOptions.filter((s) => String(s.id) !== talentPick)
 
   return (
     <div className="flex flex-col gap-2">
@@ -87,12 +99,35 @@ export function AdvancedClassPicker({
             name="talentSkillId"
             className="bg-surface-subtle w-full rounded border p-2"
             required
-            defaultValue={initialTalentSkillId}
+            value={talentPick}
+            onChange={(e) => setTalentPick(e.target.value)}
           >
             <option value="" disabled>
               Select a skill
             </option>
             {talentOptions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+                {heldSkillTalents[s.id] === 1 ? ' (upgrades to Expert)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {showBonusTalent && choice && bonusTalentOptions.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="bonusTalentSkillId" className="text-sm font-medium">
+            Bonus Skill Talent (Raring to go -- may take 1 more)
+          </label>
+          <select
+            id="bonusTalentSkillId"
+            name="bonusTalentSkillId"
+            className="bg-surface-subtle w-full rounded border p-2"
+            defaultValue={initialBonusTalentSkillId}
+          >
+            <option value="">None</option>
+            {bonusTalentOptions.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
                 {heldSkillTalents[s.id] === 1 ? ' (upgrades to Expert)' : ''}

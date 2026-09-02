@@ -93,7 +93,12 @@ export default async function CampaignTrainerBuildPage({
     supabase.from('classes').select('id, name').order('name'),
     loadTrainerSkillTalents(supabase, id),
     loadClassFavoredStats(supabase),
-    loadClassBuilderData(supabase, id, { classId: trainer.class_id, originId: trainer.origin_id, level: trainer.level }),
+    loadClassBuilderData(supabase, id, {
+      classId: trainer.class_id,
+      originId: trainer.origin_id,
+      originName: trainer.origins?.name ?? null,
+      level: trainer.level,
+    }),
     // Gates the "Continue to starter Pokémon" link below -- only meaningful for a brand-new Trainer
     // who doesn't have one yet; head:true + count:'exact' with no select body just gets the count.
     supabase.from('trainers_pokemon').select('*', { count: 'exact', head: true }).eq('trainer_id', id),

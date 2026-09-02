@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { POINT_BUY_BUDGET, STAT_KEYS, pointBuyCost, type StatKey } from '@/lib/pta3/pointBuy'
+import { isRaringToGoOrigin } from '@/lib/pta3/originBonuses'
 import { isLabelColor, type LabelColor } from '@/lib/pta3/labelColors'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { validateCreationSkillTalentPicks, applySkillTalentPicks } from '@/lib/pta3/skillTalents'
@@ -54,9 +55,19 @@ export async function createNpc(campaignId: string, formData: FormData) {
 
   const cost = pointBuyCost(stats)
   if (cost !== POINT_BUY_BUDGET) {
-    redirect(
-      `${npcNewUrl}?error=${encodeURIComponent(`Point buy must use exactly ${POINT_BUY_BUDGET} points (used ${cost})`)}`,
-    )
+    redirect(`${npcNewUrl}?error=${encodeURIComponent(`Point buy must use exactly ${POINT_BUY_BUDGET} points (used ${cost})`)}`)
+  }
+
+  // [[Origin - Raring to go has additional feature]]: "choose one stat and raise it by 1" -- a flat
+  // +1 on top of the point-buy allocation above, not extra point-buy currency (must re-derive the
+  // Origin's name and re-validate the chosen stat server-side, not trust the client alone).
+  const { data: origin } = await supabase.from('origins').select('name').eq('id', originId).maybeSingle()
+  if (isRaringToGoOrigin(origin?.name)) {
+    const raringToGoStatKey = formData.get('raringToGoStatKey') as StatKey
+    if (!STAT_KEYS.includes(raringToGoStatKey)) {
+      redirect(`${npcNewUrl}?error=${encodeURIComponent('Raring to go: choose a stat to raise by 1')}`)
+    }
+    stats[raringToGoStatKey] += 1
   }
 
   const talentResult = await validateCreationSkillTalentPicks(supabase, classId, originId, formData)

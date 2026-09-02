@@ -11,6 +11,7 @@ import {
   statModifier,
   type StatKey,
 } from '@/lib/pta3/pointBuy'
+import { isRaringToGoOrigin } from '@/lib/pta3/originBonuses'
 
 const STAT_LABELS: Record<StatKey, string> = {
   attack: 'Attack',
@@ -70,6 +71,12 @@ export function TrainerForm({
 
   const [classId, setClassId] = useState('')
   const [originId, setOriginId] = useState('')
+  const originName = origins.find((o) => o.id === Number(originId))?.name
+  // [[Origin - Raring to go has additional feature]]: "choose one stat and raise it by 1" -- a flat
+  // +1 applied on top of whatever the point-buy allocation already set that stat to (same shape as a
+  // Milestone's own stat_a/stat_b bonuses, not itself subject to the point-buy 1-6 range), not extra
+  // point-buy currency to spend.
+  const [raringToGoStatKey, setRaringToGoStatKey] = useState<StatKey | ''>('')
   const [classTalentSkillIds, setClassTalentSkillIds] = useState<Set<number>>(new Set())
   // Origin groups are independent of each other, so picks are tracked per group index rather than
   // one flat set -- picking a skill in group 0 shouldn't count against group 1's own cap even if
@@ -88,6 +95,7 @@ export function TrainerForm({
   function handleOriginChange(value: string) {
     setOriginId(value)
     setOriginGroupPicks([])
+    setRaringToGoStatKey('')
   }
 
   function toggleClassTalent(skillId: number) {
@@ -118,6 +126,7 @@ export function TrainerForm({
 
   const classTalentsSatisfied = classSkillOptions.length === 0 || classTalentSkillIds.size === 2
   const originTalentsSatisfied = originGroups.every((g, i) => (originGroupPicks[i]?.size ?? 0) === g.pickCount)
+  const raringToGoStatSatisfied = !isRaringToGoOrigin(originName) || raringToGoStatKey !== ''
 
   function adjust(key: StatKey, delta: number) {
     setStats((s) => {
@@ -231,6 +240,29 @@ export function TrainerForm({
         </fieldset>
       ))}
 
+      {isRaringToGoOrigin(originName) && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="raringToGoStatKey">Raring to go — choose a stat to raise by 1</label>
+          <select
+            id="raringToGoStatKey"
+            name="raringToGoStatKey"
+            required
+            value={raringToGoStatKey}
+            onChange={(e) => setRaringToGoStatKey(e.target.value as StatKey)}
+            className="bg-surface-subtle rounded border px-3 py-2"
+          >
+            <option value="" disabled>
+              Select a stat
+            </option>
+            {STAT_KEYS.map((key) => (
+              <option key={key} value={key}>
+                {STAT_LABELS[key]}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {variant === 'player' && campaigns.length > 0 && (
         <div className="flex flex-col gap-1">
           <label htmlFor="campaignId">Campaign (optional)</label>
@@ -301,7 +333,7 @@ export function TrainerForm({
 
       <button
         type="submit"
-        disabled={remaining !== 0 || !classTalentsSatisfied || !originTalentsSatisfied}
+        disabled={remaining !== 0 || !classTalentsSatisfied || !originTalentsSatisfied || !raringToGoStatSatisfied}
         className="rounded bg-accent px-4 py-2 text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
       >
         {variant === 'npc' ? 'Create NPC' : 'Create trainer'}

@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { POINT_BUY_BUDGET, STAT_KEYS, pointBuyCost, type StatKey } from '@/lib/pta3/pointBuy'
+import { isRaringToGoOrigin, RARING_TO_GO_BONUS_TALENT_LEVELS } from '@/lib/pta3/originBonuses'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import {
@@ -61,11 +62,19 @@ export async function createTrainer(formData: FormData) {
 
   const cost = pointBuyCost(stats)
   if (cost !== POINT_BUY_BUDGET) {
-    redirect(
-      `/trainers/new?error=${encodeURIComponent(
-        `Point buy must use exactly ${POINT_BUY_BUDGET} points (used ${cost})`,
-      )}`,
-    )
+    redirect(`/trainers/new?error=${encodeURIComponent(`Point buy must use exactly ${POINT_BUY_BUDGET} points (used ${cost})`)}`)
+  }
+
+  // [[Origin - Raring to go has additional feature]]: "choose one stat and raise it by 1" -- a flat
+  // +1 on top of the point-buy allocation above, not extra point-buy currency (must re-derive the
+  // Origin's name and re-validate the chosen stat server-side, not trust the client alone).
+  const { data: origin } = await supabase.from('origins').select('name').eq('id', originId).maybeSingle()
+  if (isRaringToGoOrigin(origin?.name)) {
+    const raringToGoStatKey = formData.get('raringToGoStatKey') as StatKey
+    if (!STAT_KEYS.includes(raringToGoStatKey)) {
+      redirect(`/trainers/new?error=${encodeURIComponent('Raring to go: choose a stat to raise by 1')}`)
+    }
+    stats[raringToGoStatKey] += 1
   }
 
   const talentResult = await validateCreationSkillTalentPicks(supabase, classId, originId, formData)
@@ -451,7 +460,7 @@ export async function saveMilestone(trainerId: string, level: number, formData: 
   const statB = formData.get('statB') as string
   const subclassChoice = formData.get('subclassChoice') as string
 
-  const { data: trainer } = await supabase.from('trainers').select('class_id, origin_id, current_hp').eq('id', trainerId).single()
+  const { data: trainer } = await supabase.from('trainers').select('class_id, origin_id, current_hp, origins(name)').eq('id', trainerId).single()
 
   if (!trainer) {
     return { error: 'Trainer not found' }
@@ -464,9 +473,13 @@ export async function saveMilestone(trainerId: string, level: number, formData: 
     return { error: 'Choose an advanced class' }
   }
 
+  // [[Origin - Raring to go has additional feature]]: at level 3, 7, or 11, this Origin grants one
+  // additional Skill Talent pick from the same Advanced Class list, on top of the milestone's own.
+  const grantsBonusTalent = isRaringToGoOrigin(trainer.origins?.name) && RARING_TO_GO_BONUS_TALENT_LEVELS.includes(level)
+
   const { data: existing } = await supabase
     .from('trainer_milestones')
-    .select('subclass_id, talent_skill_id')
+    .select('subclass_id, talent_skill_id, bonus_talent_skill_id')
     .eq('trainer_id', trainerId)
     .eq('level', level)
     .maybeSingle()
@@ -492,16 +505,20 @@ export async function saveMilestone(trainerId: string, level: number, formData: 
     // elsewhere) -- leave the existing pick untouched in that case, nothing to replace it with.
     const talentSkillIdRaw = formData.get('talentSkillId') as string
     const nextTalentSkillId = talentSkillIdRaw ? Number(talentSkillIdRaw) : existing.talent_skill_id
-    if (talentSkillIdRaw && nextTalentSkillId !== existing.talent_skill_id) {
-      if (existing.talent_skill_id) {
-        const removeResult = await removeSkillTalentPick(supabase, trainerId, existing.talent_skill_id)
-        if ('error' in removeResult) {
-          return { error: removeResult.error }
-        }
-      }
-      const applyResult = await applySkillTalentPicks(supabase, trainerId, [nextTalentSkillId])
-      if ('error' in applyResult) {
-        return { error: applyResult.error }
+    const replaceResult = await replaceTalentPick(supabase, trainerId, existing.talent_skill_id, nextTalentSkillId)
+    if ('error' in replaceResult) {
+      return { error: replaceResult.error }
+    }
+
+    // [[Origin - Raring to go has additional feature]]: same replace semantics for the bonus pick,
+    // only for the Origin/level combination that actually grants one -- otherwise leave whatever's on
+    // the row untouched (there's nothing to replace it with, and it never granted anything blank).
+    const bonusTalentSkillIdRaw = grantsBonusTalent ? (formData.get('bonusTalentSkillId') as string) : ''
+    const nextBonusTalentSkillId = grantsBonusTalent ? (bonusTalentSkillIdRaw ? Number(bonusTalentSkillIdRaw) : null) : existing.bonus_talent_skill_id
+    if (grantsBonusTalent) {
+      const bonusReplaceResult = await replaceTalentPick(supabase, trainerId, existing.bonus_talent_skill_id, nextBonusTalentSkillId)
+      if ('error' in bonusReplaceResult) {
+        return { error: bonusReplaceResult.error }
       }
     }
 
@@ -514,6 +531,7 @@ export async function saveMilestone(trainerId: string, level: number, formData: 
         chosen_stat: chosenStat,
         chosen_type_id: chosenTypeId,
         talent_skill_id: nextTalentSkillId,
+        bonus_talent_skill_id: nextBonusTalentSkillId,
       })
       .eq('trainer_id', trainerId)
       .eq('level', level)
@@ -539,6 +557,11 @@ export async function saveMilestone(trainerId: string, level: number, formData: 
     const talentSkillIdRaw = formData.get('talentSkillId') as string
     const talentSkillId = talentSkillIdRaw ? Number(talentSkillIdRaw) : null
 
+    // [[Origin - Raring to go has additional feature]]: the bonus pick, "may take" (optional) rather
+    // than required, only offered/read at all for the Origin/level combination that grants one.
+    const bonusTalentSkillIdRaw = grantsBonusTalent ? (formData.get('bonusTalentSkillId') as string) : ''
+    const bonusTalentSkillId = bonusTalentSkillIdRaw ? Number(bonusTalentSkillIdRaw) : null
+
     const { error: insertError } = await supabase.from('trainer_milestones').insert({
       trainer_id: trainerId,
       level,
@@ -549,17 +572,42 @@ export async function saveMilestone(trainerId: string, level: number, formData: 
       chosen_stat: chosenStat,
       chosen_type_id: chosenTypeId,
       talent_skill_id: talentSkillId,
+      bonus_talent_skill_id: bonusTalentSkillId,
     })
     if (insertError) {
       return { error: insertError.message }
     }
 
-    if (talentSkillId) {
-      await applySkillTalentPicks(supabase, trainerId, [talentSkillId])
+    const skillIdsToGrant = [talentSkillId, bonusTalentSkillId].filter((id): id is number => id !== null)
+    if (skillIdsToGrant.length > 0) {
+      await applySkillTalentPicks(supabase, trainerId, skillIdsToGrant)
     }
   }
 
   return buildClassBuilderSnapshot(supabase, trainerId)
+}
+
+// [[Class can't be edited when editing subclass or level]] / [[Origin - Raring to go has additional
+// feature]]: shared "replace" logic for a single tracked Skill Talent slot on a milestone row -- undoes
+// the previous pick (if any) before applying the new one, only when they actually differ. Used for both
+// the milestone's own talent_skill_id and Raring to go's bonus_talent_skill_id, which need identical
+// replace semantics on re-edit.
+async function replaceTalentPick(
+  supabase: SupabaseClient,
+  trainerId: string,
+  previousSkillId: number | null,
+  nextSkillId: number | null,
+): Promise<{ error: string } | { ok: true }> {
+  if (nextSkillId === previousSkillId) return { ok: true }
+  if (previousSkillId) {
+    const removeResult = await removeSkillTalentPick(supabase, trainerId, previousSkillId)
+    if ('error' in removeResult) return removeResult
+  }
+  if (nextSkillId) {
+    const applyResult = await applySkillTalentPicks(supabase, trainerId, [nextSkillId])
+    if ('error' in applyResult) return applyResult
+  }
+  return { ok: true }
 }
 
 // Shared tail for saveMilestone and updateBuilderLevel -- both end by re-reading the trainer fresh and
@@ -600,7 +648,12 @@ async function buildClassBuilderSnapshot(supabase: SupabaseClient, trainerId: st
     await Promise.all([
       loadTrainerDerived(supabase, trainerId, { classId: updated.class_id, level: updated.level }),
       loadPendingMilestone(supabase, { trainerId, classId: updated.class_id, level: updated.level }),
-      loadClassBuilderData(supabase, trainerId, { classId: updated.class_id, originId: updated.origin_id, level: updated.level }),
+      loadClassBuilderData(supabase, trainerId, {
+        classId: updated.class_id,
+        originId: updated.origin_id,
+        originName: updated.origins?.name ?? null,
+        level: updated.level,
+      }),
       loadTrainerSkillTalents(supabase, trainerId),
     ])
 
