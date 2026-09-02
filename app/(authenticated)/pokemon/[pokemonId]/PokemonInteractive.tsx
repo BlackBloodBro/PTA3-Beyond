@@ -562,13 +562,20 @@ export function PokemonStateProvider(props: {
   return <PokemonStateContext.Provider value={value}>{props.children}</PokemonStateContext.Provider>
 }
 
+// [[Edit Pokemon Info section]]: Type/Level/Loyalty each get their own line, in that order, directly
+// under the Nickname (Species) heading -- was a single combined "Level {n} {type}" line with no Loyalty
+// at all. Shared by all 3 near-duplicate Pokemon detail pages that render this header.
 export function LevelLine() {
-  const { level, effectiveType1, effectiveType2 } = usePokemonState()
+  const { level, effectiveType1, effectiveType2, loyaltyName } = usePokemonState()
   return (
-    <p className="text-sm text-muted">
-      Level {level} {effectiveType1}
-      {effectiveType2 ? ` / ${effectiveType2}` : ''}
-    </p>
+    <div className="text-sm text-muted">
+      <p>
+        {effectiveType1}
+        {effectiveType2 ? ` / ${effectiveType2}` : ''}
+      </p>
+      <p>Level {level}</p>
+      <p>Loyalty {loyaltyName ?? '—'}</p>
+    </div>
   )
 }
 

@@ -10,6 +10,7 @@ import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { formatFlavorPreferences } from '@/lib/pta3/flavors'
 import { loadEvolutionTargets, loadEvolutionChainMembers, isMaxLoyalty, loadEvolutionStoneBagItems } from '@/lib/pta3/evolution'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
+import { ClickTooltip } from '@/components/ClickTooltip'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { HeldItemTakeBack } from '@/app/(authenticated)/pokemon/[pokemonId]/HeldItemTakeBack'
 import { HeldItemGive } from '@/app/(authenticated)/pokemon/[pokemonId]/HeldItemGive'
@@ -618,21 +619,26 @@ export default async function WildPokemonPage({
                           </p>
                         )}
                         <p>Obtain method: {ownerLink?.obtain_method?.name ?? '—'}</p>
-                        <p>Loyalty: {loyaltyTier?.name ?? '—'}</p>
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <p>Nature: {pokemon.nature?.name ?? '—'}</p>
-                        <p>Stat increase: {pokemon.nature?.increased?.name ?? '—'}</p>
-                        <p>Stat decrease: {pokemon.nature?.decreased?.name ?? '—'}</p>
+                      <div className="flex flex-col gap-1 border-t pt-2">
+                        <p>
+                          <ClickTooltip
+                            label={`Nature: ${pokemon.nature?.name ?? '—'}`}
+                            tooltip={[
+                              `Stat increase: ${pokemon.nature?.increased?.name ?? '—'}`,
+                              `Stat decrease: ${pokemon.nature?.decreased?.name ?? '—'}`,
+                            ].join('\n')}
+                          />
+                        </p>
                         <p>Likes: {likes}</p>
                         <p>Dislikes: {dislikes}</p>
                       </div>
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-1 border-t pt-2">
                         <p>Weight: {effectiveWeight ?? '—'}</p>
                         <p>Size: {effectiveSize ?? '—'}</p>
                         <p>Gender: {pokemon.gender ? GENDER_LABELS[pokemon.gender] : '—'}</p>
                       </div>
-                      <p>Held item: {pokemon.held_item?.name ?? 'None'}</p>
+                      <p className="border-t pt-2">Held item: {pokemon.held_item?.name ?? 'None'}</p>
                     </>
                   ) : (
                     <div className="flex flex-col gap-1">
@@ -872,21 +878,26 @@ export default async function WildPokemonPage({
                   </p>
                 )}
                 <p>Obtain method: {ownerLink?.obtain_method?.name ?? '—'}</p>
-                <p>Loyalty: {loyaltyTier?.name ?? '—'}</p>
               </div>
-              <div className="flex flex-col gap-1">
-                <p>Nature: {pokemon.nature?.name ?? '—'}</p>
-                <p>Stat increase: {pokemon.nature?.increased?.name ?? '—'}</p>
-                <p>Stat decrease: {pokemon.nature?.decreased?.name ?? '—'}</p>
+              <div className="flex flex-col gap-1 border-t pt-2">
+                <p>
+                  <ClickTooltip
+                    label={`Nature: ${pokemon.nature?.name ?? '—'}`}
+                    tooltip={[
+                      `Stat increase: ${pokemon.nature?.increased?.name ?? '—'}`,
+                      `Stat decrease: ${pokemon.nature?.decreased?.name ?? '—'}`,
+                    ].join('\n')}
+                  />
+                </p>
                 <p>Likes: {likes}</p>
                 <p>Dislikes: {dislikes}</p>
               </div>
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1 border-t pt-2">
                 <p>Weight: {effectiveWeight ?? '—'}</p>
                 <p>Size: {effectiveSize ?? '—'}</p>
                 <p>Gender: {pokemon.gender ? GENDER_LABELS[pokemon.gender] : '—'}</p>
               </div>
-              <p>
+              <p className="border-t pt-2">
                 Held item: {pokemon.held_item?.name ?? 'None'}
                 {canEditInfo && trainerId && pokemon.held_item_id !== null && <HeldItemTakeBack pokemonId={pokemonId} />}
                 {canEditInfo && trainerId && pokemon.held_item_id === null && (
