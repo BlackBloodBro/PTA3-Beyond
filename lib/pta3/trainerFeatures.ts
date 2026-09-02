@@ -33,6 +33,7 @@ export type TrainerMilestoneRow = {
   stat_b: StatColumn
   chosen_stat: StatColumn | null
   chosen_type_id: number | null
+  talent_skill_id: number | null
 }
 
 // Flat HP gain applied at a class's milestone levels (see resolveMilestone), per the user's
@@ -66,7 +67,7 @@ export async function loadQualifyingMilestones(
 ): Promise<TrainerMilestoneRow[]> {
   const { data } = await supabase
     .from('trainer_milestones')
-    .select('level, subclass_id, stat_a, stat_b, chosen_stat, chosen_type_id')
+    .select('level, subclass_id, stat_a, stat_b, chosen_stat, chosen_type_id, talent_skill_id')
     .eq('trainer_id', trainerId)
     .lte('level', level)
     .order('level')
@@ -226,13 +227,17 @@ export type ClassBuilderCard =
         chosenTypeId: number | null
         statA: StatColumn
         statB: StatColumn
+        talentSkillId: number | null
       } | null
       // Computed server-side per card (not shared/filtered client-side) since eligibility genuinely
       // differs per milestone -- excludes every OTHER milestone's already-chosen subclass, same as
       // resolveMilestone/editMilestone always scoped it, so e.g. a Stat Ace stat already taken by
       // another card's resolved choice is correctly missing from this card's own sub-picker too.
-      // Resolved cards get an empty skillTalentOptionsByChoice, same "no talent editing on edit"
-      // precedent editMilestone always had.
+      // [[Class can't be edited when editing subclass or level]]: a resolved card now gets real
+      // skillTalentOptionsByChoice/heldSkillTalents too (previously forced empty, the "no talent
+      // editing on edit" precedent this note removes) -- heldSkillTalents has this card's own current
+      // pick subtracted back out first, so its currently-chosen skill doesn't wrongly show as already
+      // at the 2-pick cap and get excluded from its own re-edit options.
       options: {
         subclassOptions: { value: string; label: string }[]
         statOptions: { value: string; label: string }[]
@@ -271,7 +276,7 @@ export async function loadClassBuilderData(
     // ALL of this trainer's milestones, not just qualifying ones -- a milestone trigger at level 7
     // with the trainer currently at level 5 is neither resolved nor pending yet, it just doesn't
     // render as a card at all until level reaches 7.
-    supabase.from('trainer_milestones').select('level, subclass_id, stat_a, stat_b, chosen_stat, chosen_type_id').eq('trainer_id', trainerId),
+    supabase.from('trainer_milestones').select('level, subclass_id, stat_a, stat_b, chosen_stat, chosen_type_id, talent_skill_id').eq('trainer_id', trainerId),
     supabase
       .from('features')
       .select('id, name, description, level_required, requires_activation, max_uses, uses_reset_on')
@@ -317,11 +322,23 @@ export async function loadClassBuilderData(
             description: trigger.description,
             triggerLevel: trigger.level_required,
             resolved: !!m,
-            current: m ? { subclassId: m.subclass_id, chosenStat: m.chosen_stat, chosenTypeId: m.chosen_type_id, statA: m.stat_a, statB: m.stat_b } : null,
+            current: m
+              ? {
+                  subclassId: m.subclass_id,
+                  chosenStat: m.chosen_stat,
+                  chosenTypeId: m.chosen_type_id,
+                  statA: m.stat_a,
+                  statB: m.stat_b,
+                  talentSkillId: m.talent_skill_id,
+                }
+              : null,
             options: {
               ...options,
-              skillTalentOptionsByChoice: m ? {} : options.skillTalentOptionsByChoice,
-              heldSkillTalents: m ? {} : heldSkillTalents,
+              skillTalentOptionsByChoice: options.skillTalentOptionsByChoice,
+              heldSkillTalents:
+                m && m.talent_skill_id
+                  ? { ...heldSkillTalents, [m.talent_skill_id]: Math.max(0, (heldSkillTalents[m.talent_skill_id] ?? 0) - 1) }
+                  : heldSkillTalents,
             },
           },
           unlockLevel: trigger.level_required,

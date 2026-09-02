@@ -138,3 +138,28 @@ export async function applySkillTalentPicks(supabase: SupabaseClient, trainerId:
   if (error) return { error: error.message }
   return { ok: true }
 }
+
+// [[Class can't be edited when editing subclass or level]]: the inverse of applySkillTalentPicks,
+// used only by saveMilestone's update branch to undo a specific milestone's own previous pick before
+// applying its replacement -- a fresh pick (the insert branch) has nothing to undo. Deletes the row
+// once its count reaches 0 rather than leaving a picked_count: 0 row around, matching how a skill
+// that was never picked has no row at all.
+export async function removeSkillTalentPick(supabase: SupabaseClient, trainerId: string, skillId: number): Promise<{ error: string } | { ok: true }> {
+  const { data: row } = await supabase
+    .from('trainer_skill_talents')
+    .select('picked_count')
+    .eq('trainer_id', trainerId)
+    .eq('skill_id', skillId)
+    .maybeSingle()
+  if (!row) return { ok: true }
+
+  const nextCount = row.picked_count - 1
+  if (nextCount <= 0) {
+    const { error } = await supabase.from('trainer_skill_talents').delete().eq('trainer_id', trainerId).eq('skill_id', skillId)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await supabase.from('trainer_skill_talents').update({ picked_count: nextCount }).eq('trainer_id', trainerId).eq('skill_id', skillId)
+    if (error) return { error: error.message }
+  }
+  return { ok: true }
+}

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useTrainerState, StatsSection, SkillsSection, type StatBreakdown } from '@/app/(authenticated)/trainers/[id]/TrainerInteractive'
-import { updateBuilderLevel, type ClassBuilderSnapshot } from '@/app/(authenticated)/trainers/actions'
+import { updateBuilderLevel, updateTrainerInfo, type ClassBuilderSnapshot } from '@/app/(authenticated)/trainers/actions'
 import type { ClassBuilderCard, TrainerFeature } from '@/lib/pta3/trainerFeatures'
 import { MilestoneCard } from './MilestoneCard'
 
@@ -13,6 +13,8 @@ import { MilestoneCard } from './MilestoneCard'
 // the existing applyInfoSnapshot-shaped update -- no separate state machine.
 export function ClassBuilder({
   trainerId,
+  classes,
+  canEditClass,
   initialCards,
   initialHigherLevelPreview,
   statBreakdown,
@@ -23,6 +25,11 @@ export function ClassBuilder({
   focusLevel,
 }: {
   trainerId: string
+  classes: { id: number; name: string }[]
+  // "Campaign membership hands GM-tier control to the GM alone" -- same rule as TrainerInfoSection's
+  // own canEditGmTier, computed by the caller since only it knows whether this Trainer/NPC has a
+  // campaign at all (this component alone can't tell from useTrainerState()).
+  canEditClass: boolean
   initialCards: ClassBuilderCard[]
   initialHigherLevelPreview: { name: string; levelRequired: number }[]
   statBreakdown: StatBreakdown
@@ -32,7 +39,7 @@ export function ClassBuilder({
   originFeatures: TrainerFeature[]
   focusLevel?: number
 }) {
-  const { level, classId, originId, applyInfoSnapshot } = useTrainerState()
+  const { name, level, originId, className, classId, advancedClasses, applyInfoSnapshot } = useTrainerState()
 
   const [cards, setCards] = useState(initialCards)
   const [higherLevelPreview, setHigherLevelPreview] = useState(initialHigherLevelPreview)
@@ -40,6 +47,49 @@ export function ClassBuilder({
   const [levelInput, setLevelInput] = useState(String(level))
   const [levelError, setLevelError] = useState<string | null>(null)
   const [levelSaving, setLevelSaving] = useState(false)
+
+  // [[Class can't be edited when editing subclass or level]]: a workflow convenience so a GM/owner
+  // doesn't have to leave mid-resolution to change Class elsewhere -- reuses updateTrainerInfo (not a
+  // new action), same as Info's own Class control, gated by the same canEditClass rule (see above).
+  const [isEditingClass, setIsEditingClass] = useState(false)
+  const [draftClassId, setDraftClassId] = useState(classId)
+  const [classError, setClassError] = useState<string | null>(null)
+  const [classSaving, setClassSaving] = useState(false)
+  const [pendingClassChange, setPendingClassChange] = useState(false)
+
+  function openClassEdit() {
+    setDraftClassId(classId)
+    setClassError(null)
+    setPendingClassChange(false)
+    setIsEditingClass(true)
+  }
+
+  function handleClassSave() {
+    if (draftClassId !== classId && advancedClasses.length > 0) {
+      setPendingClassChange(true)
+      return
+    }
+    commitClassSave()
+  }
+
+  // Changing Class invalidates almost everything this page shows (Class Features cards, higher-level
+  // preview, Skill Talent bonuses, favored stats) -- rather than hand-recomputing every one of those
+  // from updateTrainerInfo's TrainerInfoSnapshot return shape (which doesn't carry them), a full
+  // reload after a successful save gets a fully consistent page. Deliberate exception to this app's
+  // usual no-full-reload convention -- this is a rare, already-confirmed, genuinely page-invalidating
+  // action, not a case worth a bespoke re-fetch just to avoid one reload.
+  async function commitClassSave() {
+    setClassError(null)
+    setClassSaving(true)
+    const result = await updateTrainerInfo(trainerId, { name: null, classId: draftClassId, level, originId })
+    setClassSaving(false)
+    if ('error' in result) {
+      setClassError(result.error)
+      setPendingClassChange(false)
+      return
+    }
+    window.location.reload()
+  }
 
   const favoredSet = new Set(favoredStatNames)
 
@@ -68,6 +118,82 @@ export function ClassBuilder({
 
   return (
     <div className="flex w-full max-w-3xl flex-col gap-4">
+      {canEditClass && (
+        <div className="rounded border border-accent bg-accent/10 p-4">
+          {isEditingClass ? (
+            <div className="flex flex-col gap-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="font-semibold">Class</h2>
+                <select
+                  value={draftClassId}
+                  onChange={(e) => setDraftClassId(Number(e.target.value))}
+                  className="bg-surface-subtle rounded border p-2"
+                >
+                  {classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {classError && <p className="text-danger text-sm">{classError}</p>}
+
+              {pendingClassChange ? (
+                <div className="flex flex-col gap-2 rounded border-accent bg-accent/20 p-2">
+                  <p>
+                    Changing Class will remove{' '}
+                    {advancedClasses.map((ac, i) => (
+                      <span key={ac.grantedAtLevel}>
+                        {i > 0 && ', '}
+                        {ac.name} (Level {ac.grantedAtLevel})
+                      </span>
+                    ))}
+                    . {name} will need to re-resolve these under the new Class.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={commitClassSave}
+                      disabled={classSaving}
+                      className="rounded border border-danger px-3 py-1 text-sm text-danger disabled:opacity-50"
+                    >
+                      {classSaving ? 'Saving…' : 'Confirm'}
+                    </button>
+                    <button type="button" onClick={() => setPendingClassChange(false)} className="rounded border px-3 py-1 text-sm">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleClassSave}
+                    disabled={classSaving}
+                    className="rounded bg-accent px-3 py-1 text-accent-foreground disabled:opacity-50"
+                  >
+                    {classSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button type="button" onClick={() => setIsEditingClass(false)} className="rounded border px-3 py-1">
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2">
+              <p>
+                <span className="font-semibold">Class:</span> {className}
+              </p>
+              <button type="button" onClick={openClassEdit} className="rounded border px-3 py-1 text-sm">
+                Edit
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between rounded border border-accent bg-accent/10 p-4">
         <h2 className="font-semibold">Level</h2>
         <div className="flex items-center gap-2">
