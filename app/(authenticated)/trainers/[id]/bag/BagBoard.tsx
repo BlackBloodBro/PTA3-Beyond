@@ -74,6 +74,7 @@ export function BagBoard({
   const [view, setView] = useState<'bag' | 'catalog'>('bag')
 
   const [bagCategory, setBagCategory] = useState('')
+  const [bagSearch, setBagSearch] = useState('')
   const [catalogSearch, setCatalogSearch] = useState('')
   const [catalogCategory, setCatalogCategory] = useState('')
   const [givingItemId, setGivingItemId] = useState<string | null>(null)
@@ -97,10 +98,14 @@ export function BagBoard({
 
   const groupedPokemonOptions = useMemo(() => groupPokemonOptions(pokemonOptions), [pokemonOptions])
 
-  const filteredItems = useMemo(
-    () => (bagCategory ? items.filter((it) => it.categoryNames.includes(bagCategory)) : items),
-    [items, bagCategory],
-  )
+  const filteredItems = useMemo(() => {
+    const needle = bagSearch.trim().toLowerCase()
+    return items.filter((it) => {
+      if (needle && !it.name.toLowerCase().includes(needle)) return false
+      if (bagCategory && !it.categoryNames.includes(bagCategory)) return false
+      return true
+    })
+  }, [items, bagCategory, bagSearch])
 
   const filteredCatalog = useMemo(() => {
     const matches = catalog.filter((it) => matchesCatalogFilter(it, catalogSearch, catalogCategory))
@@ -341,14 +346,26 @@ export function BagBoard({
       {view === 'bag' && (
       <section>
         <h2 className="mb-2 font-semibold">Inventory ({filteredItems.length} of {items.length})</h2>
-        <div className="mb-2 flex items-center gap-2 text-sm">
-          <label htmlFor="bagCategory">Category</label>
-          <select id="bagCategory" value={bagCategory} onChange={(e) => setBagCategory(e.target.value)} className="bg-surface-subtle rounded border px-2 py-1">
-            <option value="">All</option>
-            {allCategoryNames.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+        <div className="mb-2 flex flex-wrap items-end gap-2 text-sm">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="bagSearch">Search</label>
+            <input
+              id="bagSearch"
+              type="text"
+              value={bagSearch}
+              onChange={(e) => setBagSearch(e.target.value)}
+              className="bg-surface-subtle rounded border px-2 py-1"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="bagCategory">Category</label>
+            <select id="bagCategory" value={bagCategory} onChange={(e) => setBagCategory(e.target.value)} className="bg-surface-subtle rounded border px-2 py-1">
+              <option value="">All</option>
+              {allCategoryNames.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
         </div>
         {filteredItems.length === 0 ? (
           <p className="text-sm text-muted">No items.</p>
