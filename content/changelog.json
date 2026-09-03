@@ -5,27 +5,27 @@
     "entries": [
       { "category": "feature", "summary": "Filled in Size, Weight, Diet, Habitat, and Move Proficiencies for more Legendary and Mythical Pokémon." },
       { "category": "feature", "summary": "Added this in-app Changelog page, updated with each release." },
-      { "category": "fix", "summary": "Fixed some Pokémon being able to learn high-level Stat Passives far too early." },
-      { "category": "fix", "summary": "Fixed several real Pokémon Abilities being miscategorized as manually-chosen Stat Passives." },
       { "category": "feature", "summary": "A GM can now teach a Pokémon a Move it wouldn't normally be eligible to learn." },
       { "category": "feature", "summary": "A GM can now override an individual Pokémon's base stats." },
-      { "category": "fix", "summary": "Temporary HP can now actually be granted and tracked, instead of always showing 0." },
+      { "category": "feature", "summary": "Added a self-service \"Forgot password\" flow." },
+      { "category": "improve", "summary": "Players can now add a Pokémon to their campaign's shared pool for the GM to assign to a Trainer." },
+      { "category": "improve", "summary": "Implemented the Raring to go Origin's stat bonus and extra Skill Talent picks." },
+      { "category": "improve", "summary": "Reorganized the Pokémon detail page's header and Info section for readability." },
+      { "category": "improve", "summary": "Trainer Features with limited daily uses now show per-use checkboxes, matching Pokémon Moves." },
+      { "category": "improve", "summary": "Temporary HP can now actually be granted and tracked, instead of always showing 0." },
+      { "category": "fix", "summary": "Fixed some Pokémon being able to learn high-level Stat Passives far too early." },
+      { "category": "fix", "summary": "Fixed several real Pokémon Abilities being miscategorized as manually-chosen Stat Passives." },
       { "category": "fix", "summary": "Fixed players seeing GM-only NPCs in the \"Gift to...\" picker." },
       { "category": "fix", "summary": "Fixed the Moves \"Against\" type picker being unreadable in dark mode." },
-      { "category": "feature", "summary": "Added a self-service \"Forgot password\" flow." },
-      { "category": "improve", "summary": "Reorganized the Pokémon detail page's header and Info section for readability." },
-      { "category": "feature", "summary": "Players can now add a Pokémon to their campaign's shared pool for the GM to assign to a Trainer." },
-      { "category": "fix", "summary": "Fixed Skill Talent picks not being editable when re-resolving a Subclass, and added a way to change Class directly from the Class Builder." },
-      { "category": "feature", "summary": "Implemented the Raring to go Origin's stat bonus and extra Skill Talent picks." },
-      { "category": "improve", "summary": "Trainer Features with limited daily uses now show per-use checkboxes, matching Pokémon Moves." }
+      { "category": "fix", "summary": "Fixed Skill Talent picks not being editable when re-resolving a Subclass, and added a way to change Class directly from the Class Builder." }
     ]
   },
   {
     "version": "1.0.2",
     "date": "2026-08-30",
     "entries": [
-      { "category": "fix", "summary": "Fixed Advanced Class milestones not triggering, broken since an Aug 10 feature rename." },
-      { "category": "improve", "summary": "The \"Continue to starter Pokémon\" link on a Trainer's build page now hides itself once that Trainer already has one." }
+      { "category": "improve", "summary": "The \"Continue to starter Pokémon\" link on a Trainer's build page now hides itself once that Trainer already has one." },
+      { "category": "fix", "summary": "Fixed Advanced Class milestones not triggering, broken since an Aug 10 feature rename." }
     ]
   },
   {
