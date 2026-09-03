@@ -272,6 +272,12 @@ export default async function CampaignTrainerPage({
           <Link href={`${basePath}/bag`} className="rounded border px-4 py-2 text-sm">
             Inventory
           </Link>
+          {/* [[Feature - Add a Pokemon Breeding Check mechanic]]: moved here from the Campaign page
+              per the user (2026-09-03) -- attempting from a specific Trainer's own page fixes who
+              initiates, rather than auto-picking. */}
+          <Link href={`${basePath}/breeding`} className="rounded border px-4 py-2 text-sm">
+            Breeding
+          </Link>
           {isOwner && (
             <form action={deleteTrainer.bind(null, id)}>
               <ConfirmButton

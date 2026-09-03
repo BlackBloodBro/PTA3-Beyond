@@ -270,6 +270,11 @@ export default async function TrainerPage({
           <Link href={`/trainers/${id}/bag`} className="rounded border px-4 py-2 text-sm">
             Inventory
           </Link>
+          {/* [[Feature - Add a Pokemon Breeding Check mechanic]]: a campaign-less Trainer has no
+              Campaign roster to breed against, so this is scoped to just their own two Pokemon. */}
+          <Link href={`/trainers/${id}/breeding`} className="rounded border px-4 py-2 text-sm">
+            Breeding
+          </Link>
           {isOwner && (
             <form action={deleteTrainer.bind(null, id)}>
               <ConfirmButton

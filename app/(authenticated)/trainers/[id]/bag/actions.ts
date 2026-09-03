@@ -54,6 +54,10 @@ async function addToBag(
   moveId: number | null,
   pokedexId: number | null,
   quantity: number,
+  // [[Feature - Add a Pokemon Breeding Check mechanic]]: a bred Egg's inherited nature, same
+  // nullable-attachment shape as moveId/pokedexId -- also part of the stacking key below, so two
+  // differently-natured Eggs of the same species never silently merge into one row.
+  natureId: number | null = null,
 ): Promise<{ error: string } | { ok: true }> {
   const { data: item } = await supabase.from('items').select('id, name, stackable').eq('id', itemId).maybeSingle()
   if (!item) {
@@ -63,6 +67,7 @@ async function addToBag(
   let existingQuery = supabase.from('trainers_items').select('id, quantity').eq('trainer_id', trainerId).eq('item_id', itemId)
   existingQuery = moveId ? existingQuery.eq('move_id', moveId) : existingQuery.is('move_id', null)
   existingQuery = pokedexId ? existingQuery.eq('pokedex_id', pokedexId) : existingQuery.is('pokedex_id', null)
+  existingQuery = natureId ? existingQuery.eq('nature_id', natureId) : existingQuery.is('nature_id', null)
   const { data: existing } = await existingQuery.maybeSingle()
 
   if (existing) {
@@ -84,6 +89,7 @@ async function addToBag(
     item_id: itemId,
     move_id: moveId,
     pokedex_id: pokedexId,
+    nature_id: natureId,
     quantity: item.stackable ? quantity : 1,
     uses_remaining: usesRemaining,
   })
@@ -97,6 +103,7 @@ export async function grantItem(
   quantity: number = 1,
   pokedexId: number | null = null,
   moveId: number | null = null,
+  natureId: number | null = null,
 ): Promise<{ error: string } | BagSnapshot> {
   const supabase = await createClient()
   const { trainer } = await requireAuthorizedTrainer(supabase, trainerId)
@@ -104,7 +111,7 @@ export async function grantItem(
     return { error: 'Not authorized to manage this Trainer’s Bag' }
   }
 
-  const result = await addToBag(supabase, trainerId, itemId, moveId, pokedexId, clampQuantity(quantity))
+  const result = await addToBag(supabase, trainerId, itemId, moveId, pokedexId, clampQuantity(quantity), natureId)
   if ('error' in result) return result
 
   return loadBagSnapshot(supabase, trainerId)

@@ -285,6 +285,10 @@ export default async function NpcPage({
           <Link href={`${basePath}/bag`} className="rounded border px-4 py-2 text-sm">
             Inventory
           </Link>
+          {/* [[Feature - Add a Pokemon Breeding Check mechanic]] */}
+          <Link href={`${basePath}/breeding`} className="rounded border px-4 py-2 text-sm">
+            Breeding
+          </Link>
           {isOwner && (
             <form action={deleteTrainer.bind(null, id)}>
               <ConfirmButton
