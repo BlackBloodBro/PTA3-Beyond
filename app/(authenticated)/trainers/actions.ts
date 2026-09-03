@@ -286,19 +286,34 @@ export async function updateTrainerInfo(
   const specialDefense = canEditGmTier ? clampStat(input.specialDefense) : current.base_special_defense
   const speed = canEditGmTier ? clampStat(input.speed) : current.base_speed
 
-  // [[Class can't be edited when editing subclass or level]]: a milestone under the old Class doesn't
-  // carry over -- the Trainer re-resolves Stats/Subclass/Talent fresh at each qualifying level under
-  // the new Class, same as leveling into it for the first time. trainer_milestones rows are never
-  // deleted anywhere else in this codebase (see the note's own Data-integrity finding), so this is a
-  // real, deliberate one-way action -- the caller is expected to have already shown an in-page confirm
-  // step naming what's being lost (this app's established warn-before-overwrite convention, see
-  // [[Warn a GM before overwriting a Trainer's own build choices]]), not a server-side re-confirmation,
-  // matching that same convention's "purely client-side gate" precedent.
-  if (classId !== current.class_id) {
-    const { data: staleMilestones } = await supabase.from('trainer_milestones').select('talent_skill_id').eq('trainer_id', trainerId)
+  // [[Class can't be edited when editing subclass or level]] / [[Bug - Changing a Trainer's Origin
+  // doesn't update Raring to go's bonuses]]: a milestone under the old Class or Origin doesn't carry
+  // over -- the Trainer re-resolves Stats/Subclass/Talent fresh at each qualifying level under the new
+  // Class/Origin, same as leveling into it for the first time. Origin wipes for the same reason Class
+  // does: Raring to go's bonus Talent picks (bonus_talent_skill_id) live on these same milestone rows,
+  // so an Origin change away from (or to) Raring to go has to invalidate/re-offer them too, not just a
+  // Class change. trainer_milestones rows are never deleted anywhere else in this codebase (see the
+  // note's own Data-integrity finding), so this is a real, deliberate one-way action -- the caller is
+  // expected to have already shown an in-page confirm step naming what's being lost (this app's
+  // established warn-before-overwrite convention, see [[Warn a GM before overwriting a Trainer's own
+  // build choices]]), not a server-side re-confirmation, matching that same convention's "purely
+  // client-side gate" precedent.
+  if (classId !== current.class_id || originId !== current.origin_id) {
+    // Releases both tracked Skill Talent slots a milestone can hold -- its own talent_skill_id and
+    // Raring to go's bonus_talent_skill_id. Real gap found and fixed here: the Class-change wipe never
+    // released bonus_talent_skill_id before this, so a Raring to go Trainer's bonus Talent pick would
+    // leak into trainer_skill_talents (never decremented) on a Class change alone -- confirmed via grep,
+    // not assumed, since this exact bug's whole premise is bonus_talent_skill_id going stale.
+    const { data: staleMilestones } = await supabase
+      .from('trainer_milestones')
+      .select('talent_skill_id, bonus_talent_skill_id')
+      .eq('trainer_id', trainerId)
     for (const m of staleMilestones ?? []) {
       if (m.talent_skill_id) {
         await removeSkillTalentPick(supabase, trainerId, m.talent_skill_id)
+      }
+      if (m.bonus_talent_skill_id) {
+        await removeSkillTalentPick(supabase, trainerId, m.bonus_talent_skill_id)
       }
     }
     const { error: deleteError } = await supabase.from('trainer_milestones').delete().eq('trainer_id', trainerId)

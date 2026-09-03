@@ -304,11 +304,14 @@ export function TrainerInfoSection({
 
   const [isEditing, setIsEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // [[Class can't be edited when editing subclass or level]]: changing Class deletes every Advanced
-  // Class milestone (server-side, updateTrainerInfo) -- an in-page confirm step naming exactly what's
-  // lost before that happens, matching [[Warn a GM before overwriting a Trainer's own build choices]]'s
+  // [[Class can't be edited when editing subclass or level]] / [[Bug - Changing a Trainer's Origin
+  // doesn't update Raring to go's bonuses]]: changing Class OR Origin deletes every Advanced Class
+  // milestone (server-side, updateTrainerInfo -- Origin now wipes for the same reason Class does:
+  // Raring to go's bonus Talent picks live on those same milestone rows, so an Origin change has to
+  // invalidate them too, not just a Class change) -- an in-page confirm step naming exactly what's lost
+  // before that happens, matching [[Warn a GM before overwriting a Trainer's own build choices]]'s
   // established shape (purely client-side gate, no server-side re-confirmation needed).
-  const [pendingClassChange, setPendingClassChange] = useState(false)
+  const [pendingMilestoneWipe, setPendingMilestoneWipe] = useState(false)
 
   const [draftName, setDraftName] = useState(name)
   const [draftClassId, setDraftClassId] = useState(classId)
@@ -343,13 +346,13 @@ export function TrainerInfoSection({
     setDraftSpecialDefense(baseSpecialDefense)
     setDraftSpeed(baseSpeed)
     setError(null)
-    setPendingClassChange(false)
+    setPendingMilestoneWipe(false)
     setIsEditing(true)
   }
 
   function handleSave() {
-    if (draftClassId !== classId && advancedClasses.length > 0) {
-      setPendingClassChange(true)
+    if ((draftClassId !== classId || draftOriginId !== originId) && advancedClasses.length > 0) {
+      setPendingMilestoneWipe(true)
       return
     }
     commitSave()
@@ -357,7 +360,7 @@ export function TrainerInfoSection({
 
   async function commitSave() {
     setError(null)
-    setPendingClassChange(false)
+    setPendingMilestoneWipe(false)
     const result = await updateTrainerInfo(trainerId, {
       name: isOwner ? draftName : null,
       classId: draftClassId,
@@ -530,23 +533,24 @@ export function TrainerInfoSection({
 
           {error && <p className="text-danger">{error}</p>}
 
-          {pendingClassChange ? (
+          {pendingMilestoneWipe ? (
             <div className="flex flex-col gap-2 rounded border-accent bg-accent/20 p-2 text-sm">
               <p>
-                Changing Class will remove{' '}
+                Changing {draftClassId !== classId && draftOriginId !== originId ? 'Class or Background' : draftClassId !== classId ? 'Class' : 'Background'}{' '}
+                will remove{' '}
                 {advancedClasses.map((ac, i) => (
                   <span key={ac.grantedAtLevel}>
                     {i > 0 && ', '}
                     {ac.name} (Level {ac.grantedAtLevel})
                   </span>
                 ))}
-                . {name} will need to re-resolve these under the new Class.
+                . {name} will need to re-resolve these choices.
               </p>
               <div className="flex gap-2">
                 <button type="button" onClick={commitSave} className="rounded border border-danger px-3 py-1 text-sm text-danger">
                   Confirm
                 </button>
-                <button type="button" onClick={() => setPendingClassChange(false)} className="rounded border px-3 py-1">
+                <button type="button" onClick={() => setPendingMilestoneWipe(false)} className="rounded border px-3 py-1">
                   Cancel
                 </button>
               </div>
