@@ -69,7 +69,10 @@ export default async function TrainerBreedingPage({ params }: { params: Promise<
       trainerIsNpc: false,
     }))
 
-  const hasUnexpectedHatch = await trainerHasBaseClassFeature(supabase, id, 'Unexpected Hatch')
+  const [hasUnexpectedHatch, hasEggFinder] = await Promise.all([
+    trainerHasBaseClassFeature(supabase, id, 'Unexpected Hatch'),
+    trainerHasBaseClassFeature(supabase, id, 'Egg Finder'),
+  ])
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -89,6 +92,7 @@ export default async function TrainerBreedingPage({ params }: { params: Promise<
         initiatingTrainerName={trainer.name}
         candidates={candidates}
         hasUnexpectedHatch={hasUnexpectedHatch}
+        hasEggFinder={hasEggFinder}
       />
     </main>
   )

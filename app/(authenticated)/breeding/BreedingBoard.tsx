@@ -22,12 +22,14 @@ export function BreedingBoard({
   initiatingTrainerName,
   candidates,
   hasUnexpectedHatch,
+  hasEggFinder,
 }: {
   campaignId: string | null
   initiatingTrainerId: string
   initiatingTrainerName: string
   candidates: BreedingCandidate[]
   hasUnexpectedHatch: boolean
+  hasEggFinder: boolean
 }) {
   const [pokemonAId, setPokemonAId] = useState('')
   const [pokemonBId, setPokemonBId] = useState('')
@@ -62,7 +64,9 @@ export function BreedingBoard({
 
   async function handleRoll() {
     if (!pokemonA || !pokemonB) return
-    let entry = window.prompt('Enter your d100 roll result (best of three if you have Egg Finder):')
+    let entry = window.prompt(
+      hasEggFinder ? 'Egg Finder: roll a d100 three times and enter your best result:' : 'Enter your d100 roll result:',
+    )
     let roll: number | null = null
     while (entry !== null) {
       const n = Number(entry)
@@ -168,8 +172,8 @@ export function BreedingBoard({
 
       {targetNumber !== null && (
         <p>
-          Target number: <span className="font-semibold">{targetNumber}</span> — roll a d100 (three times if you have Egg
-          Finder, use your best) and report the result. Equal or under succeeds.
+          Target number: <span className="font-semibold">{targetNumber}</span> — roll a d100
+          {hasEggFinder ? ' three times, take your best,' : ''} and report the result. Equal or under succeeds.
         </p>
       )}
 

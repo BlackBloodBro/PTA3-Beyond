@@ -38,9 +38,10 @@ export default async function CampaignNpcBreedingPage({ params }: { params: Prom
     redirect(`/campaigns/${campaignId}/npcs/${id}`)
   }
 
-  const [candidates, hasUnexpectedHatch] = await Promise.all([
+  const [candidates, hasUnexpectedHatch, hasEggFinder] = await Promise.all([
     loadCampaignBreedingCandidates(supabase, campaignId),
     trainerHasBaseClassFeature(supabase, id, 'Unexpected Hatch'),
+    trainerHasBaseClassFeature(supabase, id, 'Egg Finder'),
   ])
 
   return (
@@ -61,6 +62,7 @@ export default async function CampaignNpcBreedingPage({ params }: { params: Prom
         initiatingTrainerName={trainer.name}
         candidates={candidates}
         hasUnexpectedHatch={hasUnexpectedHatch}
+        hasEggFinder={hasEggFinder}
       />
     </main>
   )
