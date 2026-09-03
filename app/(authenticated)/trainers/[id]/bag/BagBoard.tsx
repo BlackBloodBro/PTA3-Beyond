@@ -16,8 +16,15 @@ export type BagPokemonOption = {
   partySlot: number | null
 }
 
+function matchesSearchText(name: string, aliases: string[], searchText: string): boolean {
+  if (!searchText) return true
+  const needle = searchText.toLowerCase()
+  if (name.toLowerCase().includes(needle)) return true
+  return aliases.some((a) => a.toLowerCase().includes(needle))
+}
+
 function matchesCatalogFilter(item: CatalogItem, searchText: string, category: string): boolean {
-  if (searchText && !item.name.toLowerCase().includes(searchText.toLowerCase())) return false
+  if (!matchesSearchText(item.name, item.aliases, searchText)) return false
   if (category && !item.categoryNames.includes(category)) return false
   return true
 }
@@ -99,9 +106,8 @@ export function BagBoard({
   const groupedPokemonOptions = useMemo(() => groupPokemonOptions(pokemonOptions), [pokemonOptions])
 
   const filteredItems = useMemo(() => {
-    const needle = bagSearch.trim().toLowerCase()
     return items.filter((it) => {
-      if (needle && !it.name.toLowerCase().includes(needle)) return false
+      if (!matchesSearchText(it.name, it.aliases, bagSearch.trim())) return false
       if (bagCategory && !it.categoryNames.includes(bagCategory)) return false
       return true
     })

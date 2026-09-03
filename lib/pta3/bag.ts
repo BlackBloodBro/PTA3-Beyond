@@ -10,6 +10,7 @@ export type BagItem = {
   stackable: boolean
   holdable: boolean
   categoryNames: string[]
+  aliases: string[]
   moveId: number | null
   moveName: string | null
   pokedexId: number | null
@@ -28,6 +29,7 @@ export type CatalogItem = {
   stackable: boolean
   holdable: boolean
   categoryNames: string[]
+  aliases: string[]
 }
 
 export type BagSnapshot = {
@@ -50,7 +52,7 @@ export async function loadBagSnapshot(supabase: SupabaseClient, trainerId: strin
       .select(
         `
         id, quantity, uses_remaining,
-        items(id, name, description, price, stackable, holdable, items_item_categories(item_categories(name))),
+        items(id, name, description, price, stackable, holdable, items_item_categories(item_categories(name)), item_aliases(alias)),
         moves(id, name),
         pokedex(id, name)
       `,
@@ -62,6 +64,7 @@ export async function loadBagSnapshot(supabase: SupabaseClient, trainerId: strin
   const items: BagItem[] = (rows ?? []).map((r) => {
     const item = r.items!
     const categoryNames = (item.items_item_categories ?? []).map((c) => c.item_categories!.name)
+    const aliases = (item.item_aliases ?? []).map((a) => a.alias)
     return {
       id: r.id,
       itemId: item.id,
@@ -72,6 +75,7 @@ export async function loadBagSnapshot(supabase: SupabaseClient, trainerId: strin
       stackable: item.stackable,
       holdable: item.holdable,
       categoryNames,
+      aliases,
       moveId: r.moves?.id ?? null,
       moveName: r.moves?.name ?? null,
       pokedexId: r.pokedex?.id ?? null,
@@ -167,7 +171,9 @@ export async function resolveItemPrice(supabase: SupabaseClient, itemId: number,
 export async function loadItemCatalog(supabase: SupabaseClient): Promise<CatalogItem[]> {
   const { data } = await supabase
     .from('items')
-    .select('id, name, description, price, buyable, stackable, holdable, items_item_categories(item_categories(name))')
+    .select(
+      'id, name, description, price, buyable, stackable, holdable, items_item_categories(item_categories(name)), item_aliases(alias)',
+    )
     .order('name')
 
   return (data ?? []).map((item) => ({
@@ -179,5 +185,6 @@ export async function loadItemCatalog(supabase: SupabaseClient): Promise<Catalog
     stackable: item.stackable,
     holdable: item.holdable,
     categoryNames: (item.items_item_categories ?? []).map((c) => c.item_categories!.name),
+    aliases: (item.item_aliases ?? []).map((a) => a.alias),
   }))
 }
