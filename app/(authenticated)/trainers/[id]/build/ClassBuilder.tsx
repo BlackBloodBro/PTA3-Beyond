@@ -39,7 +39,8 @@ export function ClassBuilder({
   originFeatures: TrainerFeature[]
   focusLevel?: number
 }) {
-  const { name, level, originId, className, classId, advancedClasses, applyInfoSnapshot } = useTrainerState()
+  const { name, level, originId, className, classId, advancedClasses, applyInfoSnapshot, baseAttack, baseDefense, baseSpecialAttack, baseSpecialDefense, baseSpeed } =
+    useTrainerState()
 
   const [cards, setCards] = useState(initialCards)
   const [higherLevelPreview, setHigherLevelPreview] = useState(initialHigherLevelPreview)
@@ -81,7 +82,20 @@ export function ClassBuilder({
   async function commitClassSave() {
     setClassError(null)
     setClassSaving(true)
-    const result = await updateTrainerInfo(trainerId, { name: null, classId: draftClassId, level, originId })
+    // [[Feature - Let a GM edit a Trainer's base stats]]: this save only ever changes Class -- pass the
+    // current base stats through unchanged rather than dropping them (updateTrainerInfo writes whatever
+    // it's given for a GM-tier caller, same as Class/Origin here).
+    const result = await updateTrainerInfo(trainerId, {
+      name: null,
+      classId: draftClassId,
+      level,
+      originId,
+      attack: baseAttack,
+      defense: baseDefense,
+      specialAttack: baseSpecialAttack,
+      specialDefense: baseSpecialDefense,
+      speed: baseSpeed,
+    })
     setClassSaving(false)
     if ('error' in result) {
       setClassError(result.error)

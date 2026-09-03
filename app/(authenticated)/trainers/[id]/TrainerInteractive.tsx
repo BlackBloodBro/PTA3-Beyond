@@ -49,6 +49,16 @@ type TrainerState = {
   special_attack: number
   special_defense: number
   speed: number
+  // [[Feature - Let a GM edit a Trainer's base stats]]: the raw base_* columns, distinct from the
+  // effective attack/defense/etc. above (which already have milestone stat increases baked in via
+  // computeEffectiveStats) -- the edit form has to draft from and write back to these, never the
+  // effective ones, or every save would re-bake already-applied milestone increases into the stored
+  // base stat, compounding on every edit.
+  baseAttack: number
+  baseDefense: number
+  baseSpecialAttack: number
+  baseSpecialDefense: number
+  baseSpeed: number
   advancedClasses: TrainerAdvancedClass[]
   activeFeatures: TrainerFeature[]
   passiveFeatures: TrainerFeature[]
@@ -74,6 +84,11 @@ type InfoSnapshot = {
   specialAttack: number
   specialDefense: number
   speed: number
+  baseAttack: number
+  baseDefense: number
+  baseSpecialAttack: number
+  baseSpecialDefense: number
+  baseSpeed: number
   advancedClasses: TrainerAdvancedClass[]
   activeFeatures: TrainerFeature[]
   passiveFeatures: TrainerFeature[]
@@ -114,6 +129,7 @@ export function TrainerStateProvider({
   initialTemporaryHp,
   initialMaxHp,
   initialStats,
+  initialBaseStats,
   initialAdvancedClasses,
   initialActiveFeatures,
   initialPassiveFeatures,
@@ -137,6 +153,7 @@ export function TrainerStateProvider({
   initialTemporaryHp: number
   initialMaxHp: number
   initialStats: { attack: number; defense: number; special_attack: number; special_defense: number; speed: number }
+  initialBaseStats: { attack: number; defense: number; special_attack: number; special_defense: number; speed: number }
   initialAdvancedClasses: TrainerAdvancedClass[]
   initialActiveFeatures: TrainerFeature[]
   initialPassiveFeatures: TrainerFeature[]
@@ -157,6 +174,11 @@ export function TrainerStateProvider({
     temporaryHp: initialTemporaryHp,
     maxHp: initialMaxHp,
     ...initialStats,
+    baseAttack: initialBaseStats.attack,
+    baseDefense: initialBaseStats.defense,
+    baseSpecialAttack: initialBaseStats.special_attack,
+    baseSpecialDefense: initialBaseStats.special_defense,
+    baseSpeed: initialBaseStats.speed,
     advancedClasses: initialAdvancedClasses,
     activeFeatures: initialActiveFeatures,
     passiveFeatures: initialPassiveFeatures,
@@ -188,6 +210,11 @@ export function TrainerStateProvider({
         special_attack: snapshot.specialAttack,
         special_defense: snapshot.specialDefense,
         speed: snapshot.speed,
+        baseAttack: snapshot.baseAttack,
+        baseDefense: snapshot.baseDefense,
+        baseSpecialAttack: snapshot.baseSpecialAttack,
+        baseSpecialDefense: snapshot.baseSpecialDefense,
+        baseSpeed: snapshot.baseSpeed,
         advancedClasses: snapshot.advancedClasses,
         activeFeatures: snapshot.activeFeatures,
         passiveFeatures: snapshot.passiveFeatures,
@@ -254,8 +281,25 @@ export function TrainerInfoSection({
   classes: ClassOption[]
   origins: OriginOption[]
 }) {
-  const { basePath, name, level, advancedClasses, className, originName, lifestyle, classId, originId, isOwner, isGM, applyInfoSnapshot } =
-    useTrainerState()
+  const {
+    basePath,
+    name,
+    level,
+    advancedClasses,
+    className,
+    originName,
+    lifestyle,
+    classId,
+    originId,
+    baseAttack,
+    baseDefense,
+    baseSpecialAttack,
+    baseSpecialDefense,
+    baseSpeed,
+    isOwner,
+    isGM,
+    applyInfoSnapshot,
+  } = useTrainerState()
   const router = useRouter()
 
   const [isEditing, setIsEditing] = useState(false)
@@ -270,6 +314,15 @@ export function TrainerInfoSection({
   const [draftClassId, setDraftClassId] = useState(classId)
   const [draftLevel, setDraftLevel] = useState(level)
   const [draftOriginId, setDraftOriginId] = useState(originId)
+  // [[Feature - Let a GM edit a Trainer's base stats]]: drafts from the raw base_* values, not the
+  // effective attack/defense/etc. (which already have milestone stat increases baked in) -- direct
+  // replacement, not an additive bonus, since unlike Pokemon's bonus_base_x columns there's no species
+  // template underneath a Trainer's base stats to layer a bonus on top of.
+  const [draftAttack, setDraftAttack] = useState(baseAttack)
+  const [draftDefense, setDraftDefense] = useState(baseDefense)
+  const [draftSpecialAttack, setDraftSpecialAttack] = useState(baseSpecialAttack)
+  const [draftSpecialDefense, setDraftSpecialDefense] = useState(baseSpecialDefense)
+  const [draftSpeed, setDraftSpeed] = useState(baseSpeed)
 
   const canEdit = isOwner || isGM
   // "Campaign membership hands GM-tier control to the GM alone" -- a campaign-less trainer's owner
@@ -284,6 +337,11 @@ export function TrainerInfoSection({
     setDraftClassId(classId)
     setDraftLevel(level)
     setDraftOriginId(originId)
+    setDraftAttack(baseAttack)
+    setDraftDefense(baseDefense)
+    setDraftSpecialAttack(baseSpecialAttack)
+    setDraftSpecialDefense(baseSpecialDefense)
+    setDraftSpeed(baseSpeed)
     setError(null)
     setPendingClassChange(false)
     setIsEditing(true)
@@ -305,6 +363,11 @@ export function TrainerInfoSection({
       classId: draftClassId,
       level: draftLevel,
       originId: draftOriginId,
+      attack: draftAttack,
+      defense: draftDefense,
+      specialAttack: draftSpecialAttack,
+      specialDefense: draftSpecialDefense,
+      speed: draftSpeed,
     })
     if ('error' in result) {
       setError(result.error)
@@ -396,6 +459,58 @@ export function TrainerInfoSection({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              {/* [[Feature - Let a GM edit a Trainer's base stats]] */}
+              <div>
+                <p className="font-semibold">Base stats</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="flex flex-col gap-1">
+                    Attack
+                    <input
+                      type="number"
+                      value={draftAttack}
+                      onChange={(e) => setDraftAttack(Math.max(0, Number(e.target.value)))}
+                      className="bg-surface-subtle rounded border p-2"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    Defense
+                    <input
+                      type="number"
+                      value={draftDefense}
+                      onChange={(e) => setDraftDefense(Math.max(0, Number(e.target.value)))}
+                      className="bg-surface-subtle rounded border p-2"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    Special Attack
+                    <input
+                      type="number"
+                      value={draftSpecialAttack}
+                      onChange={(e) => setDraftSpecialAttack(Math.max(0, Number(e.target.value)))}
+                      className="bg-surface-subtle rounded border p-2"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    Special Defense
+                    <input
+                      type="number"
+                      value={draftSpecialDefense}
+                      onChange={(e) => setDraftSpecialDefense(Math.max(0, Number(e.target.value)))}
+                      className="bg-surface-subtle rounded border p-2"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    Speed
+                    <input
+                      type="number"
+                      value={draftSpeed}
+                      onChange={(e) => setDraftSpeed(Math.max(0, Number(e.target.value)))}
+                      className="bg-surface-subtle rounded border p-2"
+                    />
+                  </label>
+                </div>
               </div>
             </>
           ) : (

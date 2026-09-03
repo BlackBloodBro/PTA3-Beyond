@@ -188,6 +188,14 @@ export type TrainerInfoSnapshot = {
   specialAttack: number
   specialDefense: number
   speed: number
+  // [[Feature - Let a GM edit a Trainer's base stats]]: the raw base_* values, distinct from the
+  // effective attack/defense/etc. above -- the client's edit form drafts from and writes back to these,
+  // never the effective ones (see TrainerInteractive.tsx for why).
+  baseAttack: number
+  baseDefense: number
+  baseSpecialAttack: number
+  baseSpecialDefense: number
+  baseSpeed: number
   advancedClasses: TrainerAdvancedClass[]
   activeFeatures: TrainerFeature[]
   passiveFeatures: TrainerFeature[]
@@ -218,6 +226,11 @@ export async function updateTrainerInfo(
     classId: number
     level: number
     originId: number
+    attack: number
+    defense: number
+    specialAttack: number
+    specialDefense: number
+    speed: number
   },
 ): Promise<{ error: string } | TrainerInfoSnapshot> {
   const supabase = await createClient()
@@ -231,7 +244,9 @@ export async function updateTrainerInfo(
 
   const { data: current } = await supabase
     .from('trainers')
-    .select('current_hp, user_id, level, class_id, origin_id, campaign_id, campaigns(gm_user_id)')
+    .select(
+      'current_hp, user_id, level, class_id, origin_id, campaign_id, campaigns(gm_user_id), base_attack, base_defense, base_special_attack, base_special_defense, base_speed',
+    )
     .eq('id', trainerId)
     .single()
 
@@ -260,6 +275,16 @@ export async function updateTrainerInfo(
   const level = Math.max(1, Math.floor(input.level))
   const classId = canEditGmTier ? input.classId : current.class_id
   const originId = canEditGmTier ? input.originId : current.origin_id
+
+  // [[Feature - Let a GM edit a Trainer's base stats]]: same GM-tier gate as Class/Origin -- direct
+  // replacement of the already-raw base_* columns (no species template to layer a bonus on top of,
+  // unlike Pokemon's bonus_base_x). Floored at 0 -- these are absolute stat values, not a signed bonus.
+  const clampStat = (n: number) => Math.max(0, Math.floor(n))
+  const attack = canEditGmTier ? clampStat(input.attack) : current.base_attack
+  const defense = canEditGmTier ? clampStat(input.defense) : current.base_defense
+  const specialAttack = canEditGmTier ? clampStat(input.specialAttack) : current.base_special_attack
+  const specialDefense = canEditGmTier ? clampStat(input.specialDefense) : current.base_special_defense
+  const speed = canEditGmTier ? clampStat(input.speed) : current.base_speed
 
   // [[Class can't be edited when editing subclass or level]]: a milestone under the old Class doesn't
   // carry over -- the Trainer re-resolves Stats/Subclass/Talent fresh at each qualifying level under
@@ -298,6 +323,11 @@ export async function updateTrainerInfo(
       class_id: classId,
       origin_id: originId,
       current_hp: currentHp,
+      base_attack: attack,
+      base_defense: defense,
+      base_special_attack: specialAttack,
+      base_special_defense: specialDefense,
+      base_speed: speed,
     })
     .eq('id', trainerId)
 
@@ -360,6 +390,11 @@ export async function updateTrainerInfo(
     specialAttack: effectiveStats.special_attack,
     specialDefense: effectiveStats.special_defense,
     speed: effectiveStats.speed,
+    baseAttack: updated.base_attack,
+    baseDefense: updated.base_defense,
+    baseSpecialAttack: updated.base_special_attack,
+    baseSpecialDefense: updated.base_special_defense,
+    baseSpeed: updated.base_speed,
     advancedClasses,
     activeFeatures,
     passiveFeatures,
@@ -667,6 +702,11 @@ async function buildClassBuilderSnapshot(supabase: SupabaseClient, trainerId: st
     specialAttack: effectiveStats.special_attack,
     specialDefense: effectiveStats.special_defense,
     speed: effectiveStats.speed,
+    baseAttack: updated.base_attack,
+    baseDefense: updated.base_defense,
+    baseSpecialAttack: updated.base_special_attack,
+    baseSpecialDefense: updated.base_special_defense,
+    baseSpeed: updated.base_speed,
     advancedClasses,
     activeFeatures,
     passiveFeatures,

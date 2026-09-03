@@ -142,6 +142,7 @@ export default async function NpcBuildPage({
         initialTemporaryHp={trainer.temporary_hp}
         initialMaxHp={maxHp}
         initialStats={effectiveStats}
+        initialBaseStats={baseStats}
         initialAdvancedClasses={advancedClasses}
         initialActiveFeatures={activeFeatures}
         initialPassiveFeatures={passiveFeatures}

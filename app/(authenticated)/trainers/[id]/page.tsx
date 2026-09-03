@@ -242,6 +242,7 @@ export default async function TrainerPage({
         initialTemporaryHp={trainer.temporary_hp}
         initialMaxHp={maxHp}
         initialStats={effectiveStats}
+        initialBaseStats={baseStats}
         initialAdvancedClasses={advancedClasses}
         initialActiveFeatures={activeFeatures}
         initialPassiveFeatures={passiveFeatures}
