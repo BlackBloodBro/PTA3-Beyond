@@ -502,15 +502,24 @@ export default async function PokemonPage({
           speed: pokemon.ev_speed,
         }}
         species={{
-          // [[Let a GM override a Pokemon's individual base stats]]: additive, always applied --
-          // an effective base stat is species.base_x + pokemon.bonus_base_x, baked in once here so
-          // every downstream consumer (computeStatRows, the Stats section's maxHp) needs no changes.
+          // [[Let a GM override a Pokemon's individual base stats]]: HP's own bonus stays folded
+          // in here (maxHp = species.base_hp + evs.hp * 6, no breakdown tooltip line to feed) --
+          // unchanged. The other 5 stats now pass their bonus_base_x separately via `statBonuses`
+          // below instead of folding it into `base_x`, per the user (2026-09-04): the Stats
+          // tooltip needs to show it as its own line, not silently merged into "Base".
           base_hp: species.base_hp + pokemon.bonus_base_hp,
-          base_atk: species.base_atk + pokemon.bonus_base_atk,
-          base_def: species.base_def + pokemon.bonus_base_def,
-          base_sp_atk: species.base_sp_atk + pokemon.bonus_base_sp_atk,
-          base_sp_def: species.base_sp_def + pokemon.bonus_base_sp_def,
-          base_speed: species.base_speed + pokemon.bonus_base_speed,
+          base_atk: species.base_atk,
+          base_def: species.base_def,
+          base_sp_atk: species.base_sp_atk,
+          base_sp_def: species.base_sp_def,
+          base_speed: species.base_speed,
+        }}
+        statBonuses={{
+          attack: pokemon.bonus_base_atk,
+          defense: pokemon.bonus_base_def,
+          special_attack: pokemon.bonus_base_sp_atk,
+          special_defense: pokemon.bonus_base_sp_def,
+          speed: pokemon.bonus_base_speed,
         }}
         natureIncreasedName={pokemon.nature?.increased?.name ?? null}
         natureDecreasedName={pokemon.nature?.decreased?.name ?? null}

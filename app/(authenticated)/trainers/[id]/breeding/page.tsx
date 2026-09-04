@@ -2,7 +2,8 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
-import { trainerHasBaseClassFeature, type BreedingCandidate } from '@/lib/pta3/breeding'
+import type { BreedingCandidate } from '@/lib/pta3/breeding'
+import { trainerHasBaseClassFeature } from '@/lib/pta3/trainerFeatures'
 import { BreedingBoard } from '@/app/(authenticated)/breeding/BreedingBoard'
 
 // [[Feature - Add a Pokemon Breeding Check mechanic]]: a campaign-less Trainer has no Campaign roster

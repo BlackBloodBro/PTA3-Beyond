@@ -107,6 +107,27 @@ export async function isMaxLoyalty(supabase: SupabaseClient, loyaltyPoints: numb
 
 export type EvolutionStoneBagItem = { trainersItemId: string; itemId: number; itemName: string; quantity: number }
 
+// [[Feature - Add a Pokemon Breeding Check mechanic]]: a bred Egg carries the FIRST species in the
+// chosen parent's evolution line, not that parent's own (possibly-evolved) species -- per the user
+// (2026-09-04), correcting the base mechanic's original "the mother's own species" rule. The base form
+// is whichever chain member has no incoming `evolution_triggers` edge (nothing evolves into it); a
+// species with no chain at all (evolutionChainId null) is trivially its own base. Falls back to the
+// given id if a chain is somehow missing its own base (shouldn't happen with real seeded data, but
+// this never invents a species to grant).
+export async function resolveBaseSpeciesId(supabase: SupabaseClient, pokedexId: number): Promise<number> {
+  const { data: species } = await supabase.from('pokedex').select('evolution_chain_id').eq('id', pokedexId).maybeSingle()
+  if (!species?.evolution_chain_id) return pokedexId
+
+  const { data: members } = await supabase.from('pokedex').select('id').eq('evolution_chain_id', species.evolution_chain_id)
+  const memberIds = (members ?? []).map((m) => m.id)
+  if (memberIds.length === 0) return pokedexId
+
+  const { data: incomingEdges } = await supabase.from('evolution_triggers').select('to_pokedex_id').in('to_pokedex_id', memberIds)
+  const hasIncoming = new Set((incomingEdges ?? []).map((e) => e.to_pokedex_id))
+
+  return memberIds.find((id) => !hasIncoming.has(id)) ?? pokedexId
+}
+
 // This Trainer's Bag rows for any of the 10 Evolution Stone catalog items -- lets the Pokemon page
 // show "Evolve using {stone}" only for stones the Trainer actually has, and gives the client the real
 // trainers_items row id evolvePokemon needs to consume one.

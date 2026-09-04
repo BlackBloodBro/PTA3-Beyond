@@ -12,6 +12,8 @@ import { computeLevelEligibleEvolutionSet } from '@/lib/pta3/evolution'
 import { MAX_TEAM_SIZE } from '@/lib/pta3/pokemonTeam'
 import { loadTrainerDerived, loadPendingMilestone, loadQualifyingMilestones, computeEffectiveStats, computeMaxHp } from '@/lib/pta3/trainerFeatures'
 import { loadTrainerSkillTalents } from '@/lib/pta3/skillTalents'
+import { loadEggSnapshot } from '@/lib/pta3/eggs'
+import { EggSection } from '@/app/(authenticated)/eggs/EggSection'
 import {
   TrainerStateProvider,
   TrainerNameHeading,
@@ -220,6 +222,8 @@ export default async function TrainerPage({
     .select('uses_remaining, resets_on, moves(name)')
     .eq('trainer_id', id)
 
+  const eggSnapshot = await loadEggSnapshot(supabase, id)
+
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-6xl">
@@ -324,6 +328,10 @@ export default async function TrainerPage({
               the trainer).
             </p>
           </section>
+
+          {(eggSnapshot.inProgress || eggSnapshot.availableEggs.length > 0) && (
+            <EggSection trainerId={id} initialSnapshot={eggSnapshot} />
+          )}
         </aside>
 
         <div className="flex flex-1 flex-col gap-4">

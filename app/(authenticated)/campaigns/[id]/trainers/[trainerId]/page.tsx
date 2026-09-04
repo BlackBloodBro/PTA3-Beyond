@@ -13,6 +13,8 @@ import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { loadTrainerDerived, loadPendingMilestone, loadQualifyingMilestones, computeEffectiveStats, computeMaxHp } from '@/lib/pta3/trainerFeatures'
 import { loadTrainerSkillTalents } from '@/lib/pta3/skillTalents'
+import { loadEggSnapshot } from '@/lib/pta3/eggs'
+import { EggSection } from '@/app/(authenticated)/eggs/EggSection'
 import {
   TrainerStateProvider,
   TrainerNameHeading,
@@ -222,6 +224,8 @@ export default async function CampaignTrainerPage({
     .select('uses_remaining, resets_on, moves(name)')
     .eq('trainer_id', id)
 
+  const eggSnapshot = await loadEggSnapshot(supabase, id)
+
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-6xl">
@@ -327,6 +331,10 @@ export default async function CampaignTrainerPage({
               the trainer).
             </p>
           </section>
+
+          {(eggSnapshot.inProgress || eggSnapshot.availableEggs.length > 0) && (
+            <EggSection trainerId={id} initialSnapshot={eggSnapshot} />
+          )}
         </aside>
 
         <div className="flex flex-1 flex-col gap-4">

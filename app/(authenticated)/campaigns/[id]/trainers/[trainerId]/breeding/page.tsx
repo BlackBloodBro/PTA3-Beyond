@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { loadCampaignBreedingCandidates, trainerHasBaseClassFeature } from '@/lib/pta3/breeding'
+import { loadCampaignBreedingCandidates } from '@/lib/pta3/breeding'
+import { trainerHasBaseClassFeature } from '@/lib/pta3/trainerFeatures'
 import { BreedingBoard } from '@/app/(authenticated)/breeding/BreedingBoard'
 
 // [[Feature - Add a Pokemon Breeding Check mechanic]]: reached from this Trainer's own page (not a
