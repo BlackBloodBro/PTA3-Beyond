@@ -42,15 +42,33 @@ export default async function TrainerBreedingPage({ params }: { params: Promise<
   const [{ data: pokemonRows }, { data: loyaltyRows }] = await Promise.all([
     supabase
       .from('trainers_pokemon')
-      .select('pokemon(id, nickname, gender, pokedex_id, loyalty_points, nature_id, pokedex(name))')
+      .select(
+        `
+        pokemon(
+          id, nickname, gender, pokedex_id, loyalty_points, nature_id,
+          pokedex(name, pokedex_egg_groups(egg_group_id)),
+          pokemon_afflictions(affliction_id)
+        )
+      `,
+      )
       .eq('trainer_id', id),
     supabase.from('loyalties').select('name, sort_order, min_points'),
   ])
 
   // Reverse-embed quirk documented throughout this codebase -- `pokemon` comes back as a single
-  // object at runtime here, not the array TS infers.
+  // object at runtime here, not the array TS infers. `pokedex_egg_groups`/`pokemon_afflictions` are
+  // genuinely one-to-many, so those really do come back as arrays.
   type Row = {
-    pokemon: { id: string; nickname: string | null; gender: string | null; pokedex_id: number; loyalty_points: number; nature_id: number | null; pokedex: { name: string } | null } | null
+    pokemon: {
+      id: string
+      nickname: string | null
+      gender: string | null
+      pokedex_id: number
+      loyalty_points: number
+      nature_id: number | null
+      pokedex: { name: string; pokedex_egg_groups: { egg_group_id: number }[] } | null
+      pokemon_afflictions: { affliction_id: number }[]
+    } | null
   }
 
   const candidates: BreedingCandidate[] = ((pokemonRows ?? []) as unknown as Row[])
@@ -68,11 +86,14 @@ export default async function TrainerBreedingPage({ params }: { params: Promise<
       trainerId: id,
       trainerName: trainer.name,
       trainerIsNpc: false,
+      eggGroupIds: (r.pokemon!.pokedex?.pokedex_egg_groups ?? []).map((g) => g.egg_group_id),
+      hasActiveAffliction: (r.pokemon!.pokemon_afflictions ?? []).length > 0,
     }))
 
-  const [hasUnexpectedHatch, hasEggFinder] = await Promise.all([
+  const [hasUnexpectedHatch, hasEggFinder, hasUnlikelyPairings] = await Promise.all([
     trainerHasBaseClassFeature(supabase, id, 'Unexpected Hatch'),
     trainerHasBaseClassFeature(supabase, id, 'Egg Finder'),
+    trainerHasBaseClassFeature(supabase, id, 'Unlikely Pairings'),
   ])
 
   return (
@@ -94,6 +115,7 @@ export default async function TrainerBreedingPage({ params }: { params: Promise<
         candidates={candidates}
         hasUnexpectedHatch={hasUnexpectedHatch}
         hasEggFinder={hasEggFinder}
+        hasUnlikelyPairings={hasUnlikelyPairings}
       />
     </main>
   )

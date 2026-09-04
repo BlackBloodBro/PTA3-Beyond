@@ -11,6 +11,9 @@ export type BreedingCandidate = {
   trainerId: string
   trainerName: string
   trainerIsNpc: boolean
+  // [[Improvement - Only show eligible Pokemon in the Breeding picker]]
+  eggGroupIds: number[]
+  hasActiveAffliction: boolean
 }
 
 // [[Feature - Add a Pokemon Breeding Check mechanic]]: maps a Pokemon's current Loyalty tier
@@ -72,7 +75,11 @@ export async function loadCampaignBreedingCandidates(supabase: SupabaseClient, c
       .select(
         `
         trainer_id,
-        pokemon(id, nickname, gender, pokedex_id, loyalty_points, nature_id, pokedex(name)),
+        pokemon(
+          id, nickname, gender, pokedex_id, loyalty_points, nature_id,
+          pokedex(name, pokedex_egg_groups(egg_group_id)),
+          pokemon_afflictions(affliction_id)
+        ),
         trainers!inner(id, name, is_npc, campaign_id)
       `,
       )
@@ -83,9 +90,20 @@ export async function loadCampaignBreedingCandidates(supabase: SupabaseClient, c
 
   // Reverse/forward-embed quirk documented throughout this codebase -- `pokemon` and `trainers` both
   // come back as single objects at runtime here, not the arrays TS infers from a plural table name.
+  // `pokedex_egg_groups`/`pokemon_afflictions` are genuinely one-to-many, so those really do come back
+  // as arrays (no cast needed for them specifically).
   type Row = {
     trainer_id: string
-    pokemon: { id: string; nickname: string | null; gender: string | null; pokedex_id: number; loyalty_points: number; nature_id: number | null; pokedex: { name: string } | null } | null
+    pokemon: {
+      id: string
+      nickname: string | null
+      gender: string | null
+      pokedex_id: number
+      loyalty_points: number
+      nature_id: number | null
+      pokedex: { name: string; pokedex_egg_groups: { egg_group_id: number }[] } | null
+      pokemon_afflictions: { affliction_id: number }[]
+    } | null
     trainers: { id: string; name: string; is_npc: boolean; campaign_id: string | null } | null
   }
 
@@ -101,5 +119,7 @@ export async function loadCampaignBreedingCandidates(supabase: SupabaseClient, c
       trainerId: r.trainers!.id,
       trainerName: r.trainers!.name,
       trainerIsNpc: r.trainers!.is_npc,
+      eggGroupIds: (r.pokemon!.pokedex?.pokedex_egg_groups ?? []).map((g) => g.egg_group_id),
+      hasActiveAffliction: (r.pokemon!.pokemon_afflictions ?? []).length > 0,
     }))
 }

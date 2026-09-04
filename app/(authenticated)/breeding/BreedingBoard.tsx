@@ -6,16 +6,32 @@ import { breedingTargetNumber, type BreedingCandidate } from '@/lib/pta3/breedin
 
 export type { BreedingCandidate }
 
+// [[Improvement - Only show eligible Pokemon in the Breeding picker]]: Affliction is an unconditional
+// exclusion (no partner makes an afflicted Pokemon eligible), checked once, not per-pair. Gender/Egg
+// Group are pairwise -- only meaningful once a specific other Pokemon is in the picture.
+function isOppositeGender(a: string | null, b: string | null): boolean {
+  return (a === 'male' && b === 'female') || (a === 'female' && b === 'male')
+}
+
+function canPairWith(candidate: BreedingCandidate, other: BreedingCandidate, hasUnlikelyPairings: boolean): boolean {
+  if (!isOppositeGender(candidate.gender, other.gender)) return false
+  if (hasUnlikelyPairings) return true
+  return candidate.eggGroupIds.some((id) => other.eggGroupIds.includes(id))
+}
+
 // [[Feature - Add a Pokemon Breeding Check mechanic]]: picks two Pokemon (either from the whole
 // Campaign's player Trainers, or -- when `campaignId` is null -- just the one campaign-less Trainer's
 // own Pokemon), previews the computed target number live (reusing the same pure formula the server
 // re-validates against -- see lib/pta3/breeding.ts), then submits a physically-rolled d100 result.
 // `candidates` never includes NPC-owned Pokemon at all -- per the user (2026-09-03), a player Trainer
 // can't select one for now; that's excluded at the query level (loadCampaignBreedingCandidates), not
-// filtered here, since a real flow for picking an NPC's Pokemon is being designed separately. Also
-// deliberately doesn't pre-filter the two <select>s to only-eligible pairs -- the server is the real
-// authority on every other gate (gender/egg group/afflictions/ownership/campaign), and surfaces a clear
-// error for an ineligible pair rather than this component silently guessing at the same rules twice.
+// filtered here, since a real flow for picking an NPC's Pokemon is being designed separately.
+//
+// [[Improvement - Only show eligible Pokemon in the Breeding picker]] (2026-09-05): the two `<select>`s
+// now pre-filter to only-eligible pairs after all -- afflicted Pokemon are dropped from both lists
+// entirely, and once one side is picked, the other list narrows to opposite-gender/shared-Egg-Group
+// candidates (or just opposite-gender if the initiating Trainer has Unlikely Pairings). Server-side
+// validation in `attemptBreedingCheck` is untouched -- this only narrows what the UI *offers*.
 export function BreedingBoard({
   campaignId,
   initiatingTrainerId,
@@ -23,6 +39,7 @@ export function BreedingBoard({
   candidates,
   hasUnexpectedHatch,
   hasEggFinder,
+  hasUnlikelyPairings,
 }: {
   campaignId: string | null
   initiatingTrainerId: string
@@ -30,6 +47,7 @@ export function BreedingBoard({
   candidates: BreedingCandidate[]
   hasUnexpectedHatch: boolean
   hasEggFinder: boolean
+  hasUnlikelyPairings: boolean
 }) {
   const [pokemonAId, setPokemonAId] = useState('')
   const [pokemonBId, setPokemonBId] = useState('')
@@ -39,8 +57,19 @@ export function BreedingBoard({
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  const pokemonA = candidates.find((c) => c.id === pokemonAId) ?? null
-  const pokemonB = candidates.find((c) => c.id === pokemonBId) ?? null
+  const eligibleCandidates = useMemo(() => candidates.filter((c) => !c.hasActiveAffliction), [candidates])
+
+  const pokemonA = eligibleCandidates.find((c) => c.id === pokemonAId) ?? null
+  const pokemonB = eligibleCandidates.find((c) => c.id === pokemonBId) ?? null
+
+  const optionsForA = useMemo(
+    () => eligibleCandidates.filter((c) => c.id !== pokemonBId && (!pokemonB || canPairWith(c, pokemonB, hasUnlikelyPairings))),
+    [eligibleCandidates, pokemonBId, pokemonB, hasUnlikelyPairings],
+  )
+  const optionsForB = useMemo(
+    () => eligibleCandidates.filter((c) => c.id !== pokemonAId && (!pokemonA || canPairWith(c, pokemonA, hasUnlikelyPairings))),
+    [eligibleCandidates, pokemonAId, pokemonA, hasUnlikelyPairings],
+  )
 
   const targetNumber = useMemo(() => {
     if (!pokemonA || !pokemonB) return null
@@ -60,6 +89,26 @@ export function BreedingBoard({
   function reset() {
     setResult(null)
     setError(null)
+  }
+
+  // Picking a new A can invalidate an already-picked B (and vice versa) -- cleared rather than left
+  // showing an impossible pairing silently selected.
+  function handlePickA(id: string) {
+    setPokemonAId(id)
+    const newA = eligibleCandidates.find((c) => c.id === id) ?? null
+    if (newA && pokemonB && !canPairWith(pokemonB, newA, hasUnlikelyPairings)) {
+      setPokemonBId('')
+    }
+    reset()
+  }
+
+  function handlePickB(id: string) {
+    setPokemonBId(id)
+    const newB = eligibleCandidates.find((c) => c.id === id) ?? null
+    if (newB && pokemonA && !canPairWith(pokemonA, newB, hasUnlikelyPairings)) {
+      setPokemonAId('')
+    }
+    reset()
   }
 
   async function handleRoll() {
@@ -98,23 +147,13 @@ export function BreedingBoard({
         <label htmlFor="pokemonA" className="font-semibold">
           Pokémon A
         </label>
-        <select
-          id="pokemonA"
-          value={pokemonAId}
-          onChange={(e) => {
-            setPokemonAId(e.target.value)
-            reset()
-          }}
-          className="bg-surface-subtle rounded border p-2"
-        >
+        <select id="pokemonA" value={pokemonAId} onChange={(e) => handlePickA(e.target.value)} className="bg-surface-subtle rounded border p-2">
           <option value="">Select...</option>
-          {candidates
-            .filter((c) => c.id !== pokemonBId)
-            .map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.speciesName}, {c.gender ?? 'unknown'}) — {c.trainerName}
-              </option>
-            ))}
+          {optionsForA.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} ({c.speciesName}, {c.gender ?? 'unknown'}) — {c.trainerName}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -122,23 +161,13 @@ export function BreedingBoard({
         <label htmlFor="pokemonB" className="font-semibold">
           Pokémon B
         </label>
-        <select
-          id="pokemonB"
-          value={pokemonBId}
-          onChange={(e) => {
-            setPokemonBId(e.target.value)
-            reset()
-          }}
-          className="bg-surface-subtle rounded border p-2"
-        >
+        <select id="pokemonB" value={pokemonBId} onChange={(e) => handlePickB(e.target.value)} className="bg-surface-subtle rounded border p-2">
           <option value="">Select...</option>
-          {candidates
-            .filter((c) => c.id !== pokemonAId)
-            .map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.speciesName}, {c.gender ?? 'unknown'}) — {c.trainerName}
-              </option>
-            ))}
+          {optionsForB.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} ({c.speciesName}, {c.gender ?? 'unknown'}) — {c.trainerName}
+            </option>
+          ))}
         </select>
       </div>
 
