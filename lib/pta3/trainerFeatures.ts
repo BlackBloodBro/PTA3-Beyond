@@ -62,6 +62,26 @@ const ADVANCED_CLASS_MILESTONE_NAME = 'stat increase and advanced class'
 // the moment level rises back to 7+ -- no separate undo/redo bookkeeping needed, since the row itself
 // never moves. This is what makes stats/advanced-classes/max-HP "foolproof" against level-down: they
 // are never stored as a running total, only ever recomputed from this list.
+// [[Feature - Apply unconditional Class Feature stat bonuses]]'s own established pattern: check a
+// Trainer's resolved base-Class Features by name (class_id + level_required <= level), not a stored
+// flag. Only ever base-Class Features here (subclass_id null). Originally lived in lib/pta3/breeding.ts
+// (its first caller); moved here once a second, unrelated caller ([[Feature - Add Egg hatching logic]])
+// needed the exact same check for Hatcher, since it's a general Class-Feature helper, not a
+// Breeding-specific one.
+export async function trainerHasBaseClassFeature(supabase: SupabaseClient, trainerId: string, featureName: string): Promise<boolean> {
+  const { data: trainer } = await supabase.from('trainers').select('class_id, level').eq('id', trainerId).maybeSingle()
+  if (!trainer) return false
+  const { data: feature } = await supabase
+    .from('features')
+    .select('id')
+    .eq('class_id', trainer.class_id)
+    .is('subclass_id', null)
+    .eq('name', featureName)
+    .lte('level_required', trainer.level)
+    .maybeSingle()
+  return !!feature
+}
+
 export async function loadQualifyingMilestones(
   supabase: SupabaseClient,
   trainerId: string,

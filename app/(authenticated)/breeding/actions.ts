@@ -3,8 +3,10 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { grantItem } from '@/app/(authenticated)/trainers/[id]/bag/actions'
-import { breedingTargetNumber, trainerHasBaseClassFeature, type FriendshipContext } from '@/lib/pta3/breeding'
+import { breedingTargetNumber, type FriendshipContext } from '@/lib/pta3/breeding'
 import { computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
+import { trainerHasBaseClassFeature } from '@/lib/pta3/trainerFeatures'
+import { resolveBaseSpeciesId } from '@/lib/pta3/evolution'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -171,12 +173,15 @@ export async function attemptBreedingCheck(
     return { success: false, targetNumber, roll: clampedRoll }
   }
 
-  // Species: the mother's (female parent's) by default -- Unexpected Hatch's coin flip can swap to
-  // the father's instead, only ever consulted when that Feature is actually resolved.
+  // Species: the FIRST species in the mother's (female parent's) evolution line by default --
+  // Unexpected Hatch's coin flip can swap to the father's line instead, only ever consulted when that
+  // Feature is actually resolved. Corrected 2026-09-04, per the user: an Egg from an evolved parent
+  // should still hatch into the base form of that line, not the parent's own (possibly-evolved) species.
   const mother = a.gender === 'female' ? a : b
   const father = a.gender === 'female' ? b : a
   const hasUnexpectedHatch = await trainerHasBaseClassFeature(supabase, initiatingTrainerId, 'Unexpected Hatch')
-  const eggPokedexId = hasUnexpectedHatch && coinFlipHeads ? father.pokedexId : mother.pokedexId
+  const chosenParentPokedexId = hasUnexpectedHatch && coinFlipHeads ? father.pokedexId : mother.pokedexId
+  const eggPokedexId = await resolveBaseSpeciesId(supabase, chosenParentPokedexId)
 
   // Nature: randomly one of the two parents' own natures -- not stated as a player-rolled mechanic
   // (unlike the main check and Unexpected Hatch's own explicit coin flip), so resolved server-side.

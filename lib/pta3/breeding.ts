@@ -57,25 +57,6 @@ export function breedingTargetNumber(params: {
   )
 }
 
-// [[Feature - Apply unconditional Class Feature stat bonuses]]'s own established pattern: check a
-// Trainer's resolved base-Class Features by name (class_id + level_required <= level), not a stored
-// flag. Only ever base-Class Features here (subclass_id null) -- every Breeder Feature this mechanic
-// cares about (Egg Finder, Unexpected Hatch, Unlikely Pairings, Matchmaker) is base-Class, not
-// Subclass-gated.
-export async function trainerHasBaseClassFeature(supabase: SupabaseClient, trainerId: string, featureName: string): Promise<boolean> {
-  const { data: trainer } = await supabase.from('trainers').select('class_id, level').eq('id', trainerId).maybeSingle()
-  if (!trainer) return false
-  const { data: feature } = await supabase
-    .from('features')
-    .select('id')
-    .eq('class_id', trainer.class_id)
-    .is('subclass_id', null)
-    .eq('name', featureName)
-    .lte('level_required', trainer.level)
-    .maybeSingle()
-  return !!feature
-}
-
 // [[Feature - Add a Pokemon Breeding Check mechanic]]: every Pokemon belonging to a *player* Trainer in
 // a Campaign -- the breeding pool a Campaign Trainer picks from, shared by both the player-Trainer and
 // NPC "Breeding" page variants (same shape as BagBoard.tsx being shared across its own 3 page.tsx

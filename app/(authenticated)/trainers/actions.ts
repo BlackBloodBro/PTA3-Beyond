@@ -1039,6 +1039,20 @@ export async function restSleep(trainerId: string, formData: FormData) {
     }),
   )
 
+  // [[Feature - Add Egg hatching logic]]: Sleep only advances an in-progress Egg's progress, it
+  // doesn't auto-complete a hatch -- once sleeps_completed >= sleeps_required the Egg is "ready" but
+  // stays a pokemon_eggs row until the explicit Hatch action, matching this codebase's "explicit
+  // steps only, no silent surprises" convention. Clamped to sleeps_required -- per the user
+  // (2026-09-04), sleeping again after an Egg is already ready shouldn't push the count past its
+  // total (was showing "4 / 3 Sleeps").
+  const { data: inProgressEgg } = await supabase.from('pokemon_eggs').select('id, sleeps_completed, sleeps_required').eq('trainer_id', trainerId).maybeSingle()
+  if (inProgressEgg) {
+    await supabase
+      .from('pokemon_eggs')
+      .update({ sleeps_completed: Math.min(inProgressEgg.sleeps_required, inProgressEgg.sleeps_completed + 1) })
+      .eq('id', inProgressEgg.id)
+  }
+
   // Recharge any activatable feature whose uses reset on a rest -- deleting the trainer_feature_uses
   // row is enough, since its absence already reads as "at max_uses" everywhere it's displayed.
   const { data: restFeatures } = await supabase.from('features').select('id').eq('uses_reset_on', 'rest')
