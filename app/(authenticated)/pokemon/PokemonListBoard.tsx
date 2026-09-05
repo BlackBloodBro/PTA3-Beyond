@@ -25,14 +25,40 @@ export type PokemonListRow = {
   trainerIsNpc: boolean | null
   trainerCampaignId: string | null
   campaignId: string | null
+  // [[Improvement - Add additional filters to Pokemon overview]]: resolved server-side (covers a
+  // Trainer's Campaign even when this user isn't its GM, unlike assignableCampaigns) -- null when
+  // this Pokemon has no Campaign at all, via either its Trainer or its own pool tag.
+  campaignName: string | null
+}
+
+// A real campaign id (UUID) never collides with this sentinel, so it's safe as the "No campaign"
+// filter option's value.
+const NO_CAMPAIGN_VALUE = '__none__'
+
+// [[Improvement - Add additional filters to Pokemon overview]]: a Pokemon's "effective" Campaign is
+// its Trainer's Campaign once assigned, otherwise its own pool tag -- same precedence pokemonHref
+// already uses for routing.
+function effectiveCampaignId(p: PokemonListRow): string | null {
+  return p.trainerId !== null ? p.trainerCampaignId : p.campaignId
 }
 
 // Same client-side, no-URL-sync filtering approach as PcBoard.tsx -- copied verbatim
 // ([[Improve Pokemon overview search]]) so this list's filter behavior matches the PC's.
-function matchesFilters(p: PokemonListRow, searchText: string, typeId: string, levelMin: string, levelMax: string): boolean {
+// [[Improvement - Add additional filters to Pokemon overview]]: search now also matches the owning
+// Trainer's name; ownedFilter distinguishes an unassigned pool Pokemon ("Wild") from one assigned to
+// a Trainer ("Owned"); campaignFilter matches by id (including the NO_CAMPAIGN_VALUE sentinel).
+function matchesFilters(
+  p: PokemonListRow,
+  searchText: string,
+  typeId: string,
+  levelMin: string,
+  levelMax: string,
+  ownedFilter: string,
+  campaignFilter: string,
+): boolean {
   if (searchText) {
     const needle = searchText.toLowerCase()
-    const haystack = `${p.nickname ?? ''} ${p.speciesName ?? ''}`.toLowerCase()
+    const haystack = `${p.nickname ?? ''} ${p.speciesName ?? ''} ${p.trainerName ?? ''}`.toLowerCase()
     if (!haystack.includes(needle)) return false
   }
   if (typeId) {
@@ -41,6 +67,14 @@ function matchesFilters(p: PokemonListRow, searchText: string, typeId: string, l
   }
   if (levelMin && p.level < Number(levelMin)) return false
   if (levelMax && p.level > Number(levelMax)) return false
+  if (ownedFilter === 'wild' && p.trainerId !== null) return false
+  if (ownedFilter === 'owned' && p.trainerId === null) return false
+  const campaignId = effectiveCampaignId(p)
+  if (campaignFilter === NO_CAMPAIGN_VALUE) {
+    if (campaignId !== null) return false
+  } else if (campaignFilter && campaignId !== campaignFilter) {
+    return false
+  }
   return true
 }
 
@@ -59,10 +93,25 @@ export function PokemonListBoard({
   const [typeId, setTypeId] = useState('')
   const [levelMin, setLevelMin] = useState('')
   const [levelMax, setLevelMax] = useState('')
+  const [ownedFilter, setOwnedFilter] = useState('')
+  const [campaignFilter, setCampaignFilter] = useState('')
+
+  const typeNameById = useMemo(() => new Map(types.map((t) => [t.id, t.name])), [types])
+
+  // Options built from what's actually present among these Pokemon, not a full Campaigns fetch --
+  // only values that could ever actually match something are offered.
+  const campaignOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const p of pokemon) {
+      const id = effectiveCampaignId(p)
+      if (id && p.campaignName) byId.set(id, p.campaignName)
+    }
+    return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [pokemon])
 
   const filtered = useMemo(
-    () => pokemon.filter((p) => matchesFilters(p, searchText, typeId, levelMin, levelMax)),
-    [pokemon, searchText, typeId, levelMin, levelMax],
+    () => pokemon.filter((p) => matchesFilters(p, searchText, typeId, levelMin, levelMax, ownedFilter, campaignFilter)),
+    [pokemon, searchText, typeId, levelMin, levelMax, ownedFilter, campaignFilter],
   )
 
   return (
@@ -76,9 +125,39 @@ export function PokemonListBoard({
               type="text"
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Nickname or species"
+              placeholder="Nickname, species, or trainer"
               className="bg-surface-subtle rounded border px-2 py-1"
             />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="pokemonOwned">Owned</label>
+            <select
+              id="pokemonOwned"
+              value={ownedFilter}
+              onChange={(e) => setOwnedFilter(e.target.value)}
+              className="bg-surface-subtle rounded border px-2 py-1"
+            >
+              <option value="">Any</option>
+              <option value="owned">Owned</option>
+              <option value="wild">Wild</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="pokemonCampaign">Campaign</label>
+            <select
+              id="pokemonCampaign"
+              value={campaignFilter}
+              onChange={(e) => setCampaignFilter(e.target.value)}
+              className="bg-surface-subtle rounded border px-2 py-1"
+            >
+              <option value="">Any campaign</option>
+              <option value={NO_CAMPAIGN_VALUE}>No campaign</option>
+              {campaignOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="pokemonType">Type</label>
@@ -154,6 +233,21 @@ export function PokemonListBoard({
                 </ConfirmButton>
               </form>
             </div>
+
+            {/* [[Improvement - Add additional filters to Pokemon overview]]: Type badge(s) (same
+                small-pill style used elsewhere, e.g. PokemonInteractive.tsx's move-type badges) and
+                Campaign name, when this Pokemon actually has one. */}
+            {(p.type1Id !== null || p.campaignName) && (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                {p.type1Id !== null && (
+                  <span className="rounded bg-surface-muted px-1.5 py-0.5">{typeNameById.get(p.type1Id) ?? p.type1Id}</span>
+                )}
+                {p.type2Id !== null && (
+                  <span className="rounded bg-surface-muted px-1.5 py-0.5">{typeNameById.get(p.type2Id) ?? p.type2Id}</span>
+                )}
+                {p.campaignName && <span className="text-muted">{p.campaignName}</span>}
+              </div>
+            )}
 
             <PokemonAssignmentPanel
               pokemonId={p.id}
