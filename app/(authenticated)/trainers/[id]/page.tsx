@@ -280,7 +280,7 @@ export default async function TrainerPage({
             Breeding
           </Link>
           {isOwner && (
-            <form action={deleteTrainer.bind(null, id)}>
+            <form action={deleteTrainer.bind(null, id, undefined)}>
               <ConfirmButton
                 confirmMessage={`Permanently delete ${trainer.name}? This cannot be undone.`}
                 className="rounded border border-danger px-4 py-2 text-sm text-danger"
