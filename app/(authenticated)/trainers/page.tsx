@@ -23,14 +23,15 @@ export default async function TrainersPage({
     supabase.from('campaign_members').select('campaigns(id, name)').eq('user_id', user.id).order('joined_at', { ascending: false }),
     // Yours only -- every row here has a Delete/campaign-assignment control, so this needs to
     // actually mean "my trainers," not the broader set RLS alone would return. The campaign page
-    // is still where the full party roster lives. is_npc = false keeps any trainer you've
-    // converted into an NPC out of here too -- once converted it's managed from that campaign's
-    // own NPC page instead, same reasoning as excluding NPCs from the campaign page's Players list.
+    // is still where the full party roster lives.
+    // [[Improvement - Inconsistency with Trainers vs Pokemon]]: used to also filter out is_npc
+    // rows entirely (an NPC only ever showed up under its Campaign's own NPC page), while an NPC's
+    // Pokemon had no equivalent exclusion from the Pokemon list -- a real asymmetry. Now includes
+    // NPCs too, rendered in their own section by TrainerListBoard.
     supabase
       .from('trainers')
-      .select('id, name, level, classes(name), origins(name), campaign_id, campaigns(name)')
+      .select('id, name, level, classes(name), origins(name), campaign_id, campaigns(name), is_npc')
       .eq('user_id', user.id)
-      .eq('is_npc', false)
       .order('created_at', { ascending: false }),
     // Just for the per-trainer Pokemon count shown in the delete confirmation.
     supabase.from('trainers_pokemon').select('trainer_id, trainers!inner(user_id)').eq('trainers.user_id', user.id),
@@ -58,6 +59,7 @@ export default async function TrainersPage({
     campaignId: t.campaign_id,
     campaignName: t.campaigns?.name ?? null,
     pokemonCount: pokemonCountByTrainer.get(t.id) ?? 0,
+    isNpc: t.is_npc,
   }))
 
   return (
