@@ -16,6 +16,7 @@ export type TrainerListRow = {
   campaignId: string | null
   campaignName: string | null
   pokemonCount: number
+  isNpc: boolean
 }
 
 // Client-side filtering over the full list, no URL sync -- same PcBoard.tsx pattern used elsewhere,
@@ -28,6 +29,37 @@ function matchesSearch(t: TrainerListRow, searchText: string): boolean {
   return haystack.includes(needle)
 }
 
+function TrainerRow({ t, assignableCampaigns }: { t: TrainerListRow; assignableCampaigns: { id: string; name: string }[] }) {
+  return (
+    <div className="rounded border-accent bg-accent/10 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <Link href={trainerHref({ id: t.id, is_npc: t.isNpc, campaign_id: t.campaignId })} className="text-lg font-semibold underline">
+          {t.name}
+        </Link>
+        <form action={deleteTrainer.bind(null, t.id)}>
+          <ConfirmButton
+            confirmMessage={`Permanently delete ${t.name}? This cannot be undone.${
+              t.pokemonCount > 0 ? ` Their ${t.pokemonCount} Pokémon will become unassigned, not deleted.` : ''
+            }`}
+            className="rounded border border-danger px-3 py-1 text-sm text-danger"
+          >
+            Delete
+          </ConfirmButton>
+        </form>
+      </div>
+      <p className="text-sm text-muted">
+        Level {t.level} {t.className} — {t.originName}
+      </p>
+      <TrainerCampaignControl
+        trainerId={t.id}
+        initialCampaignId={t.campaignId}
+        initialCampaignName={t.campaignName}
+        assignableCampaigns={assignableCampaigns}
+      />
+    </div>
+  )
+}
+
 export function TrainerListBoard({
   trainers,
   assignableCampaigns,
@@ -38,6 +70,12 @@ export function TrainerListBoard({
   const [searchText, setSearchText] = useState('')
 
   const filtered = useMemo(() => trainers.filter((t) => matchesSearch(t, searchText)), [trainers, searchText])
+  // [[Improvement - Inconsistency with Trainers vs Pokemon]]: NPCs (owned by this GM, same as any
+  // Wild Pokemon) now show up here too, per the user's resolved design -- in their own section
+  // rather than mixed into "Your Trainers", reusing the is_npc flag the row already carries.
+  const playerRows = useMemo(() => filtered.filter((t) => !t.isNpc), [filtered])
+  const npcRows = useMemo(() => filtered.filter((t) => t.isNpc), [filtered])
+  const hasAnyNpcs = trainers.some((t) => t.isNpc)
 
   return (
     <div className="flex w-full max-w-2xl flex-col gap-4">
@@ -63,34 +101,27 @@ export function TrainerListBoard({
       ) : filtered.length === 0 ? (
         <p className="text-sm text-muted">No trainers match.</p>
       ) : (
-        filtered.map((t) => (
-          <div key={t.id} className="rounded border-accent bg-accent/10 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <Link href={trainerHref({ id: t.id, is_npc: false, campaign_id: t.campaignId })} className="text-lg font-semibold underline">
-                {t.name}
-              </Link>
-              <form action={deleteTrainer.bind(null, t.id)}>
-                <ConfirmButton
-                  confirmMessage={`Permanently delete ${t.name}? This cannot be undone.${
-                    t.pokemonCount > 0 ? ` Their ${t.pokemonCount} Pokémon will become unassigned, not deleted.` : ''
-                  }`}
-                  className="rounded border border-danger px-3 py-1 text-sm text-danger"
-                >
-                  Delete
-                </ConfirmButton>
-              </form>
-            </div>
-            <p className="text-sm text-muted">
-              Level {t.level} {t.className} — {t.originName}
-            </p>
-            <TrainerCampaignControl
-              trainerId={t.id}
-              initialCampaignId={t.campaignId}
-              initialCampaignName={t.campaignName}
-              assignableCampaigns={assignableCampaigns}
-            />
+        <>
+          <div className="flex flex-col gap-4">
+            {hasAnyNpcs && <h2 className="font-semibold">Your Trainers</h2>}
+            {playerRows.length === 0 ? (
+              hasAnyNpcs && <p className="text-sm text-muted">No trainers match.</p>
+            ) : (
+              playerRows.map((t) => <TrainerRow key={t.id} t={t} assignableCampaigns={assignableCampaigns} />)
+            )}
           </div>
-        ))
+
+          {hasAnyNpcs && (
+            <div className="flex flex-col gap-4">
+              <h2 className="font-semibold">Your NPCs</h2>
+              {npcRows.length === 0 ? (
+                <p className="text-sm text-muted">No NPCs match.</p>
+              ) : (
+                npcRows.map((t) => <TrainerRow key={t.id} t={t} assignableCampaigns={assignableCampaigns} />)
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
