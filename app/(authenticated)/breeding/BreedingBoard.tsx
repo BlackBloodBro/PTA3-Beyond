@@ -193,10 +193,22 @@ export function BreedingBoard({
       </div>
 
       {hasUnexpectedHatch && (
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={coinFlipHeads} onChange={(e) => setCoinFlipHeads(e.target.checked)} />
-          Unexpected Hatch: coin flip landed Heads (father&apos;s species instead, only used if the check succeeds)
-        </label>
+        <div className="flex items-center gap-2">
+          {/* [[Breeder - Level 05 - Unexpected Hatch]]: styled to match the Moves section's own
+              checkbox-like use buttons (PokemonInteractive.tsx), not a native <input type="checkbox">. */}
+          <button
+            type="button"
+            onClick={() => setCoinFlipHeads(!coinFlipHeads)}
+            aria-pressed={coinFlipHeads}
+            aria-label={coinFlipHeads ? 'Coin flip landed Heads' : 'Coin flip landed Tails'}
+            className={`flex h-5 w-5 items-center justify-center rounded border text-xs leading-none ${
+              coinFlipHeads ? 'border-accent bg-accent text-accent-foreground' : 'border text-transparent'
+            }`}
+          >
+            ✓
+          </button>
+          <span>Unexpected Hatch: Check this for a chance to breed the father&apos;s species (50%)</span>
+        </div>
       )}
 
       {targetNumber !== null && (
