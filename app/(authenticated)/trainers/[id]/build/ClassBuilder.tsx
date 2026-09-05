@@ -463,17 +463,25 @@ export function ClassBuilder({
             <fieldset className="mb-3 flex flex-col gap-2 rounded border p-3 text-sm">
               <legend className="px-1 font-medium">Class Skill Talents (choose 2)</legend>
               <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {classSkillOptions.map((s) => (
-                  <label key={s.id} className="flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={classTalentSkillIds.has(s.id)}
-                      disabled={!classTalentSkillIds.has(s.id) && classTalentSkillIds.size >= 2}
-                      onChange={() => toggleClassTalent(s.id)}
-                    />
-                    {s.name}
-                  </label>
-                ))}
+                {/* A Talent already at picked_count 2 (Expert) from other sources -- a Milestone, or
+                    the Origin picker below when the same skill is picked from both -- can't be picked
+                    a third time (applySkillTalentPicks' own cap), so it's excluded here entirely,
+                    same as AdvancedClassPicker.tsx's own heldSkillTalents filter -- unless it's this
+                    Trainer's own already-checked pick, which has to stay selectable to uncheck. */}
+                {classSkillOptions
+                  .filter((s) => (talents[s.id] ?? 0) < 2 || classTalentSkillIds.has(s.id))
+                  .map((s) => (
+                    <label key={s.id} className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={classTalentSkillIds.has(s.id)}
+                        disabled={!classTalentSkillIds.has(s.id) && classTalentSkillIds.size >= 2}
+                        onChange={() => toggleClassTalent(s.id)}
+                      />
+                      {s.name}
+                      {talents[s.id] === 1 ? ' (upgrades to Expert)' : ''}
+                    </label>
+                  ))}
               </div>
               <p className="text-xs text-muted">{classTalentSkillIds.size} / 2 picked</p>
             </fieldset>
@@ -486,17 +494,20 @@ export function ClassBuilder({
                 {currentOriginGroups.length > 1 ? ` -- group ${i + 1}` : ''})
               </legend>
               <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {group.skills.map((s) => (
-                  <label key={s.id} className="flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={originGroupPicks[i]?.has(s.id) ?? false}
-                      disabled={!(originGroupPicks[i]?.has(s.id) ?? false) && (originGroupPicks[i]?.size ?? 0) >= group.pickCount}
-                      onChange={() => toggleOriginTalent(i, group.pickCount, s.id)}
-                    />
-                    {s.name}
-                  </label>
-                ))}
+                {group.skills
+                  .filter((s) => (talents[s.id] ?? 0) < 2 || (originGroupPicks[i]?.has(s.id) ?? false))
+                  .map((s) => (
+                    <label key={s.id} className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={originGroupPicks[i]?.has(s.id) ?? false}
+                        disabled={!(originGroupPicks[i]?.has(s.id) ?? false) && (originGroupPicks[i]?.size ?? 0) >= group.pickCount}
+                        onChange={() => toggleOriginTalent(i, group.pickCount, s.id)}
+                      />
+                      {s.name}
+                      {talents[s.id] === 1 ? ' (upgrades to Expert)' : ''}
+                    </label>
+                  ))}
               </div>
               <p className="text-xs text-muted">
                 {originGroupPicks[i]?.size ?? 0} / {group.pickCount} picked
