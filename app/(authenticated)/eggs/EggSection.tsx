@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { startHatchingEgg, hatchEgg, previewNaturalEdgeHatch, type NaturalEdgePreview } from './actions'
+import { startHatchingEgg, hatchEgg, stopHatchingEgg, previewNaturalEdgeHatch, type NaturalEdgePreview } from './actions'
 import type { EggSnapshot } from '@/lib/pta3/eggs'
 import type { NaturalEdgeStatChoice } from '@/lib/pta3/eggHatching'
 
@@ -57,6 +57,28 @@ export function EggSection({ trainerId, initialSnapshot }: { trainerId: string; 
     await doHatch({ targetStat })
   }
 
+  // [[Feature - Add a 'Stop hatching' functionality for the hatching section]]: abandons the
+  // in-progress Egg (resetting its Sleep progress) and returns it to the Bag, so a different Egg can
+  // be started instead. Warns first, per the FR's own requirement -- this can't be undone.
+  async function handleStopHatching() {
+    if (!snapshot.inProgress) return
+    if (!window.confirm('Stop hatching this Egg? Progress made on it will be reset, and it will be returned to your Bag.')) {
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    const result = await stopHatchingEgg(trainerId)
+    setSubmitting(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setSnapshot(result)
+    setPreview(null)
+    setSelectedTrainersItemId(result.availableEggs[0]?.trainersItemId ?? '')
+    setMessage('Stopped hatching. The Egg is back in your Bag.')
+  }
+
   async function doHatch(naturalEdgeChoice: { targetStat: NaturalEdgeStatChoice } | null) {
     if (!snapshot.inProgress) return
     setSubmitting(true)
@@ -85,6 +107,14 @@ export function EggSection({ trainerId, initialSnapshot }: { trainerId: string; 
           <p>
             {snapshot.inProgress.speciesName} — {snapshot.inProgress.sleepsCompleted} / {snapshot.inProgress.sleepsRequired} Sleeps
           </p>
+          <button
+            type="button"
+            onClick={handleStopHatching}
+            disabled={submitting}
+            className="w-fit rounded border px-4 py-2 text-sm disabled:opacity-50"
+          >
+            Stop Hatching
+          </button>
           {snapshot.inProgress.ready ? (
             preview ? (
               <div className="flex flex-col gap-2">

@@ -47,7 +47,9 @@ async function requireAuthorizedTrainer(supabase: SupabaseClient, trainerId: str
 // existing row), capped at 1 total for non-stackable items rather than erroring -- a second copy of a
 // non-stackable item is simply a no-op, matching this app's "explicit steps only, no silent surprises"
 // philosophy without needing a dedicated error path for what's a fairly harmless click.
-async function addToBag(
+// Exported for [[Feature - Add a 'Stop hatching' functionality for the hatching section]]: reuses this
+// exact stacking logic to return a stopped Egg to the Bag, rather than duplicating it.
+export async function addToBag(
   supabase: SupabaseClient,
   trainerId: string,
   itemId: number,
