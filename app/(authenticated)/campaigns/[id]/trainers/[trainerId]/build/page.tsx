@@ -175,9 +175,14 @@ export default async function CampaignTrainerBuildPage({
         />
       </TrainerStateProvider>
 
+      {/* [[Bug - Creating a Trainer with a Campaign breaks starter creation]]: /starter is one
+          unified route regardless of campaign (trainers/[id]/starter/page.tsx scopes by
+          id + user_id only, no campaign segment) -- unlike bag/pc/breeding/build, which each have
+          their own campaign-scoped path. Using basePath here pointed at
+          /campaigns/[id]/trainers/[trainerId]/starter, which doesn't exist. */}
       {isOwner && !hasPokemon && (
         <div className="w-full max-w-3xl">
-          <Link href={`${basePath}/starter`} className="rounded bg-accent px-4 py-2 text-sm text-accent-foreground">
+          <Link href={`/trainers/${id}/starter`} className="rounded bg-accent px-4 py-2 text-sm text-accent-foreground">
             Continue to starter Pokémon
           </Link>
         </div>
