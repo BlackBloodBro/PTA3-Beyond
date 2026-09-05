@@ -1,5 +1,21 @@
 [
   {
+    "version": "1.1.1",
+    "date": "2026-09-05",
+    "entries": [
+      { "category": "feature", "summary": "Class and Origin Skill Talent picks can now be re-chosen after a Trainer is created, on their build page." },
+      { "category": "improve", "summary": "Editing a Trainer's Name, Class, Origin, and Base Stats now happens on their build page instead of an inline form, and a Campaign's GM can now also edit that Trainer's Name." },
+      { "category": "improve", "summary": "The Trainers overview now has Class, Origin, and Campaign filters." },
+      { "category": "improve", "summary": "The Pokémon overview now has Owned/Wild and Campaign filters, a Trainer-name search, and Type/Campaign badges on each card." },
+      { "category": "improve", "summary": "NPCs now show up on the Trainers overview, in their own \"Your NPCs\" section, instead of only under the campaign's own NPC page." },
+      { "category": "improve", "summary": "Adding a Trainer to a Campaign you GM (at creation or by reassignment) now defaults it to an NPC, with a checkbox to override for your own player character." },
+      { "category": "fix", "summary": "Fixed the Dashboard's Trainer count not including NPCs." },
+      { "category": "fix", "summary": "Fixed \"Continue to starter Pokémon\" giving an error for a Trainer created directly into a Campaign." },
+      { "category": "fix", "summary": "Fixed deleting an NPC from the Trainers overview sending you to that NPC's Campaign page instead of keeping you on the list." },
+      { "category": "fix", "summary": "Move damage now correctly drops to just the stat modifier (no dice) instead of understating the penalty when Effectiveness removes every die." }
+    ]
+  },
+  {
     "version": "1.1.0",
     "date": "2026-09-05",
     "title": "Eggs update",
