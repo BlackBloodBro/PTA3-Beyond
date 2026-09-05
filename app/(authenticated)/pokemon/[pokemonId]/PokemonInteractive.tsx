@@ -109,13 +109,16 @@ function effectivenessFor(
 }
 
 // A move's damage_dice is always "<count>d<sides>" (e.g. "2d6"). Effectiveness changes the dice
-// COUNT, not the modifier added to the roll -- floored at 1 die, since a move can't roll zero or
-// negative dice.
-function adjustDiceCount(diceNotation: string, delta: number) {
+// COUNT, not the modifier added to the roll -- floored at 0 ([[Bug - Effectiveness can remove all
+// Dice from a Damage roll]]: a low-dice move that's "Not effective" can lose every die, leaving only
+// the modifier, not silently keep a full die it should have lost). Returns null once there are no
+// dice left, so the caller can drop the dice notation entirely rather than display "0d10".
+function adjustDiceCount(diceNotation: string, delta: number): string | null {
   const match = diceNotation.match(/^(\d+)d(\d+)$/)
-  if (!match || delta === 0) return diceNotation
-  const count = Math.max(1, parseInt(match[1], 10) + delta)
-  return `${count}d${match[2]}`
+  if (!match) return diceNotation
+  if (delta === 0) return diceNotation
+  const count = Math.max(0, parseInt(match[1], 10) + delta)
+  return count === 0 ? null : `${count}d${match[2]}`
 }
 
 // Ephemeral, per-page "what am I fighting" reference -- plain local state, never persisted (see
@@ -1374,7 +1377,13 @@ export function MovesSection() {
                   <p className="text-sm">
                     Damage:{' '}
                     <ClickTooltip
-                      label={effectiveness?.immune ? 'Immune — 0 damage' : `${displayDice} ${damageModifier >= 0 ? '+' : ''}${damageModifier}`}
+                      label={
+                        effectiveness?.immune
+                          ? 'Immune — 0 damage'
+                          : displayDice
+                            ? `${displayDice} ${damageModifier >= 0 ? '+' : ''}${damageModifier}`
+                            : `${damageModifier >= 0 ? '+' : ''}${damageModifier}`
+                      }
                       tooltip={damageTitle!}
                     />
                   </p>
