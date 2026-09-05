@@ -9,7 +9,7 @@ import {
   computeEffectiveStats,
   computeMaxHp,
 } from '@/lib/pta3/trainerFeatures'
-import { loadTrainerSkillTalents } from '@/lib/pta3/skillTalents'
+import { loadTrainerSkillTalents, loadTrainerBaseSkillTalents, loadCreationSkillTalentOptions } from '@/lib/pta3/skillTalents'
 import { loadClassFavoredStats } from '@/lib/pta3/classFavoredStats'
 import { TrainerStateProvider, type StatBreakdown } from '@/app/(authenticated)/trainers/[id]/TrainerInteractive'
 import { ClassBuilder } from './ClassBuilder'
@@ -81,7 +81,10 @@ export default async function BuildPage({
     { hasPendingMilestone, nextMilestoneLevel },
     { data: skills },
     { data: classes },
+    { data: origins },
     skillTalents,
+    baseSkillTalents,
+    { classOptions: classTalentOptions, originGroups: originTalentGroups },
     classFavoredStats,
     builderData,
     { count: pokemonCount },
@@ -92,7 +95,12 @@ export default async function BuildPage({
     // [[Class can't be edited when editing subclass or level]]: lets the Class Builder page offer a
     // Class control too, not just Info's -- same picker, same option list.
     supabase.from('classes').select('id, name').order('name'),
+    // [[Improvement - Move Trainer editing (Name, Origin, Talents, Stats) to the build page]]: the
+    // full Origins list, for the new Origin picker relocated here from the old Info card.
+    supabase.from('origins').select('id, name, lifestyle').order('name'),
     loadTrainerSkillTalents(supabase, id),
+    loadTrainerBaseSkillTalents(supabase, id),
+    loadCreationSkillTalentOptions(supabase),
     loadClassFavoredStats(supabase),
     loadClassBuilderData(supabase, id, {
       classId: trainer.class_id,
@@ -164,7 +172,13 @@ export default async function BuildPage({
         <ClassBuilder
           trainerId={id}
           classes={classes ?? []}
-          canEditClass={isOwner}
+          origins={origins ?? []}
+          canEditName={isOwner}
+          canEditGmTier={isOwner}
+          classTalentOptions={classTalentOptions}
+          originTalentGroups={originTalentGroups}
+          initialBaseClassSkillIds={baseSkillTalents.classSkillIds}
+          initialBaseOriginSkillIds={baseSkillTalents.originSkillIds}
           initialCards={builderData.cards}
           initialHigherLevelPreview={builderData.higherLevelPreview}
           statBreakdown={statBreakdown}

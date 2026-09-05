@@ -75,25 +75,25 @@ export async function loadTrainerSkillTalents(supabase: SupabaseClient, trainerI
   return new Map((data ?? []).map((r) => [r.skill_id, r.picked_count]))
 }
 
-// Shared validation for the creation-time picker (Class's flat 2-of-6 list + every one of the
-// chosen Origin's pick-groups) -- re-derives what's actually eligible server-side rather than
-// trusting the submitted ids, since a picker's own client-side caps can be bypassed. Returns the
-// flat list of skill ids to hand to applySkillTalentPicks, or an error message.
-export async function validateCreationSkillTalentPicks(
+// Shared validation for a Class's flat 2-of-6 pick plus every one of an Origin's pick-groups --
+// re-derives what's actually eligible server-side rather than trusting the submitted ids, since a
+// picker's own client-side caps can be bypassed. Used both at Trainer creation (validateCreation
+// SkillTalentPicks below) and by the build page's Talent re-pick action (updateTrainerSkillTalents,
+// app/trainers/actions.ts), which already has its picks as plain arrays rather than FormData.
+export async function validateSkillTalentPickSets(
   supabase: SupabaseClient,
   classId: number,
   originId: number,
-  formData: FormData,
+  classPicked: number[],
+  originPicked: number[],
 ): Promise<{ error: string } | { skillIds: number[] }> {
   const { classOptions, originGroups } = await loadCreationSkillTalentOptions(supabase)
 
-  const classPicked = formData.getAll('classTalentSkillIds').map(Number)
   const classEligible = new Set((classOptions[classId] ?? []).map((s) => s.id))
   if (classPicked.length !== 2 || new Set(classPicked).size !== 2 || !classPicked.every((id) => classEligible.has(id))) {
     return { error: 'Pick exactly 2 Class Skill Talents' }
   }
 
-  const originPicked = formData.getAll('originTalentSkillIds').map(Number)
   const groups = originGroups[originId] ?? []
   for (const group of groups) {
     const groupEligible = new Set(group.skills.map((s) => s.id))
@@ -108,6 +108,86 @@ export async function validateCreationSkillTalentPicks(
   }
 
   return { skillIds: [...classPicked, ...originPicked] }
+}
+
+// Thin FormData-reading wrapper around validateSkillTalentPickSets, kept separate so createTrainer's
+// call site doesn't have to know the two field names below.
+export async function validateCreationSkillTalentPicks(
+  supabase: SupabaseClient,
+  classId: number,
+  originId: number,
+  formData: FormData,
+): Promise<{ error: string } | { skillIds: number[] }> {
+  return validateSkillTalentPickSets(
+    supabase,
+    classId,
+    originId,
+    formData.getAll('classTalentSkillIds').map(Number),
+    formData.getAll('originTalentSkillIds').map(Number),
+  )
+}
+
+// [[Improvement - Move Trainer editing (Name, Origin, Talents, Stats) to the build page]]: a
+// Trainer's current base Class Talent picks (2) and base Origin Talent picks (however many groups
+// require), split by source -- distinct from loadTrainerSkillTalents' combined per-skill counts,
+// which can't tell a base pick apart from a milestone-granted one. Used to prefill the build page's
+// Talent re-pick section.
+export async function loadTrainerBaseSkillTalents(
+  supabase: SupabaseClient,
+  trainerId: string,
+): Promise<{ classSkillIds: number[]; originSkillIds: number[] }> {
+  const { data } = await supabase.from('trainer_base_skill_talents').select('skill_id, source').eq('trainer_id', trainerId)
+  const classSkillIds = (data ?? []).filter((r) => r.source === 'class').map((r) => r.skill_id)
+  const originSkillIds = (data ?? []).filter((r) => r.source === 'origin').map((r) => r.skill_id)
+  return { classSkillIds, originSkillIds }
+}
+
+// [[Improvement - Move Trainer editing (Name, Origin, Talents, Stats) to the build page]]: replaces
+// one source's (base Class or base Origin) tracked picks wholesale -- releases whichever previously-
+// tracked skill ids aren't in nextSkillIds (via removeSkillTalentPick) and applies whichever are new
+// (via applySkillTalentPicks), then rewrites trainer_base_skill_talents' rows for this source to match.
+// Passing an empty nextSkillIds releases every pick for that source without applying anything new --
+// how updateTrainerInfo forces a re-pick when Class or Origin actually changes.
+export async function replaceBaseSkillTalents(
+  supabase: SupabaseClient,
+  trainerId: string,
+  source: 'class' | 'origin',
+  nextSkillIds: number[],
+): Promise<{ error: string } | { ok: true }> {
+  const { data: existingRows } = await supabase
+    .from('trainer_base_skill_talents')
+    .select('skill_id')
+    .eq('trainer_id', trainerId)
+    .eq('source', source)
+  const previousSkillIds = (existingRows ?? []).map((r) => r.skill_id)
+
+  for (const skillId of previousSkillIds) {
+    if (nextSkillIds.includes(skillId)) continue
+    const result = await removeSkillTalentPick(supabase, trainerId, skillId)
+    if ('error' in result) return result
+  }
+
+  const toApply = nextSkillIds.filter((id) => !previousSkillIds.includes(id))
+  if (toApply.length > 0) {
+    const result = await applySkillTalentPicks(supabase, trainerId, toApply)
+    if ('error' in result) return result
+  }
+
+  const { error: deleteError } = await supabase
+    .from('trainer_base_skill_talents')
+    .delete()
+    .eq('trainer_id', trainerId)
+    .eq('source', source)
+  if (deleteError) return { error: deleteError.message }
+
+  if (nextSkillIds.length > 0) {
+    const { error: insertError } = await supabase
+      .from('trainer_base_skill_talents')
+      .insert(nextSkillIds.map((skillId) => ({ trainer_id: trainerId, skill_id: skillId, source })))
+    if (insertError) return { error: insertError.message }
+  }
+
+  return { ok: true }
 }
 
 // Shared write path for both Trainer creation (Class + Origin picks together) and a level-up's

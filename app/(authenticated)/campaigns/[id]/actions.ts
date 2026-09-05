@@ -6,7 +6,7 @@ import { POINT_BUY_BUDGET, STAT_KEYS, pointBuyCost, type StatKey } from '@/lib/p
 import { isRaringToGoOrigin } from '@/lib/pta3/originBonuses'
 import { isLabelColor, type LabelColor } from '@/lib/pta3/labelColors'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
-import { validateCreationSkillTalentPicks, applySkillTalentPicks } from '@/lib/pta3/skillTalents'
+import { validateCreationSkillTalentPicks, replaceBaseSkillTalents } from '@/lib/pta3/skillTalents'
 
 // Mirrors createTrainer (app/trainers/actions.ts) -- same name/class/origin/25-point stat-budget
 // validation -- but is deliberately its own function, not a shared refactor: campaignId here is
@@ -108,7 +108,12 @@ export async function createNpc(campaignId: string, formData: FormData) {
     redirect(`${npcNewUrl}?error=${encodeURIComponent(error?.message ?? 'Could not create NPC')}`)
   }
 
-  await applySkillTalentPicks(supabase, trainer.id, talentResult.skillIds)
+  // [[Improvement - Move Trainer editing (Name, Origin, Talents, Stats) to the build page]]:
+  // replaceBaseSkillTalents both applies the picks (same as the old applySkillTalentPicks call) and
+  // records them as this new NPC's base Class/Origin picks -- without this, the build page's Talent
+  // re-pick section would show 0 currently picked despite these already being locked in.
+  await replaceBaseSkillTalents(supabase, trainer.id, 'class', formData.getAll('classTalentSkillIds').map(Number))
+  await replaceBaseSkillTalents(supabase, trainer.id, 'origin', formData.getAll('originTalentSkillIds').map(Number))
 
   redirect(`${trainerHref({ id: trainer.id, is_npc: true, campaign_id: campaignId })}/build`)
 }

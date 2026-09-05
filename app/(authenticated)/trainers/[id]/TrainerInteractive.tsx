@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { statModifier } from '@/lib/pta3/pointBuy'
 import { talentBonus } from '@/lib/pta3/skillTalents'
@@ -9,7 +8,6 @@ import {
   adjustTrainerHp,
   grantTrainerTemporaryHp,
   clearTrainerTemporaryHp,
-  updateTrainerInfo,
   setFeatureUsesRemaining,
   resetFeatureUses,
 } from '@/app/(authenticated)/trainers/actions'
@@ -258,362 +256,74 @@ export function PendingMilestoneBanner() {
   )
 }
 
-type ClassOption = { id: number; name: string }
-type OriginOption = { id: number; name: string; lifestyle: string | null }
-
-// The trainer's Info card. View mode shows Trainer name, Class, Level (its own line, no per-item
-// levels), Subclasses (names only), Background, Lifestyle, and a Campaign link. Edit mode
-// (owner-or-GM, matching the old level +/- control's own permission) turns Class/Level/Background
-// into a single form; Name is owner-only within it, same scoping renameTrainer had. Deliberately no
-// Subclass picker here -- Subclasses are only ever granted through saveMilestone on the Class Builder
-// page now (the choice lives inside the level-gated feature, not as a freeform override outside it),
-// so Level dropping below a milestone always has something real to lose. Level moving through a
-// milestone, or a Class change, can flip hasPendingMilestone -- context carries that so the banner
-// above stays in sync without a reload.
-export function TrainerInfoSection({
-  trainerId,
-  campaign,
-  classes,
-  origins,
-}: {
-  trainerId: string
-  campaign: { id: string; name: string } | null
-  classes: ClassOption[]
-  origins: OriginOption[]
-}) {
-  const {
-    basePath,
-    name,
-    level,
-    advancedClasses,
-    className,
-    originName,
-    lifestyle,
-    classId,
-    originId,
-    baseAttack,
-    baseDefense,
-    baseSpecialAttack,
-    baseSpecialDefense,
-    baseSpeed,
-    isOwner,
-    isGM,
-    applyInfoSnapshot,
-  } = useTrainerState()
-  const router = useRouter()
-
-  const [isEditing, setIsEditing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // [[Class can't be edited when editing subclass or level]] / [[Bug - Changing a Trainer's Origin
-  // doesn't update Raring to go's bonuses]]: changing Class OR Origin deletes every Advanced Class
-  // milestone (server-side, updateTrainerInfo -- Origin now wipes for the same reason Class does:
-  // Raring to go's bonus Talent picks live on those same milestone rows, so an Origin change has to
-  // invalidate them too, not just a Class change) -- an in-page confirm step naming exactly what's lost
-  // before that happens, matching [[Warn a GM before overwriting a Trainer's own build choices]]'s
-  // established shape (purely client-side gate, no server-side re-confirmation needed).
-  const [pendingMilestoneWipe, setPendingMilestoneWipe] = useState(false)
-
-  const [draftName, setDraftName] = useState(name)
-  const [draftClassId, setDraftClassId] = useState(classId)
-  const [draftLevel, setDraftLevel] = useState(level)
-  const [draftOriginId, setDraftOriginId] = useState(originId)
-  // [[Feature - Let a GM edit a Trainer's base stats]]: drafts from the raw base_* values, not the
-  // effective attack/defense/etc. (which already have milestone stat increases baked in) -- direct
-  // replacement, not an additive bonus, since unlike Pokemon's bonus_base_x columns there's no species
-  // template underneath a Trainer's base stats to layer a bonus on top of.
-  const [draftAttack, setDraftAttack] = useState(baseAttack)
-  const [draftDefense, setDraftDefense] = useState(baseDefense)
-  const [draftSpecialAttack, setDraftSpecialAttack] = useState(baseSpecialAttack)
-  const [draftSpecialDefense, setDraftSpecialDefense] = useState(baseSpecialDefense)
-  const [draftSpeed, setDraftSpeed] = useState(baseSpeed)
+// The trainer's Info card -- read-only display of Name, Class, Level (its own line, no per-item
+// levels), Subclasses (names only), Background, Lifestyle, and a Campaign link. Editing used to be an
+// inline form right here; per [[Improvement - Move Trainer editing (Name, Origin, Talents, Stats) to
+// the build page]] it's fully relocated to the build page now (Name/Class/Origin/Base Stats/Talents
+// all editable there in one place) -- "Edit" is just a Link there, and this card never has its own
+// edit mode again.
+export function TrainerInfoSection({ campaign }: { campaign: { id: string; name: string } | null }) {
+  const { basePath, name, level, advancedClasses, className, originName, lifestyle, isOwner, isGM } = useTrainerState()
 
   const canEdit = isOwner || isGM
-  // "Campaign membership hands GM-tier control to the GM alone" -- a campaign-less trainer's owner
-  // has full control over Class/Level/Background (no GM to defer to); once the trainer is in a
-  // Campaign, changing those requires being that campaign's actual GM, even for the trainer's own
-  // owner. Name stays owner-only regardless (see the isOwner check below), unaffected by this gate.
-  // updateTrainerInfo enforces this same rule server-side -- this only controls what's rendered.
-  const canEditGmTier = campaign ? isGM : isOwner
-
-  function openEdit() {
-    setDraftName(name)
-    setDraftClassId(classId)
-    setDraftLevel(level)
-    setDraftOriginId(originId)
-    setDraftAttack(baseAttack)
-    setDraftDefense(baseDefense)
-    setDraftSpecialAttack(baseSpecialAttack)
-    setDraftSpecialDefense(baseSpecialDefense)
-    setDraftSpeed(baseSpeed)
-    setError(null)
-    setPendingMilestoneWipe(false)
-    setIsEditing(true)
-  }
-
-  function handleSave() {
-    if ((draftClassId !== classId || draftOriginId !== originId) && advancedClasses.length > 0) {
-      setPendingMilestoneWipe(true)
-      return
-    }
-    commitSave()
-  }
-
-  async function commitSave() {
-    setError(null)
-    setPendingMilestoneWipe(false)
-    const result = await updateTrainerInfo(trainerId, {
-      name: isOwner ? draftName : null,
-      classId: draftClassId,
-      level: draftLevel,
-      originId: draftOriginId,
-      attack: draftAttack,
-      defense: draftDefense,
-      specialAttack: draftSpecialAttack,
-      specialDefense: draftSpecialDefense,
-      speed: draftSpeed,
-    })
-    if ('error' in result) {
-      setError(result.error)
-      return
-    }
-    applyInfoSnapshot(result, draftClassId, draftOriginId)
-    setIsEditing(false)
-    // [[Bug - Bookmarked trainer name is not updated when edited]]: this action is a direct
-    // client-invoked call (no <form>, no redirect), so nothing else re-fetches the (authenticated)
-    // layout's Sidebar bookmarks -- router.refresh() re-syncs them, same pattern already used by
-    // HeldItemGive/HeldItemTakeBack/EvolveButton for the same calling shape.
-    router.refresh()
-  }
 
   return (
     <section className="rounded border border-accent bg-accent/10 p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="font-semibold">Info</h2>
-        {canEdit && !isEditing && (
-          <button type="button" onClick={openEdit} className="rounded border px-3 py-1 text-sm">
+        {canEdit && (
+          <Link href={`${basePath}/build`} className="rounded border px-3 py-1 text-sm">
             Edit
-          </button>
+          </Link>
         )}
       </div>
 
-      {isEditing ? (
-        <div className="flex flex-col gap-3 text-sm">
-          {isOwner && (
-            <div className="flex flex-col gap-1">
-              <label htmlFor="trainerName" className="font-semibold">
-                Trainer name
-              </label>
-              <input
-                id="trainerName"
-                value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-                className="bg-surface-subtle rounded border p-2"
-              />
-            </div>
-          )}
+      <div className="flex flex-col gap-2 text-sm">
+        <p className="text-base font-semibold">{name}</p>
 
-          {canEditGmTier ? (
-            <>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="trainerClass" className="font-semibold">
-                  Class
-                </label>
-                <select
-                  id="trainerClass"
-                  value={draftClassId}
-                  onChange={(e) => setDraftClassId(Number(e.target.value))}
-                  className="bg-surface-subtle rounded border p-2"
-                >
-                  {classes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        <p>
+          <span className="font-semibold">Class:</span> {className}
+        </p>
+        <p>
+          <span className="font-semibold">Level:</span> {level}
+        </p>
 
-              <div className="flex flex-col gap-1">
-                <label htmlFor="trainerLevel" className="font-semibold">
-                  Level
-                </label>
-                <input
-                  id="trainerLevel"
-                  type="number"
-                  min={1}
-                  value={draftLevel}
-                  onChange={(e) => setDraftLevel(Math.max(1, Number(e.target.value)))}
-                  className="bg-surface-subtle rounded border p-2"
-                />
-              </div>
+        {advancedClasses.length > 0 && (
+          <div>
+            <span className="font-semibold">Subclasses:</span>
+            <ul className="ml-4 list-disc">
+              {advancedClasses.map((ac) => (
+                <li key={ac.grantedAtLevel}>
+                  {ac.name}
+                  {canEdit && (
+                    <Link href={`${basePath}/build?level=${ac.grantedAtLevel}`} className="ml-2 text-xs text-muted underline">
+                      Edit
+                    </Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-              <div className="flex flex-col gap-1">
-                <label htmlFor="trainerOrigin" className="font-semibold">
-                  Background
-                </label>
-                <select
-                  id="trainerOrigin"
-                  value={draftOriginId}
-                  onChange={(e) => setDraftOriginId(Number(e.target.value))}
-                  className="bg-surface-subtle rounded border p-2"
-                >
-                  {origins.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* [[Feature - Let a GM edit a Trainer's base stats]] */}
-              <div>
-                <p className="font-semibold">Base stats</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="flex flex-col gap-1">
-                    Attack
-                    <input
-                      type="number"
-                      value={draftAttack}
-                      onChange={(e) => setDraftAttack(Math.max(0, Number(e.target.value)))}
-                      className="bg-surface-subtle rounded border p-2"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    Defense
-                    <input
-                      type="number"
-                      value={draftDefense}
-                      onChange={(e) => setDraftDefense(Math.max(0, Number(e.target.value)))}
-                      className="bg-surface-subtle rounded border p-2"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    Special Attack
-                    <input
-                      type="number"
-                      value={draftSpecialAttack}
-                      onChange={(e) => setDraftSpecialAttack(Math.max(0, Number(e.target.value)))}
-                      className="bg-surface-subtle rounded border p-2"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    Special Defense
-                    <input
-                      type="number"
-                      value={draftSpecialDefense}
-                      onChange={(e) => setDraftSpecialDefense(Math.max(0, Number(e.target.value)))}
-                      className="bg-surface-subtle rounded border p-2"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    Speed
-                    <input
-                      type="number"
-                      value={draftSpeed}
-                      onChange={(e) => setDraftSpeed(Math.max(0, Number(e.target.value)))}
-                      className="bg-surface-subtle rounded border p-2"
-                    />
-                  </label>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-col gap-1 text-muted">
-              <p>
-                <span className="font-semibold">Class:</span> {className}
-              </p>
-              <p>
-                <span className="font-semibold">Level:</span> {level}
-              </p>
-              <p>
-                <span className="font-semibold">Background:</span> {originName}
-              </p>
-              <p className="text-xs italic">Only {campaign?.name ?? 'this campaign'}&apos;s GM can change these.</p>
-            </div>
-          )}
-
-          {error && <p className="text-danger">{error}</p>}
-
-          {pendingMilestoneWipe ? (
-            <div className="flex flex-col gap-2 rounded border-accent bg-accent/20 p-2 text-sm">
-              <p>
-                Changing {draftClassId !== classId && draftOriginId !== originId ? 'Class or Background' : draftClassId !== classId ? 'Class' : 'Background'}{' '}
-                will remove{' '}
-                {advancedClasses.map((ac, i) => (
-                  <span key={ac.grantedAtLevel}>
-                    {i > 0 && ', '}
-                    {ac.name} (Level {ac.grantedAtLevel})
-                  </span>
-                ))}
-                . {name} will need to re-resolve these choices.
-              </p>
-              <div className="flex gap-2">
-                <button type="button" onClick={commitSave} className="rounded border border-danger px-3 py-1 text-sm text-danger">
-                  Confirm
-                </button>
-                <button type="button" onClick={() => setPendingMilestoneWipe(false)} className="rounded border px-3 py-1">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              <button type="button" onClick={handleSave} className="rounded bg-accent px-3 py-1 text-accent-foreground">
-                Save
-              </button>
-              <button type="button" onClick={() => setIsEditing(false)} className="rounded border px-3 py-1">
-                Cancel
-              </button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2 text-sm">
-          <p className="text-base font-semibold">{name}</p>
-
+        <p>
+          <span className="font-semibold">Background:</span> {originName}
+        </p>
+        {lifestyle && (
           <p>
-            <span className="font-semibold">Class:</span> {className}
+            <span className="font-semibold">Lifestyle:</span> {lifestyle}
           </p>
+        )}
+
+        {campaign && (
           <p>
-            <span className="font-semibold">Level:</span> {level}
+            <span className="font-semibold">Campaign:</span>{' '}
+            <Link href={`/campaigns/${campaign.id}`} className="underline">
+              {campaign.name}
+            </Link>
           </p>
-
-          {advancedClasses.length > 0 && (
-            <div>
-              <span className="font-semibold">Subclasses:</span>
-              <ul className="ml-4 list-disc">
-                {advancedClasses.map((ac) => (
-                  <li key={ac.grantedAtLevel}>
-                    {ac.name}
-                    {canEdit && (
-                      <Link href={`${basePath}/build?level=${ac.grantedAtLevel}`} className="ml-2 text-xs text-muted underline">
-                        Edit
-                      </Link>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <p>
-            <span className="font-semibold">Background:</span> {originName}
-          </p>
-          {lifestyle && (
-            <p>
-              <span className="font-semibold">Lifestyle:</span> {lifestyle}
-            </p>
-          )}
-
-          {campaign && (
-            <p>
-              <span className="font-semibold">Campaign:</span>{' '}
-              <Link href={`/campaigns/${campaign.id}`} className="underline">
-                {campaign.name}
-              </Link>
-            </p>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </section>
   )
 }
