@@ -36,7 +36,12 @@ function TrainerRow({ t, assignableCampaigns }: { t: TrainerListRow; assignableC
         <Link href={trainerHref({ id: t.id, is_npc: t.isNpc, campaign_id: t.campaignId })} className="text-lg font-semibold underline">
           {t.name}
         </Link>
-        <form action={deleteTrainer.bind(null, t.id)}>
+        {/* [[Bug - Deleting an NPC from the Trainers overview redirects to the Campaign's NPC
+            page]]: explicit returnTo keeps the user on this list regardless of the deleted
+            Trainer's type, instead of deleteTrainer's own default (which sends an NPC's delete
+            to its Campaign's NPC page -- correct when deleting from that Trainer's own page, not
+            from a list of many). */}
+        <form action={deleteTrainer.bind(null, t.id, '/trainers')}>
           <ConfirmButton
             confirmMessage={`Permanently delete ${t.name}? This cannot be undone.${
               t.pokemonCount > 0 ? ` Their ${t.pokemonCount} Pokémon will become unassigned, not deleted.` : ''

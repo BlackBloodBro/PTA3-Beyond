@@ -131,7 +131,13 @@ export async function createTrainer(formData: FormData) {
   redirect(campaignId ? `/campaigns/${campaignId}/trainers/${trainer.id}/build` : `/trainers/${trainer.id}/build`)
 }
 
-export async function deleteTrainer(trainerId: string) {
+// [[Bug - Deleting an NPC from the Trainers overview redirects to the Campaign's NPC page]]:
+// returnTo lets a caller that's a *list* of trainers (the /trainers overview, one Delete button
+// per row) keep the user right where they were, instead of being bounced to wherever an NPC's
+// own delete would otherwise go. Omitted by every caller that's an individual Trainer's own page
+// (deleting a trainer whose page you're currently viewing has nowhere sensible to stay -- the
+// existing type-based redirect below is exactly the "someone else's list" destination for that).
+export async function deleteTrainer(trainerId: string, returnTo?: string) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -172,10 +178,11 @@ export async function deleteTrainer(trainerId: string) {
   const { error } = await supabase.from('trainers').delete().eq('id', trainerId).eq('user_id', user.id)
 
   if (error) {
-    redirect(`${trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaign_id })}?error=${encodeURIComponent(error.message)}`)
+    const errorBase = returnTo ?? trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaign_id })
+    redirect(`${errorBase}?error=${encodeURIComponent(error.message)}`)
   }
 
-  redirect(trainer.is_npc && trainer.campaign_id ? `/campaigns/${trainer.campaign_id}/npcs` : '/trainers')
+  redirect(returnTo ?? (trainer.is_npc && trainer.campaign_id ? `/campaigns/${trainer.campaign_id}/npcs` : '/trainers'))
 }
 
 export type TrainerInfoSnapshot = {
