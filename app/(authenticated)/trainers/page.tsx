@@ -42,8 +42,13 @@ export default async function TrainersPage({
     .filter((c): c is { id: string; name: string } => c !== null)
 
   // Matches createTrainer's own rule -- a trainer can be assigned to any campaign its owner GMs or
-  // is a joined member of.
-  const assignableCampaignsForTrainer = [...(gmCampaigns ?? []), ...memberCampaigns]
+  // is a joined member of. Tagged with isGM so TrainerCampaignControl knows when to offer the
+  // [[Improvement - Adding a Trainer to a GM'd Campaign should default it to an NPC]] checkbox --
+  // only meaningful for a campaign this user actually GMs, not one they've merely joined.
+  const assignableCampaignsForTrainer = [
+    ...(gmCampaigns ?? []).map((c) => ({ ...c, isGM: true })),
+    ...memberCampaigns.map((c) => ({ ...c, isGM: false })),
+  ]
 
   const pokemonCountByTrainer = new Map<string, number>()
   for (const tp of assignedPokemonRaw ?? []) {
@@ -79,7 +84,7 @@ export default async function TrainersPage({
 
       {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
 
-      <TrainerListBoard trainers={trainerRows} assignableCampaigns={assignableCampaignsForTrainer as unknown as { id: string; name: string }[]} />
+      <TrainerListBoard trainers={trainerRows} assignableCampaigns={assignableCampaignsForTrainer as unknown as { id: string; name: string; isGM: boolean }[]} />
     </main>
   )
 }

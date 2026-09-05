@@ -87,6 +87,11 @@ export async function leaveCampaign(trainerId: string) {
 export async function assignTrainerToCampaign(
   trainerId: string,
   campaignIdRaw: string,
+  // [[Improvement - Adding a Trainer to a GM'd Campaign should default it to an NPC]]: only ever
+  // sent (and only ever applied) when the target campaign is one this user GMs -- the caller
+  // (TrainerCampaignControl) omits it entirely for a "joined as member" campaign, same as
+  // createTrainer's own isNpc handling.
+  isNpc?: boolean,
 ): Promise<{ error: string } | { campaignId: string | null; campaignName: string | null }> {
   const supabase = await createClient()
   const {
@@ -107,6 +112,9 @@ export async function assignTrainerToCampaign(
 
   let campaignId: string | null = null
   let campaignName: string | null = null
+  // A campaign-less Trainer can't be an NPC (NPCs are inherently campaign-scoped -- they only ever
+  // show up on a Campaign's own roster) -- reset alongside campaignId whenever unassigning entirely.
+  let resolvedIsNpc = false
   if (campaignIdRaw) {
     // Same "GM or joined member" check as createTrainer's own campaign assignment.
     const [{ data: asGM }, { data: asMember }, { data: campaign }] = await Promise.all([
@@ -119,9 +127,16 @@ export async function assignTrainerToCampaign(
     }
     campaignId = campaignIdRaw
     campaignName = campaign?.name ?? null
+    if (asGM) {
+      resolvedIsNpc = isNpc ?? true
+    }
   }
 
-  const { error } = await supabase.from('trainers').update({ campaign_id: campaignId }).eq('id', trainerId).eq('user_id', user.id)
+  const { error } = await supabase
+    .from('trainers')
+    .update({ campaign_id: campaignId, is_npc: resolvedIsNpc })
+    .eq('id', trainerId)
+    .eq('user_id', user.id)
 
   if (error) {
     return { error: error.message }
