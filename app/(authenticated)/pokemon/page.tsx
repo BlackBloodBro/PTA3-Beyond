@@ -135,6 +135,23 @@ export default async function PokemonListPage({
 
   const allMyPokemon = [...assignedRows, ...poolRows]
 
+  // [[Improvement - Add additional filters to Pokemon overview]]: a Pokemon's Campaign (via its
+  // owning Trainer, or the pool's own tag) might belong to a Campaign this user only GMs, only
+  // belongs to as a member, or -- for a Trainer who's a member of someone else's Campaign -- one
+  // this user has no GM relationship to at all. `gmCampaigns` above only covers the first case, so
+  // this resolves names for every distinct Campaign id actually referenced, not just GM'd ones.
+  const referencedCampaignIds = Array.from(
+    new Set(allMyPokemon.flatMap((p) => [p.trainerCampaignId, p.campaignId]).filter((id): id is string => id !== null)),
+  )
+  const campaignNameById = new Map<string, string>(gmCampaigns?.map((c) => [c.id, c.name]) ?? [])
+  const unresolvedCampaignIds = referencedCampaignIds.filter((id) => !campaignNameById.has(id))
+  if (unresolvedCampaignIds.length > 0) {
+    const { data: otherCampaigns } = await supabase.from('campaigns').select('id, name').in('id', unresolvedCampaignIds)
+    for (const c of otherCampaigns ?? []) {
+      campaignNameById.set(c.id, c.name)
+    }
+  }
+
   const levelsByPokemonId = await computePokemonLevelsBulk(
     supabase,
     allMyPokemon.map((p) => ({
@@ -155,22 +172,26 @@ export default async function PokemonListPage({
     allMyPokemon.map((p) => ({ pokemonId: p.id, pokedexId: p.pokedexId, level: levelsByPokemonId.get(p.id)?.level ?? 1 })),
   )
 
-  const pokemonRows: PokemonListRow[] = allMyPokemon.map((p) => ({
-    id: p.id,
-    nickname: p.nickname,
-    is_shiny: p.is_shiny,
-    speciesName: p.pokedex?.name ?? null,
-    spriteCode: p.pokedex?.sprite_code ?? null,
-    level: levelsByPokemonId.get(p.id)?.level ?? 1,
-    type1Id: p.pokedex?.type_1_id ?? null,
-    type2Id: p.pokedex?.type_2_id ?? null,
-    evolutionEligible: evolutionEligibleIds.has(p.id),
-    trainerId: p.trainerId,
-    trainerName: p.trainerName,
-    trainerIsNpc: p.trainerIsNpc,
-    trainerCampaignId: p.trainerCampaignId,
-    campaignId: p.campaignId,
-  }))
+  const pokemonRows: PokemonListRow[] = allMyPokemon.map((p) => {
+    const campaignId = p.trainerCampaignId ?? p.campaignId
+    return {
+      id: p.id,
+      nickname: p.nickname,
+      is_shiny: p.is_shiny,
+      speciesName: p.pokedex?.name ?? null,
+      spriteCode: p.pokedex?.sprite_code ?? null,
+      level: levelsByPokemonId.get(p.id)?.level ?? 1,
+      type1Id: p.pokedex?.type_1_id ?? null,
+      type2Id: p.pokedex?.type_2_id ?? null,
+      evolutionEligible: evolutionEligibleIds.has(p.id),
+      trainerId: p.trainerId,
+      trainerName: p.trainerName,
+      trainerIsNpc: p.trainerIsNpc,
+      trainerCampaignId: p.trainerCampaignId,
+      campaignId: p.campaignId,
+      campaignName: campaignId ? (campaignNameById.get(campaignId) ?? null) : null,
+    }
+  })
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
