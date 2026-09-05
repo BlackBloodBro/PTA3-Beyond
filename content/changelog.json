@@ -1,7 +1,7 @@
 [
   {
     "version": "1.1.1",
-    "date": "2026-09-05",
+    "date": "2026-09-06",
     "entries": [
       { "category": "feature", "summary": "Class and Origin Skill Talent picks can now be re-chosen after a Trainer is created, on their build page." },
       { "category": "improve", "summary": "Editing a Trainer's Name, Class, Origin, and Base Stats now happens on their build page instead of an inline form, and a Campaign's GM can now also edit that Trainer's Name." },
