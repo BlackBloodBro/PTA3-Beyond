@@ -19,14 +19,30 @@ export type TrainerListRow = {
   isNpc: boolean
 }
 
+// [[Improvement - Add additional filters to Trainer overview]]: a real campaign id (UUID) never
+// collides with this sentinel, so it's safe as the "No campaign" option's value.
+const NO_CAMPAIGN_VALUE = '__none__'
+
 // Client-side filtering over the full list, no URL sync -- same PcBoard.tsx pattern used elsewhere,
 // but this list is personal (owned by the browsing user) rather than GM/campaign-scoped tooling, so
 // there's no shared-link use case that would call for URL state instead.
-function matchesSearch(t: TrainerListRow, searchText: string): boolean {
-  if (!searchText) return true
-  const needle = searchText.toLowerCase()
-  const haystack = `${t.name} ${t.className ?? ''} ${t.originName ?? ''}`.toLowerCase()
-  return haystack.includes(needle)
+// [[Improvement - Add additional filters to Trainer overview]]: Class/Origin/Campaign filters added
+// alongside the existing text search -- every field they need was already fetched and rendered
+// (className/originName/campaignId), so this is purely additive, no new query.
+function matchesFilters(t: TrainerListRow, searchText: string, classFilter: string, originFilter: string, campaignFilter: string): boolean {
+  if (searchText) {
+    const needle = searchText.toLowerCase()
+    const haystack = `${t.name} ${t.className ?? ''} ${t.originName ?? ''}`.toLowerCase()
+    if (!haystack.includes(needle)) return false
+  }
+  if (classFilter && t.className !== classFilter) return false
+  if (originFilter && t.originName !== originFilter) return false
+  if (campaignFilter === NO_CAMPAIGN_VALUE) {
+    if (t.campaignId !== null) return false
+  } else if (campaignFilter && t.campaignId !== campaignFilter) {
+    return false
+  }
+  return true
 }
 
 function TrainerRow({ t, assignableCampaigns }: { t: TrainerListRow; assignableCampaigns: { id: string; name: string; isGM: boolean }[] }) {
@@ -74,8 +90,32 @@ export function TrainerListBoard({
   assignableCampaigns: { id: string; name: string; isGM: boolean }[]
 }) {
   const [searchText, setSearchText] = useState('')
+  const [classFilter, setClassFilter] = useState('')
+  const [originFilter, setOriginFilter] = useState('')
+  const [campaignFilter, setCampaignFilter] = useState('')
 
-  const filtered = useMemo(() => trainers.filter((t) => matchesSearch(t, searchText)), [trainers, searchText])
+  // Options built from what's actually present among these Trainers, not a full Classes/Origins/
+  // Campaigns table fetch -- only values that could ever actually match something are offered.
+  const classOptions = useMemo(
+    () => Array.from(new Set(trainers.map((t) => t.className).filter((v): v is string => v !== null))).sort(),
+    [trainers],
+  )
+  const originOptions = useMemo(
+    () => Array.from(new Set(trainers.map((t) => t.originName).filter((v): v is string => v !== null))).sort(),
+    [trainers],
+  )
+  const campaignOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const t of trainers) {
+      if (t.campaignId && t.campaignName) byId.set(t.campaignId, t.campaignName)
+    }
+    return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [trainers])
+
+  const filtered = useMemo(
+    () => trainers.filter((t) => matchesFilters(t, searchText, classFilter, originFilter, campaignFilter)),
+    [trainers, searchText, classFilter, originFilter, campaignFilter],
+  )
   // [[Improvement - Inconsistency with Trainers vs Pokemon]]: NPCs (owned by this GM, same as any
   // Wild Pokemon) now show up here too, per the user's resolved design -- in their own section
   // rather than mixed into "Your Trainers", reusing the is_npc flag the row already carries.
@@ -98,7 +138,56 @@ export function TrainerListBoard({
               className="bg-surface-subtle rounded border px-2 py-1"
             />
           </div>
-          <p className="text-xs text-muted">{filtered.length} of {trainers.length}</p>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="trainerClassFilter">Class</label>
+            <select
+              id="trainerClassFilter"
+              value={classFilter}
+              onChange={(e) => setClassFilter(e.target.value)}
+              className="bg-surface-subtle rounded border px-2 py-1"
+            >
+              <option value="">Any class</option>
+              {classOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="trainerOriginFilter">Origin</label>
+            <select
+              id="trainerOriginFilter"
+              value={originFilter}
+              onChange={(e) => setOriginFilter(e.target.value)}
+              className="bg-surface-subtle rounded border px-2 py-1"
+            >
+              <option value="">Any origin</option>
+              {originOptions.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="trainerCampaignFilter">Campaign</label>
+            <select
+              id="trainerCampaignFilter"
+              value={campaignFilter}
+              onChange={(e) => setCampaignFilter(e.target.value)}
+              className="bg-surface-subtle rounded border px-2 py-1"
+            >
+              <option value="">Any campaign</option>
+              <option value={NO_CAMPAIGN_VALUE}>No campaign</option>
+              {campaignOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="ml-auto text-xs text-muted">{filtered.length} of {trainers.length}</p>
         </div>
       )}
 
