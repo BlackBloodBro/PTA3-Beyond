@@ -479,7 +479,6 @@ export function ClassBuilder({
                         onChange={() => toggleClassTalent(s.id)}
                       />
                       {s.name}
-                      {talents[s.id] === 1 ? ' (upgrades to Expert)' : ''}
                     </label>
                   ))}
               </div>
@@ -505,7 +504,6 @@ export function ClassBuilder({
                         onChange={() => toggleOriginTalent(i, group.pickCount, s.id)}
                       />
                       {s.name}
-                      {talents[s.id] === 1 ? ' (upgrades to Expert)' : ''}
                     </label>
                   ))}
               </div>
