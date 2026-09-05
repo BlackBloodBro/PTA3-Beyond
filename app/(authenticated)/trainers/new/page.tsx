@@ -30,11 +30,15 @@ export default async function NewTrainerPage({
       loadClassFavoredStats(supabase),
     ])
 
+  // [[Improvement - Adding a Trainer to a GM'd Campaign should default it to an NPC]]: isGM lets
+  // TrainerForm show its NPC-default checkbox only for a campaign this user actually GMs, not one
+  // they've merely joined as a player.
   const campaigns = [
-    ...(gmCampaigns ?? []),
+    ...(gmCampaigns ?? []).map((c) => ({ ...c, isGM: true })),
     ...(memberships ?? [])
       .map((m) => m.campaigns)
-      .filter((c): c is { id: string; name: string } => c !== null),
+      .filter((c): c is { id: string; name: string } => c !== null)
+      .map((c) => ({ ...c, isGM: false })),
   ]
 
   return (

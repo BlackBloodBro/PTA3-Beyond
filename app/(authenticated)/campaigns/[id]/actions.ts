@@ -118,8 +118,9 @@ export async function createNpc(campaignId: string, formData: FormData) {
 // GM-only, and only for a trainer the GM already owns themselves -- this is "turn my own spare
 // trainer into an NPC," not a way to conscript someone else's trainer. Once converted, the
 // existing is_npc-driven RLS/visibility rules (same ones createNpc relies on) apply automatically:
-// it disappears from fellow players' view and from the global /trainers list, and starts showing
-// up on this campaign's NPC roster instead.
+// it disappears from fellow players' view and starts showing up on this campaign's NPC roster.
+// [[Improvement - Inconsistency with Trainers vs Pokemon]] (2026-09-05): still shows on the owner's
+// own global /trainers list too, just in its own "Your NPCs" section rather than "Your Trainers".
 export async function convertTrainerToNpc(campaignId: string, formData: FormData) {
   const supabase = await createClient()
   const {

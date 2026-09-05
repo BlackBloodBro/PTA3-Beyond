@@ -29,7 +29,7 @@ function matchesSearch(t: TrainerListRow, searchText: string): boolean {
   return haystack.includes(needle)
 }
 
-function TrainerRow({ t, assignableCampaigns }: { t: TrainerListRow; assignableCampaigns: { id: string; name: string }[] }) {
+function TrainerRow({ t, assignableCampaigns }: { t: TrainerListRow; assignableCampaigns: { id: string; name: string; isGM: boolean }[] }) {
   return (
     <div className="rounded border-accent bg-accent/10 p-4">
       <div className="flex items-center justify-between gap-2">
@@ -54,6 +54,7 @@ function TrainerRow({ t, assignableCampaigns }: { t: TrainerListRow; assignableC
         trainerId={t.id}
         initialCampaignId={t.campaignId}
         initialCampaignName={t.campaignName}
+        initialIsNpc={t.isNpc}
         assignableCampaigns={assignableCampaigns}
       />
     </div>
@@ -65,7 +66,7 @@ export function TrainerListBoard({
   assignableCampaigns,
 }: {
   trainers: TrainerListRow[]
-  assignableCampaigns: { id: string; name: string }[]
+  assignableCampaigns: { id: string; name: string; isGM: boolean }[]
 }) {
   const [searchText, setSearchText] = useState('')
 

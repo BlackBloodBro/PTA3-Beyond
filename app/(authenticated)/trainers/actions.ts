@@ -83,6 +83,10 @@ export async function createTrainer(formData: FormData) {
   }
 
   let campaignId: string | null = null
+  // [[Improvement - Adding a Trainer to a GM'd Campaign should default it to an NPC]]: only
+  // meaningful when the campaign is one this user actually GMs -- a player joining a campaign
+  // they're merely a member of always gets a regular player Trainer, never an NPC.
+  let isNpc = false
   if (campaignIdRaw) {
     // Verify the user is actually the GM or a joined member of this campaign before assigning it --
     // trainers.campaign_id has no RLS-level ownership check of its own (any value that is a real
@@ -100,6 +104,11 @@ export async function createTrainer(formData: FormData) {
       redirect(`/trainers/new?error=${encodeURIComponent('You are not part of that campaign')}`)
     }
     campaignId = campaignIdRaw
+    // Checkbox defaults checked client-side, so its presence in formData is what "checked" means --
+    // absent only when the GM explicitly unchecked it (the "GM plays their own PC" override).
+    if (asGM) {
+      isNpc = formData.get('isNpc') !== null
+    }
   }
 
   const { data: trainer, error } = await supabase
@@ -110,6 +119,7 @@ export async function createTrainer(formData: FormData) {
       class_id: classId,
       origin_id: originId,
       campaign_id: campaignId,
+      is_npc: isNpc,
       base_attack: stats.attack,
       base_defense: stats.defense,
       base_special_attack: stats.specialAttack,
@@ -127,8 +137,11 @@ export async function createTrainer(formData: FormData) {
 
   // Unlike /starter (one unified route for every trainer regardless of campaign), /build is split
   // into the same 3 campaign-aware paths the sheet itself uses -- a campaigned trainer has to land on
-  // its own campaign-scoped build page, not the campaign-less one (which 404s for it).
-  redirect(campaignId ? `/campaigns/${campaignId}/trainers/${trainer.id}/build` : `/trainers/${trainer.id}/build`)
+  // its own campaign-scoped build page, not the campaign-less one (which 404s for it). Reuses
+  // trainerHref (rather than hardcoding the /trainers/ variant) so a newly-created NPC correctly
+  // lands on its own /npcs/ build page instead -- see [[Bug - Creating a Trainer with a Campaign
+  // breaks starter creation]] for the sibling bug this same hardcoding mistake caused elsewhere.
+  redirect(`${trainerHref({ id: trainer.id, is_npc: isNpc, campaign_id: campaignId })}/build`)
 }
 
 export async function deleteTrainer(trainerId: string) {

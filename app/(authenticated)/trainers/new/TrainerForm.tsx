@@ -23,7 +23,10 @@ const STAT_LABELS: Record<StatKey, string> = {
 
 
 type Option = { id: number; name: string; lifestyle?: string | null }
-type CampaignOption = { id: string; name: string }
+// [[Improvement - Adding a Trainer to a GM'd Campaign should default it to an NPC]]: isGM
+// distinguishes "a campaign I GM" (where the NPC-default checkbox below applies) from "a campaign
+// I've merely joined as a player" (where a new Trainer always stays a regular player character).
+type CampaignOption = { id: string; name: string; isGM: boolean }
 type SkillOption = { id: number; name: string }
 type OriginSkillTalentGroup = { pickCount: number; skills: SkillOption[] }
 
@@ -68,6 +71,19 @@ export function TrainerForm({
 
   const cost = useMemo(() => pointBuyCost(stats), [stats])
   const remaining = POINT_BUY_BUDGET - cost
+
+  // Named distinctly from the `campaignId` prop above (that one's the fixed campaign for 'npc'
+  // variant/route, an entirely different thing from this form's own player-variant campaign select).
+  const [selectedCampaignId, setSelectedCampaignId] = useState(defaultCampaignId ?? '')
+  const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId)
+  // Defaults checked -- per the user, a GM adding a Trainer to their own Campaign means an NPC by
+  // default, with this checkbox as the override for the rarer "GM plays their own PC" case.
+  const [isNpc, setIsNpc] = useState(true)
+
+  function handleCampaignChange(value: string) {
+    setSelectedCampaignId(value)
+    setIsNpc(true)
+  }
 
   const [classId, setClassId] = useState('')
   const [originId, setOriginId] = useState('')
@@ -266,7 +282,13 @@ export function TrainerForm({
       {variant === 'player' && campaigns.length > 0 && (
         <div className="flex flex-col gap-1">
           <label htmlFor="campaignId">Campaign (optional)</label>
-          <select id="campaignId" name="campaignId" defaultValue={defaultCampaignId ?? ''} className="bg-surface-subtle rounded border px-3 py-2">
+          <select
+            id="campaignId"
+            name="campaignId"
+            value={selectedCampaignId}
+            onChange={(e) => handleCampaignChange(e.target.value)}
+            className="bg-surface-subtle rounded border px-3 py-2"
+          >
             <option value="">No campaign</option>
             {campaigns.map((c) => (
               <option key={c.id} value={c.id}>
@@ -274,6 +296,12 @@ export function TrainerForm({
               </option>
             ))}
           </select>
+          {selectedCampaign?.isGM && (
+            <label className="mt-1 flex items-center gap-2 text-sm">
+              <input type="checkbox" name="isNpc" checked={isNpc} onChange={(e) => setIsNpc(e.target.checked)} />
+              Make this an NPC
+            </label>
+          )}
         </div>
       )}
 
