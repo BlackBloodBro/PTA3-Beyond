@@ -20,7 +20,14 @@ import {
   type TrainerAdvancedClass,
   type ClassBuilderCard,
 } from '@/lib/pta3/trainerFeatures'
-import { validateCreationSkillTalentPicks, applySkillTalentPicks, removeSkillTalentPick, loadTrainerSkillTalents } from '@/lib/pta3/skillTalents'
+import {
+  validateCreationSkillTalentPicks,
+  validateSkillTalentPickSets,
+  applySkillTalentPicks,
+  removeSkillTalentPick,
+  loadTrainerSkillTalents,
+  replaceBaseSkillTalents,
+} from '@/lib/pta3/skillTalents'
 
 export async function createTrainer(formData: FormData) {
   const supabase = await createClient()
@@ -133,7 +140,12 @@ export async function createTrainer(formData: FormData) {
     redirect(`/trainers/new?error=${encodeURIComponent(error?.message ?? 'Could not create trainer')}`)
   }
 
-  await applySkillTalentPicks(supabase, trainer.id, talentResult.skillIds)
+  // [[Improvement - Move Trainer editing (Name, Origin, Talents, Stats) to the build page]]:
+  // replaceBaseSkillTalents both applies the picks (same as the old applySkillTalentPicks call) and
+  // records them as this new Trainer's base Class/Origin picks -- without this, the build page's
+  // Talent re-pick section would show 0 currently picked despite these already being locked in.
+  await replaceBaseSkillTalents(supabase, trainer.id, 'class', formData.getAll('classTalentSkillIds').map(Number))
+  await replaceBaseSkillTalents(supabase, trainer.id, 'origin', formData.getAll('originTalentSkillIds').map(Number))
 
   // Unlike /starter (one unified route for every trainer regardless of campaign), /build is split
   // into the same 3 campaign-aware paths the sheet itself uses -- a campaigned trainer has to land on
@@ -226,19 +238,21 @@ export type TrainerInfoSnapshot = {
   nextMilestoneLevel: number | null
 }
 
-// Called directly from a client component (no <form action>, no redirect) -- powers the Info
-// section's Edit form: Name, Class, Level, and Background, saved together. All of these (other than
-// Name) are plain overrides -- same "GM fixes/sets it directly" model as the Pokemon page's GM-only
-// edit fields -- scoped to owner-or-GM via RLS, same as HP already is. Deliberately does NOT include
-// Subclasses: those are only ever granted through resolveMilestone on the level-up page now (the
-// D&D-Beyond-style fix -- the choice lives inside the level-gated feature, not as a freeform override
-// outside it), so this form can't create a subclass grant that Level has no way to take back. Level
-// itself stays a free override: it does not replay milestone machinery directly, but every stat/HP/
-// advanced-class value returned below is recomputed fresh from (level, trainer_milestones), so
-// jumping Level up or down here just changes which already-resolved milestones currently qualify --
-// nothing can drift out of sync because nothing is stored as a running total anymore. Name stays
-// owner-only (a separate update, so it doesn't gate the rest of the fields behind ownership when a
-// GM is editing).
+// Called directly from a client component (no <form action>, no redirect) -- powers the build page's
+// Info edit form (relocated there from the old Info-card inline form, see [[Improvement - Move
+// Trainer editing (Name, Origin, Talents, Stats) to the build page]]): Name, Class, Level, Background,
+// and Base Stats, saved together. All of these other than Name are plain overrides -- same "GM
+// fixes/sets it directly" model as the Pokemon page's GM-only edit fields -- scoped to owner-or-GM via
+// RLS, same as HP already is. Deliberately does NOT include Subclasses: those are only ever granted
+// through resolveMilestone on the Class Builder now (the choice lives inside the level-gated feature,
+// not as a freeform override outside it), so this form can't create a subclass grant that Level has no
+// way to take back. Level itself stays a free override: it does not replay milestone machinery
+// directly, but every stat/HP/advanced-class value returned below is recomputed fresh from (level,
+// trainer_milestones), so jumping Level up or down here just changes which already-resolved milestones
+// currently qualify -- nothing can drift out of sync because nothing is stored as a running total
+// anymore. Name now uses the same campaign-aware gate as Class/Origin/Stats (isOwner || isGM once
+// there's a Campaign to defer to) rather than staying an owner-only exception -- a deliberate change,
+// not a continuation of the old rule (confirmed with the user, 2026-09-05).
 export async function updateTrainerInfo(
   trainerId: string,
   input: {
@@ -281,16 +295,21 @@ export async function updateTrainerInfo(
     return { error: 'Not authorized to edit this trainer' }
   }
 
-  // "Campaign membership hands GM-tier control to the GM alone" -- Class/Background are GM-tier
-  // fields: a campaign-less trainer's owner has full control (no GM to defer to), but once a trainer
-  // joins a campaign, changing these requires being that campaign's actual GM, even for the trainer's
-  // own owner. Name stays owner-only regardless of this gate (see below). Level used to be grouped in
-  // here too, but moved out (2026-08) to match every other build-related action (stat picks, Advanced
-  // Class choice, Skill Talent picks on the Class Builder page) -- those were already freely
-  // owner-or-GM editable via RLS alone with no extra app-level gate, so Level staying GM-locked was
-  // the odd one out, not the rule; a campaign player can now raise their own trainer's Level exactly
-  // like they can already resolve their own milestones.
+  // "Campaign membership hands GM-tier control to the GM alone" -- Class/Background/Stats are
+  // GM-tier fields: a campaign-less trainer's owner has full control (no GM to defer to), but once a
+  // trainer joins a campaign, changing these requires being that campaign's actual GM, even for the
+  // trainer's own owner. Level used to be grouped in here too, but moved out (2026-08) to match every
+  // other build-related action (stat picks, Advanced Class choice, Skill Talent picks on the Class
+  // Builder page) -- those were already freely owner-or-GM editable via RLS alone with no extra
+  // app-level gate, so Level staying GM-locked was the odd one out, not the rule; a campaign player can
+  // now raise their own trainer's Level exactly like they can already resolve their own milestones.
   const canEditGmTier = current.campaign_id ? isGM : isOwner
+  // [[Improvement - Move Trainer editing (Name, Origin, Talents, Stats) to the build page]]: Name
+  // used to be owner-only regardless of Campaign -- now uses the plain isOwner-or-GM floor (not
+  // canEditGmTier's campaign-aware gate, which would exclude a campaign-less trainer's own owner from
+  // nothing since isGM is always false there, but excludes a Campaign player from editing Class/
+  // Origin/Stats -- Name is meant to stay editable by that same player too, just now also by the GM).
+  const canEditName = isOwner || isGM
 
   const level = Math.max(1, Math.floor(input.level))
   const classId = canEditGmTier ? input.classId : current.class_id
@@ -342,6 +361,26 @@ export async function updateTrainerInfo(
     }
   }
 
+  // [[Improvement - Move Trainer editing (Name, Origin, Talents, Stats) to the build page]]: the same
+  // "old picks may not even exist on the new Class/Origin's own talent list" reasoning as the
+  // milestone wipe above, extended to the original base Class/Origin Skill Talent picks -- each wiped
+  // independently of the other (changing just Class shouldn't force re-picking Origin Talents too).
+  // Passing an empty list releases every currently-tracked pick for that source with nothing to
+  // replace it, which is exactly "force a re-pick": the build page's Talent section will show blank
+  // checkboxes for that source until the caller saves fresh ones via updateTrainerSkillTalents.
+  if (classId !== current.class_id) {
+    const result = await replaceBaseSkillTalents(supabase, trainerId, 'class', [])
+    if ('error' in result) {
+      return { error: result.error }
+    }
+  }
+  if (originId !== current.origin_id) {
+    const result = await replaceBaseSkillTalents(supabase, trainerId, 'origin', [])
+    if ('error' in result) {
+      return { error: result.error }
+    }
+  }
+
   const milestones = await loadQualifyingMilestones(supabase, trainerId, level)
 
   // Max HP is always recalculated from scratch here rather than trusted as whatever was already
@@ -370,12 +409,12 @@ export async function updateTrainerInfo(
     return { error: error.message }
   }
 
-  if (input.name !== null) {
+  if (input.name !== null && canEditName) {
     const trimmed = input.name.trim()
     if (!trimmed) {
       return { error: 'Name is required' }
     }
-    const { error: nameError } = await supabase.from('trainers').update({ name: trimmed }).eq('id', trainerId).eq('user_id', user.id)
+    const { error: nameError } = await supabase.from('trainers').update({ name: trimmed }).eq('id', trainerId)
     if (nameError) {
       return { error: nameError.message }
     }
@@ -442,6 +481,62 @@ export async function updateTrainerInfo(
 }
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
+
+// [[Improvement - Move Trainer editing (Name, Origin, Talents, Stats) to the build page]]: the build
+// page's Talent re-pick action -- previously there was no way to edit a Trainer's base Class/Origin
+// Skill Talent picks after creation at all. Same GM-tier gate as Class/Origin/Stats in
+// updateTrainerInfo (not the plain owner-or-GM floor Name now uses) -- Talents are a build mechanic,
+// not personal identity. Re-validates both sets against the Trainer's *current* Class/Origin (not
+// whatever was submitted) via the same validateSkillTalentPickSets creation itself uses, so a stale
+// client can't smuggle in picks for a Class/Origin the Trainer no longer has.
+export async function updateTrainerSkillTalents(
+  trainerId: string,
+  classSkillIds: number[],
+  originSkillIds: number[],
+): Promise<{ error: string } | { classSkillIds: number[]; originSkillIds: number[]; talents: Record<number, number> }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: current } = await supabase
+    .from('trainers')
+    .select('user_id, class_id, origin_id, campaign_id, campaigns(gm_user_id)')
+    .eq('id', trainerId)
+    .single()
+
+  if (!current) {
+    return { error: 'Trainer not found' }
+  }
+
+  const isOwner = current.user_id === user.id
+  const isGM = !!current.campaign_id && current.campaigns?.gm_user_id === user.id
+  const canEditGmTier = current.campaign_id ? isGM : isOwner
+  if (!canEditGmTier) {
+    return { error: 'Not authorized to edit this trainer' }
+  }
+
+  const validated = await validateSkillTalentPickSets(supabase, current.class_id, current.origin_id, classSkillIds, originSkillIds)
+  if ('error' in validated) {
+    return { error: validated.error }
+  }
+
+  const classResult = await replaceBaseSkillTalents(supabase, trainerId, 'class', classSkillIds)
+  if ('error' in classResult) {
+    return { error: classResult.error }
+  }
+  const originResult = await replaceBaseSkillTalents(supabase, trainerId, 'origin', originSkillIds)
+  if ('error' in originResult) {
+    return { error: originResult.error }
+  }
+
+  const talents = await loadTrainerSkillTalents(supabase, trainerId)
+  return { classSkillIds, originSkillIds, talents: Object.fromEntries(talents) }
+}
 
 // Shared by resolveMilestone (granting a new milestone) and editMilestone (changing an
 // already-granted one) -- both need to turn a submitted subclassChoice into a real subclass row,

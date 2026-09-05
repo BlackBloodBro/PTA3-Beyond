@@ -142,14 +142,6 @@ export default async function TrainerPage({
     STAT_FIELDS.map((f) => [f, { base: baseStats[f as keyof typeof baseStats], increases: increasesByStat[f] }]),
   ) as StatBreakdown
 
-  // Options for the Info section's Edit form -- Class/Background stay freeform GM/owner overrides;
-  // Subclasses are no longer settable here (only through resolveMilestone), so no subclass list is
-  // fetched for this form anymore.
-  const [{ data: classes }, { data: origins }] = await Promise.all([
-    supabase.from('classes').select('id, name').order('name'),
-    supabase.from('origins').select('id, name, lifestyle').order('name'),
-  ])
-
   const { data: featureUses } = await supabase
     .from('trainer_feature_uses')
     .select('feature_id, uses_remaining')
@@ -294,7 +286,7 @@ export default async function TrainerPage({
 
       <div className="flex w-full max-w-6xl items-start gap-4">
         <aside className="flex w-64 shrink-0 flex-col gap-4">
-          <TrainerInfoSection trainerId={id} campaign={campaign} classes={classes ?? []} origins={origins ?? []} />
+          <TrainerInfoSection campaign={campaign} />
 
           <TrainerHpSection trainerId={id} />
 
