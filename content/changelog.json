@@ -1,5 +1,30 @@
 [
   {
+    "version": "1.1.0",
+    "date": "2026-09-05",
+    "title": "Eggs update",
+    "entries": [
+      { "category": "feature", "summary": "Trainers can now breed two eligible Pokémon together on a dedicated screen to try to produce an Egg." },
+      { "category": "feature", "summary": "Players can now start hatching an owned Egg, track its progress through Sleep actions, and hatch it into a real Pokémon once ready." },
+      { "category": "feature", "summary": "Breeders now get to permanently boost one stat of a Pokémon they just hatched, with a preview of the new totals before confirming." },
+      { "category": "feature", "summary": "Players can now cancel an in-progress Egg hatch, with a warning, and get the Egg back in their Bag to start over." },
+      { "category": "feature", "summary": "GMs and Trainer owners can now directly edit a Trainer's core stats after creation." },
+      { "category": "improve", "summary": "The Unexpected Hatch coin-flip toggle was restyled to match the app's other checkbox buttons, with a clearer label." },
+      { "category": "improve", "summary": "Trainers with Egg Finder now get a clear instruction to roll three times and use their best result." },
+      { "category": "improve", "summary": "Nearly all breedable species across the whole Pokédex now have correct Egg Group data, so far more Pokémon can actually be bred." },
+      { "category": "improve", "summary": "The Breeding screen now only shows Pokémon that could actually pair with your first pick." },
+      { "category": "improve", "summary": "Searching the item Catalog or Inventory for common nicknames (like \"Pokeball\") now finds the matching item." },
+      { "category": "improve", "summary": "The Inventory now has a search box." },
+      { "category": "improve", "summary": "Changelog releases can now carry a name, like this one." },
+      { "category": "fix", "summary": "Bred Eggs from an evolved parent (like Charizard) now correctly produce a base-form Egg (Charmander) instead of an evolved one." },
+      { "category": "fix", "summary": "Pokémon evolution buttons and the GM's evolution-chain picker now actually work instead of silently showing nothing." },
+      { "category": "fix", "summary": "Wartortle and Wigglytuff each now exist as a single, complete Pokédex entry instead of a correct/misspelled duplicate pair." },
+      { "category": "fix", "summary": "Changing a Trainer's background now properly clears out-of-date bonus Talent picks tied to the old background." },
+      { "category": "fix", "summary": "Move damage now correctly reflects type effectiveness and immunities again instead of always showing the base amount." },
+      { "category": "fix", "summary": "Solo (non-campaign) Trainers can now use \"Grant a Move\" on their own Pokémon without hitting an error." }
+    ]
+  },
+  {
     "version": "1.0.3",
     "date": "2026-09-03",
     "entries": [
