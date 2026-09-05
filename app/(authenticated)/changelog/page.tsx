@@ -24,6 +24,11 @@ const CATEGORY_CLASSES: Record<string, string> = {
   fix: 'text-danger',
 }
 
+// `title` is optional -- most releases won't have one and just show "vX.Y.Z — date" as before. Cast
+// needed because plain JSON-module imports infer each entry's type from whichever shape is literally
+// present, so a release without `title` wouldn't otherwise type-check against one that has it.
+const releases = changelog as { version: string; date: string; title?: string; entries: { category: string; summary: string }[] }[]
+
 export default async function ChangelogPage() {
   const supabase = await createClient()
   const {
@@ -45,10 +50,21 @@ export default async function ChangelogPage() {
       <h1 className="w-full max-w-2xl text-2xl font-bold">Changelog</h1>
 
       <div className="flex w-full max-w-2xl flex-col gap-8">
-        {changelog.map((release) => (
+        {releases.map((release) => (
           <section key={release.version}>
             <h2 className="mb-2 font-semibold">
-              v{release.version} <span className="font-normal text-muted">— {release.date}</span>
+              {release.title ? (
+                <>
+                  {release.title}{' '}
+                  <span className="font-normal text-muted">
+                    (v{release.version} — {release.date})
+                  </span>
+                </>
+              ) : (
+                <>
+                  v{release.version} <span className="font-normal text-muted">— {release.date}</span>
+                </>
+              )}
             </h2>
             <ul className="flex flex-col gap-1">
               {release.entries.map((entry, i) => (
