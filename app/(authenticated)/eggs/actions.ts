@@ -18,6 +18,7 @@ import { pickRandomGender } from '@/lib/pta3/gender'
 import { pickFlavorPreferences } from '@/lib/pta3/flavors'
 import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
 import { setOriginalTrainerIfUnset } from '@/lib/pta3/pokemonOrigin'
+import { addToBag } from '@/app/(authenticated)/trainers/[id]/bag/actions'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -81,6 +82,40 @@ export async function startHatchingEgg(trainerId: string, trainersItemId: string
     const { error } = await supabase.from('trainers_items').delete().eq('id', row.id)
     if (error) return { error: error.message }
   }
+
+  return loadEggSnapshot(supabase, trainerId)
+}
+
+// [[Feature - Add a 'Stop hatching' functionality for the hatching section]]: abandons the in-progress
+// Egg and returns it to the Bag, so a Trainer can start hatching a different one. Deleting the
+// `pokemon_eggs` row is what "resets the days" -- sleeps_completed lives only on that row, so there's
+// nothing else to clear. Deliberately doesn't try to restore the exact original `trainers_items` row
+// this Egg was consumed from (it may already be gone, e.g. if that stack was down to quantity 1) --
+// `addToBag` re-stacks it (or inserts a fresh row) by species/nature, same as any other Egg grant.
+export async function stopHatchingEgg(trainerId: string): Promise<{ error: string } | EggSnapshot> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: egg } = await supabase
+    .from('pokemon_eggs')
+    .select('id, pokedex_id, inherited_nature_id')
+    .eq('trainer_id', trainerId)
+    .maybeSingle()
+  if (!egg) return { error: 'No Egg is currently hatching' }
+
+  const { data: eggItem } = await supabase.from('items').select('id').eq('name', 'Egg').maybeSingle()
+  if (!eggItem) return { error: 'Egg item not found' }
+
+  const addResult = await addToBag(supabase, trainerId, eggItem.id, null, egg.pokedex_id, 1, egg.inherited_nature_id)
+  if ('error' in addResult) return addResult
+
+  const { error: deleteError } = await supabase.from('pokemon_eggs').delete().eq('id', egg.id)
+  if (deleteError) return { error: deleteError.message }
 
   return loadEggSnapshot(supabase, trainerId)
 }
