@@ -33,7 +33,10 @@ export default async function DashboardPage({
   ] = await Promise.all([
     supabase.from('campaigns').select('id', { count: 'exact', head: true }).eq('gm_user_id', user.id),
     supabase.from('campaign_members').select('campaign_id', { count: 'exact', head: true }).eq('user_id', user.id),
-    supabase.from('trainers').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_npc', false),
+    // [[Improvement - Inconsistency with Trainers vs Pokemon]]: used to also exclude is_npc rows,
+    // matching /trainers' own old filter -- now counts the same total that page shows (Trainers +
+    // NPCs together), since this tile links straight there.
+    supabase.from('trainers').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
     supabase
       .from('trainers_pokemon')
       .select('trainer_id, trainers!inner(user_id)', { count: 'exact', head: true })
