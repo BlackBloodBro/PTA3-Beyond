@@ -18,6 +18,7 @@ import {
   advanceTurn,
 } from '../actions'
 import { AttackResolver, type AttackerOption, type TargetOption } from './AttackResolver'
+import { EncounterLivePoll } from './EncounterLivePoll'
 
 type CombatantRow = {
   id: string
@@ -239,6 +240,7 @@ export default async function EncounterDetailPage({
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
+      {isActive && <EncounterLivePoll />}
       <div className="w-full max-w-2xl">
         <Link href={isGM ? `/campaigns/${campaignId}/encounters` : `/campaigns/${campaignId}`} className="text-sm underline">
           ← {isGM ? 'Encounters' : campaign.name}
