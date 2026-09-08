@@ -15,6 +15,7 @@ export type AccuracyResult =
       targetNumber: number
       targetStatLabel: string
       moveName: string
+      moveDescription: string | null
       isDamageMove: boolean
       damageDice: string | null
       damageModifier: number
@@ -58,11 +59,17 @@ export async function resolveAccuracy(
   const [{ data: attackerCombatant }, { data: targetCombatant }, { data: moveRaw }] = await Promise.all([
     supabase.from('encounter_combatants').select('pokemon_id').eq('id', attackerCombatantId).single(),
     supabase.from('encounter_combatants').select('trainer_id, pokemon_id').eq('id', targetCombatantId).single(),
-    supabase.from('moves').select('name, damage_stat, damage_dice, types(name)').eq('id', moveId).single(),
+    supabase.from('moves').select('name, damage_stat, damage_dice, description, types(name)').eq('id', moveId).single(),
   ])
   // Same reverse-embed quirk documented throughout this codebase -- types comes back as a single
   // object at runtime, not the array TS infers.
-  const move = moveRaw as unknown as { name: string; damage_stat: string; damage_dice: string | null; types: { name: string } | null } | null
+  const move = moveRaw as unknown as {
+    name: string
+    damage_stat: string
+    damage_dice: string | null
+    description: string | null
+    types: { name: string } | null
+  } | null
 
   // Attacker scope is Pokemon-only for this FR (see the FR's own note) -- a Trainer's separate
   // trainer_moves system isn't covered here.
@@ -163,6 +170,7 @@ export async function resolveAccuracy(
     targetNumber,
     targetStatLabel: TARGET_STAT_LABELS[targetStatKey],
     moveName: move.name,
+    moveDescription: move.description,
     isDamageMove,
     damageDice,
     damageModifier,

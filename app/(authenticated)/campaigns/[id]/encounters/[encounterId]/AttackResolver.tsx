@@ -165,6 +165,8 @@ export function AttackResolver({ attackers, targets }: { attackers: AttackerOpti
             <span className={result.hit ? 'font-semibold text-success' : 'font-semibold text-danger'}>{result.hit ? 'Hit!' : 'Missed'}</span>
           </p>
 
+          {result.moveDescription && <p className="mt-1 text-xs text-muted">{result.moveDescription}</p>}
+
           {result.hit && !result.isDamageMove && (
             <p className="mt-1 text-xs text-muted">Status Move -- apply its effect manually (Afflictions/Stats), nothing else happens here.</p>
           )}
