@@ -6,6 +6,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { statModifier } from '@/lib/pta3/pointBuy'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
+import { computeStatRows, type SpeciesStats, type StatBonusMap } from '@/lib/pta3/pokemonStats'
 import type { EvolutionTarget, ChainMember, EvolutionStoneBagItem } from '@/lib/pta3/evolution'
 import { ClickTooltip } from '@/components/ClickTooltip'
 import { PokemonSprite } from '@/components/PokemonSprite'
@@ -266,63 +267,15 @@ export type PassiveLearnsetEntry = {
   passives: PassiveInfo
 }
 
-type SpeciesStats = {
-  base_hp: number
-  base_atk: number
-  base_def: number
-  base_sp_atk: number
-  base_sp_def: number
-  base_speed: number
-}
-
-// [[Let a GM override a Pokemon's individual base stats]] / [[Feature - Breeder class - permanent stat
-// increase on Egg hatch]]: `pokemon.bonus_base_x` is a permanent add-on to a stat's base, written by
-// either a GM's direct override or Natural Edge's hatch-time bonus -- the schema itself can't tell
-// which wrote it. Kept as its own field (not folded into `base`) so the tooltip can show it as its own
-// line, labeled "Hatch bonus" per the user (2026-09-04) -- accurate for the common case this exists to
-// surface (Natural Edge); a GM using the same column for an unrelated manual override is the one case
-// this label doesn't fit, but that's the user's own naming call, not an oversight.
-type StatBonusMap = Record<'attack' | 'defense' | 'special_attack' | 'special_defense' | 'speed', number>
-
-function computeStatRows(
-  species: SpeciesStats,
-  evs: Record<EvStatKey, number>,
-  natureIncreasedName: string | null,
-  natureDecreasedName: string | null,
-  passiveBonusByStat: Record<string, number>,
-  afflictionBonusByStat: Record<string, number>,
-  statBonuses: StatBonusMap,
-) {
-  return (
-    [
-      { key: 'attack', label: 'Attack', base: species.base_atk, ev: evs.attack, statBonus: statBonuses.attack },
-      { key: 'defense', label: 'Defense', base: species.base_def, ev: evs.defense, statBonus: statBonuses.defense },
-      {
-        key: 'special_attack',
-        label: 'Special Attack',
-        base: species.base_sp_atk,
-        ev: evs.special_attack,
-        statBonus: statBonuses.special_attack,
-      },
-      {
-        key: 'special_defense',
-        label: 'Special Defense',
-        base: species.base_sp_def,
-        ev: evs.special_defense,
-        statBonus: statBonuses.special_defense,
-      },
-      { key: 'speed', label: 'Speed', base: species.base_speed, ev: evs.speed, statBonus: statBonuses.speed },
-    ] as const
-  ).map((s) => {
-    const natureAdjust = natureIncreasedName === s.label ? 1 : natureDecreasedName === s.label ? -1 : 0
-    const passiveBonus = passiveBonusByStat[s.label] ?? 0
-    const afflictionBonus = afflictionBonusByStat[s.label] ?? 0
-    const inBattle = 0 // No in-combat temporary-modifier tracking exists yet; always displayed as 0.
-    const value = s.base + s.statBonus + s.ev + natureAdjust + passiveBonus + afflictionBonus + inBattle
-    return { ...s, natureAdjust, passiveBonus, afflictionBonus, inBattle, value, modifier: statModifier(value) }
-  })
-}
-
+// [[Improvement - Add a combat encounter tracker]]: computeStatRows (and the SpeciesStats/StatBonusMap
+// types) moved to lib/pta3/pokemonStats.ts, unchanged, so the combat encounter tracker's turn-order
+// initiative can compute a Pokemon's effective Speed server-side with the exact same math, not a
+// duplicated/divergent copy. `pokemon.bonus_base_x` (StatBonusMap) is a permanent add-on to a stat's
+// base, written by either a GM's direct override or Natural Edge's hatch-time bonus -- the schema itself
+// can't tell which wrote it. Kept as its own field (not folded into `base`) so the tooltip can show it
+// as its own line, labeled "Hatch bonus" per the user (2026-09-04) -- accurate for the common case this
+// exists to surface (Natural Edge); a GM using the same column for an unrelated manual override is the
+// one case this label doesn't fit, but that's the user's own naming call, not an oversight.
 type StatRows = ReturnType<typeof computeStatRows>
 
 // physical -> Attack, special -> Special Attack, "either" -> whichever of Attack/Special Attack is

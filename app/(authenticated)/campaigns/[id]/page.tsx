@@ -80,6 +80,18 @@ export default async function CampaignPage({
     wildPokemonCount = (poolForCount ?? []).filter((p) => !p.trainers_pokemon).length
   }
 
+  // [[Feature - Add a combat encounter tracker]]: RLS already scopes this to what each role can
+  // actually see (a GM sees their own campaign's active encounter same as anyone; a player's own
+  // "Members can view the active campaign encounter" policy only ever returns a row here when one
+  // truly is active) -- the GM's own Encounters tile always shows regardless (drafts/prep live there
+  // too), a player's tile only shows once this query actually returns something.
+  const { data: activeEncounter } = await supabase
+    .from('encounters')
+    .select('id, name')
+    .eq('campaign_id', id)
+    .eq('status', 'active')
+    .maybeSingle()
+
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="flex w-full max-w-2xl items-center justify-between">
@@ -116,7 +128,23 @@ export default async function CampaignPage({
             <span className="text-lg font-semibold">{wildPokemonCount} Wild Pokémon</span>
             <span className="block text-sm text-muted underline">View all</span>
           </Link>
+          <Link href={`/campaigns/${id}/encounters`} className="flex-1 rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+            <span className="text-lg font-semibold">{activeEncounter ? activeEncounter.name : 'Encounters'}</span>
+            <span className="block text-sm text-muted underline">{activeEncounter ? 'Active — view' : 'Prepare / view'}</span>
+          </Link>
         </div>
+      )}
+
+      {/* [[Feature - Add a combat encounter tracker]]: a player only ever sees a direct link once an
+          Encounter is actually active -- nothing to advertise otherwise. */}
+      {!isGM && activeEncounter && (
+        <Link
+          href={`/campaigns/${id}/encounters/${activeEncounter.id}`}
+          className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20"
+        >
+          <span className="text-lg font-semibold">{activeEncounter.name}</span>
+          <span className="block text-sm text-muted underline">Active encounter — join</span>
+        </Link>
       )}
 
       <div className="flex w-full max-w-2xl flex-col gap-4">
