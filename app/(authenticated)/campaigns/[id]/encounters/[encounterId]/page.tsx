@@ -14,7 +14,6 @@ import {
   addTrainerCombatant,
   addPokemonCombatant,
   removeCombatant,
-  setCombatantDown,
   setCombatantInitiative,
   advanceTurn,
 } from '../actions'
@@ -25,7 +24,6 @@ type CombatantRow = {
   trainer_id: string | null
   pokemon_id: string | null
   turn_order: number | null
-  is_down: boolean
   trainers: { id: string; name: string; level: number; current_hp: number; is_npc: boolean; campaign_id: string | null; classes: { name: string } | null } | null
   pokemon: {
     id: string; nickname: string | null; current_hp: number; is_shiny: boolean; bonus_base_hp: number; ev_hp: number
@@ -78,7 +76,7 @@ export default async function EncounterDetailPage({
     .from('encounter_combatants')
     .select(
       `
-      id, side, trainer_id, pokemon_id, turn_order, is_down,
+      id, side, trainer_id, pokemon_id, turn_order,
       trainers(id, name, level, current_hp, is_npc, campaign_id, classes(name)),
       pokemon(id, nickname, current_hp, is_shiny, bonus_base_hp, ev_hp, pokedex(name, sprite_code, base_hp))
     `,
@@ -97,16 +95,33 @@ export default async function EncounterDetailPage({
     ),
   )
 
+  // [[Feature - Add a combat encounter tracker]]: "down" isn't a separate GM-toggled flag (per the
+  // user, 2026-09-08) -- it's just whether the combatant's own current HP has hit 0, read live from
+  // trainers/pokemon, the same source of truth every other HP display already uses. Can never drift
+  // out of sync the way a manually-set flag could.
+  function combatantIsDown(c: CombatantRow): boolean {
+    const hp = c.trainers ? c.trainers.current_hp : (c.pokemon?.current_hp ?? 0)
+    return hp <= 0
+  }
+
   // Highest turn_order acts first (d20+Speed-modifier for a Trainer, raw effective Speed for a
   // Pokemon -- see actions.ts). A Draft-added combatant has no turn_order at all yet (null) until
   // startEncounter fills it in -- sorts last, and is excluded from the "whose turn" computation.
   // current_turn_position is a plain incrementing counter indexed modulo this active-only sorted
-  // list, so a downed combatant is skipped automatically without needing its own "skip" logic.
+  // list, so a combatant at 0 HP is skipped automatically without needing its own "skip" logic.
   const activeSorted = [...combatants]
-    .filter((c) => !c.is_down && c.turn_order !== null)
+    .filter((c) => !combatantIsDown(c) && c.turn_order !== null)
     .sort((a, b) => b.turn_order! - a.turn_order!)
   const currentCombatantId = isActive && activeSorted.length > 0 ? activeSorted[encounter.current_turn_position % activeSorted.length].id : null
   const sortedForDisplay = [...combatants].sort((a, b) => (b.turn_order ?? -Infinity) - (a.turn_order ?? -Infinity))
+
+  // [[Feature - Add a combat encounter tracker]]: per the user (2026-09-08) -- the same Trainer/
+  // Pokemon can't be added twice (also enforced in the DB), so every "add" dropdown below excludes
+  // whoever's already a combatant here. This is also what makes "recall one Pokemon, send out
+  // another from the Team" a clean flow -- the recalled one reappears in the list the moment its
+  // combatant row is gone, and the currently-out one simply isn't offered again while it's still in.
+  const combatantTrainerIds = new Set(combatants.map((c) => c.trainer_id).filter((id): id is string => id !== null))
+  const combatantPokemonIds = new Set(combatants.map((c) => c.pokemon_id).filter((id): id is string => id !== null))
 
   // GM-only data: candidates for the manual "add combatant" forms below. npcTeamPokemon backs
   // "select 1 Team member per NPC" -- every NPC's own Team Pokemon, labeled by owner so the GM can
@@ -134,16 +149,16 @@ export default async function EncounterDetailPage({
       is_npc: boolean
       trainers_pokemon: { party_slot: number | null; pokemon: { id: string; nickname: string | null; pokedex: { name: string } | null } | null }[]
     }[]
-    campaignTrainers = trainersWithTeam.map((t) => ({ id: t.id, name: t.name, is_npc: t.is_npc }))
+    campaignTrainers = trainersWithTeam.filter((t) => !combatantTrainerIds.has(t.id)).map((t) => ({ id: t.id, name: t.name, is_npc: t.is_npc }))
     npcTeamPokemon = trainersWithTeam
       .filter((t) => t.is_npc)
       .flatMap((t) =>
         t.trainers_pokemon
-          .filter((tp) => tp.party_slot !== null && tp.pokemon)
+          .filter((tp) => tp.party_slot !== null && tp.pokemon && !combatantPokemonIds.has(tp.pokemon.id))
           .map((tp) => ({ id: tp.pokemon!.id, label: `${tp.pokemon!.nickname ? `${tp.pokemon!.nickname} (${tp.pokemon!.pokedex?.name})` : tp.pokemon!.pokedex?.name} — ${t.name}` })),
       )
     campaignPool = ((poolRaw ?? []) as unknown as { id: string; nickname: string | null; pokedex: { name: string } | null; trainers_pokemon: unknown }[])
-      .filter((p) => !p.trainers_pokemon)
+      .filter((p) => !p.trainers_pokemon && !combatantPokemonIds.has(p.id))
       .map((p) => ({ id: p.id, nickname: p.nickname, pokedex: p.pokedex }))
   }
 
@@ -158,10 +173,10 @@ export default async function EncounterDetailPage({
       .eq('campaign_id', campaignId)
       .eq('user_id', user.id)
       .eq('is_npc', false)
-    ownTrainers = (ownTrainersRaw ?? []).map((t) => ({ id: t.id, name: t.name }))
+    ownTrainers = (ownTrainersRaw ?? []).filter((t) => !combatantTrainerIds.has(t.id)).map((t) => ({ id: t.id, name: t.name }))
     ownTeamPokemon = ((ownTrainersRaw ?? []) as unknown as { trainers_pokemon: { party_slot: number | null; pokemon: { id: string; nickname: string | null; pokedex: { name: string } | null } | null }[] }[])
       .flatMap((t) => t.trainers_pokemon)
-      .filter((tp) => tp.party_slot !== null && tp.pokemon)
+      .filter((tp) => tp.party_slot !== null && tp.pokemon && !combatantPokemonIds.has(tp.pokemon.id))
       .map((tp) => ({ id: tp.pokemon!.id, nickname: tp.pokemon!.nickname, pokedex: tp.pokemon!.pokedex }))
   }
 
@@ -241,7 +256,7 @@ export default async function EncounterDetailPage({
               key={c.id}
               className={`flex items-center justify-between gap-2 rounded border p-3 ${
                 c.id === currentCombatantId ? 'border-2 border-warning bg-warning/10' : 'border-accent bg-accent/10'
-              } ${c.is_down ? 'opacity-50' : ''}`}
+              } ${combatantIsDown(c) ? 'opacity-50' : ''}`}
             >
               <div className="flex items-center gap-2">
                 {c.pokemon?.pokedex?.sprite_code && (
@@ -260,7 +275,7 @@ export default async function EncounterDetailPage({
                   <p className="text-xs text-muted">
                     {c.trainers ? c.trainers.current_hp : c.pokemon?.current_hp}/{combatantMaxHp(c)} HP · Initiative{' '}
                     {c.turn_order ?? 'not set'}
-                    {c.is_down ? ' · Down' : ''}
+                    {combatantIsDown(c) ? ' · Down (0 HP)' : ''}
                   </p>
                 </div>
               </div>
@@ -276,15 +291,6 @@ export default async function EncounterDetailPage({
                     />
                     <button type="submit" className="rounded border px-2 py-1 text-xs">
                       Set
-                    </button>
-                  </form>
-                  <form action={setCombatantDown.bind(null, encounterId, campaignId, c.id, !c.is_down)}>
-                    <button
-                      type="submit"
-                      title="Down means this combatant has hit 0 HP -- they're skipped in turn order until marked back up."
-                      className="rounded border px-2 py-1 text-xs"
-                    >
-                      {c.is_down ? 'Mark back up' : 'Mark as down (0 HP)'}
                     </button>
                   </form>
                   <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>

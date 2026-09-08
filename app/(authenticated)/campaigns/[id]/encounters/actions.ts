@@ -340,29 +340,9 @@ export async function removeCombatant(encounterId: string, campaignId: string, c
   redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
 }
 
-// GM-only (no player UPDATE policy exists on encounter_combatants) -- marks a combatant as having
-// hit 0 HP, or un-marks it. Never deleted -- preserves the encounter's history the same way
-// trainer_milestones rows are never deleted elsewhere in this app.
-export async function setCombatantDown(encounterId: string, campaignId: string, combatantId: string, isDown: boolean) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    redirect('/login')
-  }
-
-  const { error } = await supabase.from('encounter_combatants').update({ is_down: isDown }).eq('id', combatantId)
-
-  if (error) {
-    redirect(`/campaigns/${campaignId}/encounters/${encounterId}?error=${encodeURIComponent(error.message)}`)
-  }
-
-  redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
-}
-
 // GM-only, plain "next" -- current_turn_position is just an incrementing counter; "whose turn it is"
-// is derived by the page itself (sort combatants by turn_order desc, drop is_down ones, index modulo
+// is derived by the page itself (sort combatants by turn_order desc, drop anyone at 0 HP -- read
+// live from trainers/pokemon, never a separate stored flag that could drift from it -- index modulo
 // that list's length), so advancing never needs to know the combatant list at all. No automatic
 // "combat is over" detection, matching this app's non-simulation convention -- the GM resets or
 // deletes the encounter explicitly whenever the table decides it's over.
