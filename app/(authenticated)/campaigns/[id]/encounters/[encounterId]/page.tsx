@@ -9,11 +9,13 @@ import { RollInputButton } from '@/components/RollInputButton'
 import { loadQualifyingMilestones, computeMaxHp } from '@/lib/pta3/trainerFeatures'
 import {
   startEncounter,
-  endEncounter,
+  resetEncounterToDraft,
+  deleteEncounter,
   addTrainerCombatant,
   addPokemonCombatant,
   removeCombatant,
   setCombatantDown,
+  setCombatantInitiative,
   advanceTurn,
 } from '../actions'
 
@@ -22,7 +24,7 @@ type CombatantRow = {
   side: 'ally' | 'enemy'
   trainer_id: string | null
   pokemon_id: string | null
-  turn_order: number
+  turn_order: number | null
   is_down: boolean
   trainers: { id: string; name: string; level: number; current_hp: number; is_npc: boolean; campaign_id: string | null; classes: { name: string } | null } | null
   pokemon: {
@@ -69,6 +71,8 @@ export default async function EncounterDetailPage({
     redirect(isGM ? `/campaigns/${campaignId}/encounters` : `/campaigns/${campaignId}`)
   }
   const encounter = encounterRaw!
+  const isDraft = encounter.status === 'draft'
+  const isActive = encounter.status === 'active'
 
   const { data: combatantsRaw } = await supabase
     .from('encounter_combatants')
@@ -94,29 +98,50 @@ export default async function EncounterDetailPage({
   )
 
   // Highest turn_order acts first (d20+Speed-modifier for a Trainer, raw effective Speed for a
-  // Pokemon -- see actions.ts). current_turn_position is a plain incrementing counter indexed modulo
-  // this *active-only* sorted list, so a downed combatant is skipped automatically without needing
-  // its own "skip" logic.
-  const activeSorted = [...combatants].filter((c) => !c.is_down).sort((a, b) => b.turn_order - a.turn_order)
-  const currentCombatantId = activeSorted.length > 0 ? activeSorted[encounter.current_turn_position % activeSorted.length].id : null
-  const sortedForDisplay = [...combatants].sort((a, b) => b.turn_order - a.turn_order)
+  // Pokemon -- see actions.ts). A Draft-added combatant has no turn_order at all yet (null) until
+  // startEncounter fills it in -- sorts last, and is excluded from the "whose turn" computation.
+  // current_turn_position is a plain incrementing counter indexed modulo this active-only sorted
+  // list, so a downed combatant is skipped automatically without needing its own "skip" logic.
+  const activeSorted = [...combatants]
+    .filter((c) => !c.is_down && c.turn_order !== null)
+    .sort((a, b) => b.turn_order! - a.turn_order!)
+  const currentCombatantId = isActive && activeSorted.length > 0 ? activeSorted[encounter.current_turn_position % activeSorted.length].id : null
+  const sortedForDisplay = [...combatants].sort((a, b) => (b.turn_order ?? -Infinity) - (a.turn_order ?? -Infinity))
 
-  const isEnded = encounter.status === 'ended'
-  const isActive = encounter.status === 'active'
-
-  // GM-only data: candidates for the manual "add combatant" forms below.
+  // GM-only data: candidates for the manual "add combatant" forms below. npcTeamPokemon backs
+  // "select 1 Team member per NPC" -- every NPC's own Team Pokemon, labeled by owner so the GM can
+  // tell them apart, offered alongside whichever NPC they're adding (not filtered live to just that
+  // NPC's own roster -- a plain GM tool, not worth a client component just for that).
   let campaignTrainers: { id: string; name: string; is_npc: boolean }[] = []
+  let npcTeamPokemon: { id: string; label: string }[] = []
   let campaignPool: { id: string; nickname: string | null; pokedex: { name: string } | null }[] = []
   if (isGM) {
     const [{ data: trainersRaw }, { data: poolRaw }] = await Promise.all([
-      supabase.from('trainers').select('id, name, is_npc').eq('campaign_id', campaignId).order('name'),
+      supabase
+        .from('trainers')
+        .select('id, name, is_npc, trainers_pokemon(party_slot, pokemon(id, nickname, pokedex(name)))')
+        .eq('campaign_id', campaignId)
+        .order('name'),
       supabase
         .from('pokemon')
         .select('id, nickname, pokedex(name), trainers_pokemon(pokemon_id)')
         .eq('campaign_id', campaignId)
         .eq('created_by_user_id', user.id),
     ])
-    campaignTrainers = trainersRaw ?? []
+    const trainersWithTeam = (trainersRaw ?? []) as unknown as {
+      id: string
+      name: string
+      is_npc: boolean
+      trainers_pokemon: { party_slot: number | null; pokemon: { id: string; nickname: string | null; pokedex: { name: string } | null } | null }[]
+    }[]
+    campaignTrainers = trainersWithTeam.map((t) => ({ id: t.id, name: t.name, is_npc: t.is_npc }))
+    npcTeamPokemon = trainersWithTeam
+      .filter((t) => t.is_npc)
+      .flatMap((t) =>
+        t.trainers_pokemon
+          .filter((tp) => tp.party_slot !== null && tp.pokemon)
+          .map((tp) => ({ id: tp.pokemon!.id, label: `${tp.pokemon!.nickname ? `${tp.pokemon!.nickname} (${tp.pokemon!.pokedex?.name})` : tp.pokemon!.pokedex?.name} — ${t.name}` })),
+      )
     campaignPool = ((poolRaw ?? []) as unknown as { id: string; nickname: string | null; pokedex: { name: string } | null; trainers_pokemon: unknown }[])
       .filter((p) => !p.trainers_pokemon)
       .map((p) => ({ id: p.id, nickname: p.nickname, pokedex: p.pokedex }))
@@ -172,7 +197,7 @@ export default async function EncounterDetailPage({
         </h1>
         {isGM && (
           <div className="flex gap-2">
-            {encounter.status === 'draft' && (
+            {isDraft && (
               <form action={startEncounter.bind(null, campaignId, encounterId)}>
                 <button type="submit" className="rounded bg-accent px-4 py-2 text-sm text-accent-foreground">
                   Start encounter
@@ -186,13 +211,21 @@ export default async function EncounterDetailPage({
                     Advance turn
                   </button>
                 </form>
-                <form action={endEncounter.bind(null, campaignId, encounterId)}>
-                  <ConfirmButton confirmMessage="End this encounter? It'll move to your Encounters history." className="rounded border border-danger px-4 py-2 text-sm text-danger">
-                    End encounter
+                <form action={resetEncounterToDraft.bind(null, campaignId, encounterId)}>
+                  <ConfirmButton
+                    confirmMessage="Reset this encounter back to Draft? Every combatant's initiative and the current turn will be cleared -- you'll need to Start it again to re-roll."
+                    className="rounded border px-4 py-2 text-sm"
+                  >
+                    Reset to draft
                   </ConfirmButton>
                 </form>
               </>
             )}
+            <form action={deleteEncounter.bind(null, campaignId, encounterId)}>
+              <ConfirmButton confirmMessage={`Permanently delete "${encounter.name}"? This cannot be undone.`} className="rounded border border-danger px-4 py-2 text-sm text-danger">
+                Delete
+              </ConfirmButton>
+            </form>
           </div>
         )}
       </div>
@@ -225,16 +258,33 @@ export default async function EncounterDetailPage({
                     {c.id === currentCombatantId && <span className="ml-2 text-xs font-semibold text-warning">← Current turn</span>}
                   </p>
                   <p className="text-xs text-muted">
-                    {c.trainers ? c.trainers.current_hp : c.pokemon?.current_hp}/{combatantMaxHp(c)} HP · Initiative {c.turn_order}
+                    {c.trainers ? c.trainers.current_hp : c.pokemon?.current_hp}/{combatantMaxHp(c)} HP · Initiative{' '}
+                    {c.turn_order ?? 'not set'}
                     {c.is_down ? ' · Down' : ''}
                   </p>
                 </div>
               </div>
               {isGM && (
-                <div className="flex gap-2">
-                  <form action={setCombatantDown.bind(null, encounterId, campaignId, c.id, !c.is_down)}>
+                <div className="flex items-center gap-2">
+                  <form action={setCombatantInitiative.bind(null, encounterId, campaignId, c.id)} className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      name="turnOrder"
+                      defaultValue={c.turn_order ?? ''}
+                      placeholder="Init."
+                      className="bg-surface-subtle w-16 rounded border px-1 py-1 text-xs"
+                    />
                     <button type="submit" className="rounded border px-2 py-1 text-xs">
-                      {c.is_down ? 'Mark up' : 'Mark down'}
+                      Set
+                    </button>
+                  </form>
+                  <form action={setCombatantDown.bind(null, encounterId, campaignId, c.id, !c.is_down)}>
+                    <button
+                      type="submit"
+                      title="Down means this combatant has hit 0 HP -- they're skipped in turn order until marked back up."
+                      className="rounded border px-2 py-1 text-xs"
+                    >
+                      {c.is_down ? 'Mark back up' : 'Mark as down (0 HP)'}
                     </button>
                   </form>
                   <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
@@ -263,9 +313,15 @@ export default async function EncounterDetailPage({
         )}
       </div>
 
-      {isGM && !isEnded && (
+      {isGM && (
         <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
           <h2 className="font-semibold">Add a combatant</h2>
+          {isDraft && (
+            <p className="text-xs text-muted">
+              No initiative is rolled yet while this Encounter is a Draft -- it's filled in automatically (or you can set it by hand
+              below) once you Start it.
+            </p>
+          )}
 
           {campaignTrainers.length > 0 && (
             <form action={addTrainerCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
@@ -283,6 +339,19 @@ export default async function EncounterDetailPage({
                   ))}
                 </select>
               </div>
+              {npcTeamPokemon.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="teamPokemonId">Team member (for an NPC)</label>
+                  <select id="teamPokemonId" name="teamPokemonId" defaultValue="" className="bg-surface-subtle rounded border p-2">
+                    <option value="">None</option>
+                    {npcTeamPokemon.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="flex flex-col gap-1">
                 <label htmlFor="side1">Side</label>
                 <select id="side1" name="side" defaultValue="enemy" className="bg-surface-subtle rounded border p-2">
@@ -290,16 +359,22 @@ export default async function EncounterDetailPage({
                   <option value="enemy">Enemy</option>
                 </select>
               </div>
-              <RollInputButton
-                promptMessage="Roll a d20 for initiative and enter the result (1-20)."
-                min={1}
-                max={20}
-                fieldName="d20Roll"
-                formAction={addTrainerCombatant.bind(null, encounterId, campaignId)}
-                className="rounded border px-3 py-2"
-              >
-                Add (roll d20)
-              </RollInputButton>
+              {isDraft ? (
+                <button type="submit" className="rounded border px-3 py-2">
+                  Add
+                </button>
+              ) : (
+                <RollInputButton
+                  promptMessage="Roll a d20 for initiative and enter the result (1-20)."
+                  min={1}
+                  max={20}
+                  fieldName="d20Roll"
+                  formAction={addTrainerCombatant.bind(null, encounterId, campaignId)}
+                  className="rounded border px-3 py-2"
+                >
+                  Add (roll d20)
+                </RollInputButton>
+              )}
             </form>
           )}
 

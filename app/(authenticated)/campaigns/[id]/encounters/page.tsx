@@ -34,13 +34,12 @@ export default async function EncountersPage({
 
   const { data: encounters } = await supabase
     .from('encounters')
-    .select('id, name, status, created_at, started_at, ended_at')
+    .select('id, name, status, created_at')
     .eq('campaign_id', id)
     .order('created_at', { ascending: false })
 
   const drafts = (encounters ?? []).filter((e) => e.status === 'draft')
   const active = (encounters ?? []).find((e) => e.status === 'active')
-  const ended = (encounters ?? []).filter((e) => e.status === 'ended')
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -100,19 +99,6 @@ export default async function EncountersPage({
                 href={`/campaigns/${id}/encounters/${e.id}`}
                 className="rounded border p-3 underline hover:bg-accent/10"
               >
-                {e.name}
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {ended.length > 0 && (
-        <div className="w-full max-w-2xl">
-          <h2 className="mb-2 font-semibold">Ended</h2>
-          <div className="flex flex-col gap-2">
-            {ended.map((e) => (
-              <Link key={e.id} href={`/campaigns/${id}/encounters/${e.id}`} className="rounded border p-3 text-sm text-muted underline">
                 {e.name}
               </Link>
             ))}
