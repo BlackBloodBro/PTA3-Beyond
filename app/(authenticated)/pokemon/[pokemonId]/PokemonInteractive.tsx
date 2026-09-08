@@ -7,6 +7,14 @@ import { statModifier } from '@/lib/pta3/pointBuy'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { computeStatRows, type SpeciesStats, type StatBonusMap } from '@/lib/pta3/pokemonStats'
+import {
+  stabBonus,
+  effectivenessFor,
+  adjustDiceCount,
+  resolveAccuracyStat,
+  type TypeMatchupInfo,
+  type TypeImmunityInfo,
+} from '@/lib/pta3/combatMath'
 import type { EvolutionTarget, ChainMember, EvolutionStoneBagItem } from '@/lib/pta3/evolution'
 import { ClickTooltip } from '@/components/ClickTooltip'
 import { PokemonSprite } from '@/components/PokemonSprite'
@@ -42,26 +50,6 @@ function formatSigned(n: number) {
   return `${n >= 0 ? '+' : ''}${n}`
 }
 
-// Same rule as STAB elsewhere -- +4 damage when a move's type matches either of the Pokemon's own
-// (effective, override-aware) types.
-function stabBonus(moveTypeName: string | undefined, type1?: string, type2?: string) {
-  return moveTypeName && (moveTypeName === type1 || moveTypeName === type2) ? 4 : 0
-}
-
-export type TypeMatchupInfo = {
-  attacking_type: string
-  defending_type: string
-  modifier: number
-}
-
-// [[Bug - Double check immunities in type effectiveness]]: presence-only pairs, deliberately not
-// folded into TypeMatchupInfo/type_matchups -- see effectivenessFor's comment for why immunity can't
-// be represented as just another modifier value in that additive system.
-export type TypeImmunityInfo = {
-  attacking_type: string
-  defending_type: string
-}
-
 export type SpeciesTypeInfo = {
   name: string
   sprite_code: string
@@ -69,58 +57,9 @@ export type SpeciesTypeInfo = {
   type_2: { name: string } | null
 }
 
-// Player's Handbook rule (page 122): NOT a mainline-style HP multiplier -- effectiveness adds or
-// subtracts DICE from the damage roll. Each of the move's type vs. each of the DEFENDING (target's)
-// types contributes -1 (resisted) / 0 (neutral, unlisted in typeMatchups) / +1 (super-effective); a
-// dual-type target sums both contributions, clamped to the -2..+2 die range the rule describes
-// (extremely-effective/super-effective/neutral/resisted/shielded). `defType1`/`defType2` are the
-// user-picked opponent types (see TargetPicker), deliberately NOT the attacking Pokemon's own
-// effectiveType1/2 -- that's STAB's job, a different thing being calculated from different inputs.
-// Skipped entirely for 'Special/Variable'-typed moves (their real type is chosen at time of use, not
-// stored) or when no target type has been picked yet.
-//
-// [[Bug - Double check immunities in type effectiveness]]: true immunity (e.g. Normal vs. Ghost) is
-// checked FIRST, before any of the above summing, and short-circuits straight to a 0-damage result --
-// it can't be folded into the sum-then-clamp math above, because that system is additive (a dual-type
-// defender's two scores add together) while real immunity is multiplicative (0x always wins regardless
-// of the other type). A Normal move vs. a Ghost/Steel dual-type must stay 0 damage even though Steel is
-// merely neutral to Normal, which summing the two could never express.
-function effectivenessFor(
-  moveTypeName: string | undefined,
-  defType1: string | undefined,
-  defType2: string | undefined,
-  typeMatchups: TypeMatchupInfo[],
-  typeImmunities: TypeImmunityInfo[],
-) {
-  if (!moveTypeName || moveTypeName === 'Special/Variable' || !defType1) return null
-  const isImmune = (defType: string | undefined) =>
-    !!defType && typeImmunities.some((i) => i.attacking_type === moveTypeName && i.defending_type === defType)
-  if (isImmune(defType1) || isImmune(defType2)) {
-    return { dice: 0, label: 'Immune', immune: true }
-  }
-  const scoreAgainst = (defType: string | undefined) => {
-    if (!defType) return 0
-    return typeMatchups.find((m) => m.attacking_type === moveTypeName && m.defending_type === defType)?.modifier ?? 0
-  }
-  const total = scoreAgainst(defType1) + scoreAgainst(defType2)
-  const dice = Math.max(-2, Math.min(2, total))
-  if (dice === 0) return null
-  const label = dice === 2 ? 'Extremely effective' : dice === 1 ? 'Super effective' : dice === -1 ? 'Resisted' : 'Shielded'
-  return { dice, label, immune: false }
-}
-
-// A move's damage_dice is always "<count>d<sides>" (e.g. "2d6"). Effectiveness changes the dice
-// COUNT, not the modifier added to the roll -- floored at 0 ([[Bug - Effectiveness can remove all
-// Dice from a Damage roll]]: a low-dice move that's "Not effective" can lose every die, leaving only
-// the modifier, not silently keep a full die it should have lost). Returns null once there are no
-// dice left, so the caller can drop the dice notation entirely rather than display "0d10".
-function adjustDiceCount(diceNotation: string, delta: number): string | null {
-  const match = diceNotation.match(/^(\d+)d(\d+)$/)
-  if (!match) return diceNotation
-  if (delta === 0) return diceNotation
-  const count = Math.max(0, parseInt(match[1], 10) + delta)
-  return count === 0 ? null : `${count}d${match[2]}`
-}
+// stabBonus/effectivenessFor/adjustDiceCount now live in lib/pta3/combatMath.ts (moved for
+// [[Feature - Add attack resolution to combat encounters]], unchanged, so the same move-math this
+// page uses to display To hit/Damage can also resolve an attack server-side -- one source of truth.
 
 // Ephemeral, per-page "what am I fighting" reference -- plain local state, never persisted (see
 // [[Add an opponent type selector for move effectiveness]]). Two manually-set dropdowns, plus a
@@ -278,17 +217,9 @@ export type PassiveLearnsetEntry = {
 // one case this label doesn't fit, but that's the user's own naming call, not an oversight.
 type StatRows = ReturnType<typeof computeStatRows>
 
-// physical -> Attack, special -> Special Attack, "either" -> whichever of Attack/Special Attack is
-// higher, "effect" -> Speed (all confirmed with the user).
-function modifierForDamageStat(damageStat: string, statRows: StatRows) {
-  const attackMod = statRows.find((s) => s.key === 'attack')!.modifier
-  const spAtkMod = statRows.find((s) => s.key === 'special_attack')!.modifier
-  const speedMod = statRows.find((s) => s.key === 'speed')!.modifier
-  if (damageStat === 'physical') return attackMod
-  if (damageStat === 'special') return spAtkMod
-  if (damageStat === 'either') return Math.max(attackMod, spAtkMod)
-  return speedMod
-}
+// resolveAccuracyStat (lib/pta3/combatMath.ts) supersedes this page's own modifierForDamageStat --
+// same "physical -> Attack, special -> Special Attack, either -> higher of the two, effect -> Speed"
+// mapping, now shared with attack resolution's own server-side Accuracy Check.
 
 type PokemonStateValue = {
   pokemonId: string
@@ -1230,7 +1161,7 @@ export function MovesSection() {
         <ul className="flex flex-col gap-2">
           {sortedKnownMoves.map((km) => {
             const move = km.moves
-            const toHit = modifierForDamageStat(move.damage_stat, statRows)
+            const toHit = resolveAccuracyStat(move.damage_stat, statRows).modifier
             const stab = stabBonus(move.types?.name, effectiveType1, effectiveType2)
             const damageModifier = toHit + stab
             const effectiveness = effectivenessFor(move.types?.name, defType1 || undefined, defType2 || undefined, typeMatchups, typeImmunities)

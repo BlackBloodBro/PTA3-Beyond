@@ -173,3 +173,39 @@ export async function loadPokemonEffectiveSpeed(supabase: SupabaseClient, pokemo
   const rows = await loadPokemonEffectiveStats(supabase, pokemonId)
   return rows?.find((r) => r.key === 'speed')?.value ?? null
 }
+
+// [[Feature - Add attack resolution to combat encounters]]: a Pokemon's *effective* type (a GM's
+// direct override, when set, otherwise its species default) -- same formula the Pokemon page's own
+// `page.tsx` already computes client-side (`effectiveType1`/`effectiveType2`), replicated here so
+// attack resolution's server-side STAB/effectiveness lookup uses the exact same override-aware type,
+// not just the species default.
+export async function loadPokemonEffectiveType(supabase: SupabaseClient, pokemonId: string): Promise<{ type1: string | null; type2: string | null } | null> {
+  const { data } = await supabase
+    .from('pokemon')
+    .select(
+      `
+      type_1_id, type_2_id,
+      pokedex:pokedex_id (type_1:types!type_1_id(name), type_2:types!type_2_id(name)),
+      override_type_1:types!type_1_id(name),
+      override_type_2:types!type_2_id(name)
+    `,
+    )
+    .eq('id', pokemonId)
+    .maybeSingle()
+
+  // Same reverse/forward-embed quirk documented throughout this codebase.
+  const pokemon = data as unknown as {
+    type_1_id: number | null
+    type_2_id: number | null
+    pokedex: { type_1: { name: string } | null; type_2: { name: string } | null } | null
+    override_type_1: { name: string } | null
+    override_type_2: { name: string } | null
+  } | null
+
+  if (!pokemon) return null
+
+  return {
+    type1: pokemon.override_type_1?.name ?? pokemon.pokedex?.type_1?.name ?? null,
+    type2: pokemon.type_2_id ? (pokemon.override_type_2?.name ?? null) : (pokemon.pokedex?.type_2?.name ?? null),
+  }
+}

@@ -17,6 +17,7 @@ import {
   setCombatantInitiative,
   advanceTurn,
 } from '../actions'
+import { AttackResolver, type AttackerOption, type TargetOption } from './AttackResolver'
 
 type CombatantRow = {
   id: string
@@ -166,6 +167,9 @@ export default async function EncounterDetailPage({
   // own Team Pokemon on any of those Trainers. Meaningless once the encounter isn't active.
   let ownTrainers: { id: string; name: string }[] = []
   let ownTeamPokemon: { id: string; nickname: string | null; pokedex: { name: string } | null }[] = []
+  // Unfiltered (unlike ownTeamPokemon, which excludes anyone already a combatant, for the "Send out"
+  // dropdown) -- Attack Resolver needs to know which *already-in-combat* Pokemon are the player's own.
+  let ownTeamPokemonIds = new Set<string>()
   if (!isGM && isActive) {
     const { data: ownTrainersRaw } = await supabase
       .from('trainers')
@@ -174,10 +178,45 @@ export default async function EncounterDetailPage({
       .eq('user_id', user.id)
       .eq('is_npc', false)
     ownTrainers = (ownTrainersRaw ?? []).filter((t) => !combatantTrainerIds.has(t.id)).map((t) => ({ id: t.id, name: t.name }))
-    ownTeamPokemon = ((ownTrainersRaw ?? []) as unknown as { trainers_pokemon: { party_slot: number | null; pokemon: { id: string; nickname: string | null; pokedex: { name: string } | null } | null }[] }[])
+    const allOwnTeamPokemon = ((ownTrainersRaw ?? []) as unknown as { trainers_pokemon: { party_slot: number | null; pokemon: { id: string; nickname: string | null; pokedex: { name: string } | null } | null }[] }[])
       .flatMap((t) => t.trainers_pokemon)
-      .filter((tp) => tp.party_slot !== null && tp.pokemon && !combatantPokemonIds.has(tp.pokemon.id))
-      .map((tp) => ({ id: tp.pokemon!.id, nickname: tp.pokemon!.nickname, pokedex: tp.pokemon!.pokedex }))
+      .filter((tp): tp is { party_slot: number; pokemon: NonNullable<typeof tp.pokemon> } => tp.party_slot !== null && tp.pokemon !== null)
+      .map((tp) => tp.pokemon)
+    ownTeamPokemonIds = new Set(allOwnTeamPokemon.map((p) => p.id))
+    ownTeamPokemon = allOwnTeamPokemon.filter((p) => !combatantPokemonIds.has(p.id))
+  }
+
+  // [[Feature - Add attack resolution to combat encounters]]: attacker options are Pokemon combatants
+  // only (see the FR's own scoping) -- the GM can attack with any of them, a member only with their
+  // own. Target options are every combatant, either kind, any side (a status/support Move can target
+  // an ally too). Moves are fetched once active is confirmed rather than for every page load.
+  let attackerOptions: AttackerOption[] = []
+  const targetOptions: TargetOption[] = combatants.map((c) => ({
+    id: c.id,
+    name: combatantName(c),
+    trainerId: c.trainers?.id ?? null,
+    pokemonId: c.pokemon?.id ?? null,
+  }))
+  if (isActive) {
+    const pokemonCombatants = combatants.filter((c): c is CombatantRow & { pokemon: NonNullable<CombatantRow['pokemon']> } => c.pokemon !== null)
+    const eligible = pokemonCombatants.filter((c) => isGM || ownTeamPokemonIds.has(c.pokemon.id))
+    if (eligible.length > 0) {
+      const { data: movesRaw } = await supabase
+        .from('pokemon_moves')
+        .select('pokemon_id, moves(id, name)')
+        .in(
+          'pokemon_id',
+          eligible.map((c) => c.pokemon.id),
+        )
+      const movesByPokemonId = new Map<string, { id: number; name: string }[]>()
+      for (const row of (movesRaw ?? []) as unknown as { pokemon_id: string; moves: { id: number; name: string } | null }[]) {
+        if (!row.moves) continue
+        const arr = movesByPokemonId.get(row.pokemon_id) ?? []
+        arr.push(row.moves)
+        movesByPokemonId.set(row.pokemon_id, arr)
+      }
+      attackerOptions = eligible.map((c) => ({ id: c.id, name: combatantName(c), moves: movesByPokemonId.get(c.pokemon.id) ?? [] }))
+    }
   }
 
   function combatantMaxHp(c: CombatantRow): number {
@@ -478,6 +517,8 @@ export default async function EncounterDetailPage({
           )}
         </div>
       )}
+
+      {isActive && <AttackResolver attackers={attackerOptions} targets={targetOptions} />}
     </main>
   )
 }
