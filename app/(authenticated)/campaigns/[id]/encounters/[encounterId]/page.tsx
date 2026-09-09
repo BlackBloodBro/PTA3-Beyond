@@ -202,6 +202,7 @@ export default async function EncounterDetailPage({
   const targetOptions: TargetOption[] = combatants.map((c) => ({
     id: c.id,
     name: combatantName(c),
+    side: c.side,
     trainerId: c.trainers?.id ?? null,
     pokemonId: c.pokemon?.id ?? null,
   }))
@@ -223,7 +224,7 @@ export default async function EncounterDetailPage({
         arr.push(row.moves)
         movesByPokemonId.set(row.pokemon_id, arr)
       }
-      attackerOptions = eligible.map((c) => ({ id: c.id, name: combatantName(c), moves: movesByPokemonId.get(c.pokemon.id) ?? [] }))
+      attackerOptions = eligible.map((c) => ({ id: c.id, pokemonId: c.pokemon.id, side: c.side, name: combatantName(c), moves: movesByPokemonId.get(c.pokemon.id) ?? [] }))
     }
   }
 
