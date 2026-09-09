@@ -17,6 +17,7 @@ import {
   removeCombatant,
   setCombatantInitiative,
   advanceTurn,
+  scanSpecies,
 } from '../actions'
 import { AttackResolver, type AttackerOption, type TargetOption } from './AttackResolver'
 import { EncounterLivePoll } from './EncounterLivePoll'
@@ -32,7 +33,7 @@ type CombatantRow = {
     id: string; name: string; level: number; current_hp: number; is_npc: boolean; campaign_id: string | null; class_id: number | null; classes: { name: string } | null
   } | null
   pokemon: {
-    id: string; nickname: string | null; current_hp: number; is_shiny: boolean; bonus_base_hp: number; ev_hp: number
+    id: string; nickname: string | null; current_hp: number; is_shiny: boolean; bonus_base_hp: number; ev_hp: number; pokedex_id: number
     pokedex: { name: string; sprite_code: string; base_hp: number } | null
   } | null
 }
@@ -84,7 +85,7 @@ export default async function EncounterDetailPage({
       `
       id, side, trainer_id, pokemon_id, turn_order,
       trainers(id, name, level, current_hp, is_npc, campaign_id, class_id, classes(name)),
-      pokemon(id, nickname, current_hp, is_shiny, bonus_base_hp, ev_hp, pokedex(name, sprite_code, base_hp))
+      pokemon(id, nickname, current_hp, is_shiny, bonus_base_hp, ev_hp, pokedex_id, pokedex(name, sprite_code, base_hp))
     `,
     )
     .eq('encounter_id', encounterId)
@@ -92,6 +93,43 @@ export default async function EncounterDetailPage({
   // Same reverse/forward-embed quirk documented throughout this codebase -- trainers/pokemon/classes/
   // pokedex come back as single objects at runtime, not the arrays TS infers.
   const combatants = (combatantsRaw ?? []) as unknown as CombatantRow[]
+
+  // [[Feature - Reveal opponent Pokemon without scanning on Walking encyclopedia (Researcher)]]: a real
+  // restriction invented from scratch (see the FR's own audit -- every species field is unconditional
+  // public-read reference data otherwise). Scanned per-Campaign/per-species/permanent, so one query for
+  // the whole page rather than per-combatant. The GM always sees everything identified (they built the
+  // encounter); a member sees everything identified too if *any* of their own Trainers in this Campaign
+  // has resolved "Walking encyclopedia" -- same "check resolved Features by name" pattern used
+  // throughout Combat v1 -- otherwise only species already in `campaign_scanned_species`.
+  const hasEnemyPokemon = combatants.some((c) => c.side === 'enemy' && c.pokemon !== null)
+  let scannedPokedexIds = new Set<number>()
+  let viewerHasWalkingEncyclopedia = false
+  if (hasEnemyPokemon) {
+    const { data: scannedRows } = await supabase.from('campaign_scanned_species').select('pokedex_id').eq('campaign_id', campaignId)
+    scannedPokedexIds = new Set((scannedRows ?? []).map((r) => r.pokedex_id))
+
+    if (!isGM) {
+      const { data: myTrainers } = await supabase
+        .from('trainers')
+        .select('id, class_id, level')
+        .eq('campaign_id', campaignId)
+        .eq('user_id', user.id)
+        .eq('is_npc', false)
+      for (const t of myTrainers ?? []) {
+        if (t.class_id === null) continue
+        const { activeFeatures, passiveFeatures } = await loadTrainerDerived(supabase, t.id, { classId: t.class_id, level: t.level })
+        if ([...activeFeatures, ...passiveFeatures].some((f) => f.name === 'Walking encyclopedia')) {
+          viewerHasWalkingEncyclopedia = true
+          break
+        }
+      }
+    }
+  }
+
+  function combatantIsIdentified(c: CombatantRow): boolean {
+    if (!c.pokemon || c.side !== 'enemy') return true
+    return isGM || viewerHasWalkingEncyclopedia || scannedPokedexIds.has(c.pokemon.pokedex_id)
+  }
 
   const trainerMaxHpById = new Map<string, number>(
     await Promise.all(
@@ -276,13 +314,18 @@ export default async function EncounterDetailPage({
 
   function combatantName(c: CombatantRow): string {
     if (c.trainers) return c.trainers.name
-    if (c.pokemon) return c.pokemon.nickname ? `${c.pokemon.nickname} (${c.pokemon.pokedex?.name})` : (c.pokemon.pokedex?.name ?? 'Unknown')
+    if (c.pokemon) {
+      if (!combatantIsIdentified(c)) return 'Unidentified Pokémon'
+      return c.pokemon.nickname ? `${c.pokemon.nickname} (${c.pokemon.pokedex?.name})` : (c.pokemon.pokedex?.name ?? 'Unknown')
+    }
     return 'Unknown'
   }
 
-  function combatantHref(c: CombatantRow): string {
+  // Returns null (no link) for an unidentified opponent -- nothing about it is knowable yet, including
+  // that its own detail page exists to click through to.
+  function combatantHref(c: CombatantRow): string | null {
     if (c.trainers) return trainerHref({ id: c.trainers.id, is_npc: c.trainers.is_npc, campaign_id: c.trainers.campaign_id })
-    if (c.pokemon) return pokemonHref({ id: c.pokemon.id, hasOwner: c.trainers !== null, campaignId })
+    if (c.pokemon) return combatantIsIdentified(c) ? pokemonHref({ id: c.pokemon.id, hasOwner: c.trainers !== null, campaignId }) : null
     return '#'
   }
 
@@ -348,17 +391,25 @@ export default async function EncounterDetailPage({
               } ${combatantIsDown(c) ? 'opacity-50' : ''}`}
             >
               <div className="flex items-center gap-2">
-                {c.pokemon?.pokedex?.sprite_code && (
-                  <PokemonSprite spriteCode={c.pokemon.pokedex.sprite_code} shiny={c.pokemon.is_shiny} alt={combatantName(c)} size={32} />
+                {c.pokemon && !combatantIsIdentified(c) ? (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-surface-muted text-sm text-muted">?</div>
+                ) : (
+                  c.pokemon?.pokedex?.sprite_code && (
+                    <PokemonSprite spriteCode={c.pokemon.pokedex.sprite_code} shiny={c.pokemon.is_shiny} alt={combatantName(c)} size={32} />
+                  )
                 )}
                 <div>
                   <p className="text-sm">
                     <span className={`mr-1 rounded px-1.5 py-0.5 text-xs font-semibold ${c.side === 'ally' ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'}`}>
                       {c.side === 'ally' ? 'Ally' : 'Enemy'}
                     </span>
-                    <Link href={combatantHref(c)} className="font-semibold underline">
-                      {combatantName(c)}
-                    </Link>
+                    {combatantHref(c) ? (
+                      <Link href={combatantHref(c)!} className="font-semibold underline">
+                        {combatantName(c)}
+                      </Link>
+                    ) : (
+                      <span className="font-semibold">{combatantName(c)}</span>
+                    )}
                     {c.id === currentCombatantId && <span className="ml-2 text-xs font-semibold text-warning">← Current turn</span>}
                   </p>
                   <p className="text-xs text-muted">
@@ -401,6 +452,13 @@ export default async function EncounterDetailPage({
                   <ConfirmButton confirmMessage="Recall this Pokémon from the encounter?" className="rounded border px-2 py-1 text-xs">
                     Recall
                   </ConfirmButton>
+                </form>
+              )}
+              {c.pokemon && !combatantIsIdentified(c) && (
+                <form action={scanSpecies.bind(null, encounterId, campaignId, c.pokemon.pokedex_id)}>
+                  <button type="submit" className="rounded border border-accent px-2 py-1 text-xs font-semibold text-accent">
+                    Use Pokédex
+                  </button>
                 </form>
               )}
             </div>

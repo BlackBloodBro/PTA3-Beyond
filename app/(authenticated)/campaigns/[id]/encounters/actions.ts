@@ -340,6 +340,31 @@ export async function removeCombatant(encounterId: string, campaignId: string, c
   redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
 }
 
+// [[Feature - Reveal opponent Pokemon without scanning on Walking encyclopedia (Researcher)]]: "using a
+// Pokedex" is a plain, no-cost action any campaign member can take on any unidentified opponent -- not
+// gated to the GM or to owning the combatant, matching this app's convention of not simulating
+// turn-by-turn action economy. Upsert, not insert -- two players clicking the same unidentified
+// combatant at once should both just succeed, not race into a duplicate-key error. Permanent and
+// campaign-wide once scanned (campaign_scanned_species has no delete path at all), per the FR's own
+// Design notes -- mirrors mainline Pokedex's own "seen" concept, not a per-encounter reveal.
+export async function scanSpecies(encounterId: string, campaignId: string, pokedexId: number) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { error } = await supabase.from('campaign_scanned_species').upsert({ campaign_id: campaignId, pokedex_id: pokedexId })
+
+  if (error) {
+    redirect(`/campaigns/${campaignId}/encounters/${encounterId}?error=${encodeURIComponent(error.message)}`)
+  }
+
+  redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
+}
+
 // GM-only, plain "next" -- current_turn_position is just an incrementing counter; "whose turn it is"
 // is derived by the page itself (sort combatants by turn_order desc, drop anyone at 0 HP -- read
 // live from trainers/pokemon, never a separate stored flag that could drift from it -- index modulo
