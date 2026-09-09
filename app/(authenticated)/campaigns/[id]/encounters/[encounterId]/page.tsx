@@ -6,7 +6,8 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { RollInputButton } from '@/components/RollInputButton'
-import { loadQualifyingMilestones, computeMaxHp } from '@/lib/pta3/trainerFeatures'
+import { loadQualifyingMilestones, computeMaxHp, loadTrainerDerived } from '@/lib/pta3/trainerFeatures'
+import { loadBagSnapshot } from '@/lib/pta3/bag'
 import {
   startEncounter,
   resetEncounterToDraft,
@@ -19,6 +20,7 @@ import {
 } from '../actions'
 import { AttackResolver, type AttackerOption, type TargetOption } from './AttackResolver'
 import { EncounterLivePoll } from './EncounterLivePoll'
+import { TrainerActionsPanel, type TrainerActionsData } from './TrainerActionsPanel'
 
 type CombatantRow = {
   id: string
@@ -26,7 +28,9 @@ type CombatantRow = {
   trainer_id: string | null
   pokemon_id: string | null
   turn_order: number | null
-  trainers: { id: string; name: string; level: number; current_hp: number; is_npc: boolean; campaign_id: string | null; classes: { name: string } | null } | null
+  trainers: {
+    id: string; name: string; level: number; current_hp: number; is_npc: boolean; campaign_id: string | null; class_id: number | null; classes: { name: string } | null
+  } | null
   pokemon: {
     id: string; nickname: string | null; current_hp: number; is_shiny: boolean; bonus_base_hp: number; ev_hp: number
     pokedex: { name: string; sprite_code: string; base_hp: number } | null
@@ -79,7 +83,7 @@ export default async function EncounterDetailPage({
     .select(
       `
       id, side, trainer_id, pokemon_id, turn_order,
-      trainers(id, name, level, current_hp, is_npc, campaign_id, classes(name)),
+      trainers(id, name, level, current_hp, is_npc, campaign_id, class_id, classes(name)),
       pokemon(id, nickname, current_hp, is_shiny, bonus_base_hp, ev_hp, pokedex(name, sprite_code, base_hp))
     `,
     )
@@ -168,8 +172,10 @@ export default async function EncounterDetailPage({
   // own Team Pokemon on any of those Trainers. Meaningless once the encounter isn't active.
   let ownTrainers: { id: string; name: string }[] = []
   let ownTeamPokemon: { id: string; nickname: string | null; pokedex: { name: string } | null }[] = []
-  // Unfiltered (unlike ownTeamPokemon, which excludes anyone already a combatant, for the "Send out"
-  // dropdown) -- Attack Resolver needs to know which *already-in-combat* Pokemon are the player's own.
+  // Unfiltered (unlike ownTrainers/ownTeamPokemon, which exclude anyone already a combatant, for the
+  // "Join the fight"/"Send out" dropdowns) -- Attack Resolver and Trainer Actions need to know which
+  // *already-in-combat* Pokemon/Trainers are the player's own.
+  let ownTrainerIds = new Set<string>()
   let ownTeamPokemonIds = new Set<string>()
   if (!isGM && isActive) {
     const { data: ownTrainersRaw } = await supabase
@@ -178,6 +184,7 @@ export default async function EncounterDetailPage({
       .eq('campaign_id', campaignId)
       .eq('user_id', user.id)
       .eq('is_npc', false)
+    ownTrainerIds = new Set((ownTrainersRaw ?? []).map((t) => t.id))
     ownTrainers = (ownTrainersRaw ?? []).filter((t) => !combatantTrainerIds.has(t.id)).map((t) => ({ id: t.id, name: t.name }))
     const allOwnTeamPokemon = ((ownTrainersRaw ?? []) as unknown as { trainers_pokemon: { party_slot: number | null; pokemon: { id: string; nickname: string | null; pokedex: { name: string } | null } | null }[] }[])
       .flatMap((t) => t.trainers_pokemon)
@@ -218,6 +225,46 @@ export default async function EncounterDetailPage({
       }
       attackerOptions = eligible.map((c) => ({ id: c.id, name: combatantName(c), moves: movesByPokemonId.get(c.pokemon.id) ?? [] }))
     }
+  }
+
+  // [[Feature - Trainers should see actions they could do in an Encounter]]: self-service for a
+  // member's own Trainer combatant(s), full access for the GM over any Trainer combatant -- same
+  // access model as attack resolution and recall/send-out. Deliberately generic: "Use" a Feature or
+  // Item only ever calls the *existing* setFeatureUsesRemaining/useItem actions (exactly what the
+  // Trainer's own page and Bag already call) -- what a specific Feature actually does when triggered
+  // stays that Feature's own FR to automate, same relationship attack resolution has with Afflictions/
+  // stat changes today. Trainer Moves are read-only -- no resolution or "use" action exists for those,
+  // matching attack resolution's own Pokemon-only scoping.
+  let trainerActionsData: TrainerActionsData[] = []
+  if (isActive) {
+    const trainerCombatants = combatants.filter((c): c is CombatantRow & { trainers: NonNullable<CombatantRow['trainers']> } => c.trainers !== null)
+    const eligibleTrainers = trainerCombatants.filter((c) => isGM || ownTrainerIds.has(c.trainers.id))
+    trainerActionsData = await Promise.all(
+      eligibleTrainers.map(async (c) => {
+        const trainerId = c.trainers.id
+        const [{ activeFeatures }, { data: featureUses }, { data: trainerMovesRaw }, bag] = await Promise.all([
+          loadTrainerDerived(supabase, trainerId, { classId: c.trainers.class_id ?? 0, level: c.trainers.level }),
+          supabase.from('trainer_feature_uses').select('feature_id, uses_remaining').eq('trainer_id', trainerId),
+          supabase.from('trainer_moves').select('uses_remaining, moves(name)').eq('trainer_id', trainerId),
+          loadBagSnapshot(supabase, trainerId),
+        ])
+        const usesRemainingByFeature = Object.fromEntries((featureUses ?? []).map((fu) => [fu.feature_id, fu.uses_remaining]))
+        return {
+          trainerId,
+          trainerName: c.trainers.name,
+          moves: ((trainerMovesRaw ?? []) as unknown as { uses_remaining: number | null; moves: { name: string } | null }[])
+            .filter((m) => m.moves)
+            .map((m) => ({ name: m.moves!.name, usesRemaining: m.uses_remaining })),
+          features: activeFeatures.map((f) => ({
+            id: f.id,
+            name: f.name,
+            description: f.description,
+            usesRemaining: f.max_uses !== null ? (usesRemainingByFeature[f.id] ?? f.max_uses) : null,
+          })),
+          items: bag.items.filter((i) => i.quantity > 0).map((i) => ({ id: i.id, name: i.name, quantity: i.quantity })),
+        }
+      }),
+    )
   }
 
   function combatantMaxHp(c: CombatantRow): number {
@@ -521,6 +568,8 @@ export default async function EncounterDetailPage({
       )}
 
       {isActive && <AttackResolver attackers={attackerOptions} targets={targetOptions} currentAttackerId={currentCombatantId} />}
+
+      {isActive && trainerActionsData.length > 0 && <TrainerActionsPanel trainers={trainerActionsData} />}
     </main>
   )
 }
