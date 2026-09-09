@@ -520,7 +520,7 @@ export default async function EncounterDetailPage({
         </div>
       )}
 
-      {isActive && <AttackResolver attackers={attackerOptions} targets={targetOptions} />}
+      {isActive && <AttackResolver attackers={attackerOptions} targets={targetOptions} currentAttackerId={currentCombatantId} />}
     </main>
   )
 }

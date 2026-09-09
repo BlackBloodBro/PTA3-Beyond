@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { resolveAccuracy, type AccuracyResult } from './combatActions'
 import { adjustPokemonHp } from '@/app/(authenticated)/pokemon/actions'
 import { adjustTrainerHp } from '@/app/(authenticated)/trainers/actions'
@@ -16,7 +16,15 @@ export type TargetOption = { id: string; name: string; trainerId: string | null;
 // then on a hit against a damage Move roll the shown dice for real and enter the total, which applies
 // immediately via the *existing* adjustPokemonHp/adjustTrainerHp actions -- no new HP-mutation logic.
 // All of this is plain in-memory component state; nothing about "resolving an attack" is persisted.
-export function AttackResolver({ attackers, targets }: { attackers: AttackerOption[]; targets: TargetOption[] }) {
+export function AttackResolver({
+  attackers,
+  targets,
+  currentAttackerId,
+}: {
+  attackers: AttackerOption[]
+  targets: TargetOption[]
+  currentAttackerId: string | null
+}) {
   const router = useRouter()
   const [attackerId, setAttackerId] = useState('')
   const [moveId, setMoveId] = useState('')
@@ -29,6 +37,22 @@ export function AttackResolver({ attackers, targets }: { attackers: AttackerOpti
 
   const attacker = attackers.find((a) => a.id === attackerId)
   const target = targets.find((t) => t.id === targetId)
+
+  // [[Improvement - Autofill the current Pokemon as attacker in 'Resolve an attack']]: re-syncs to
+  // whoever's turn it currently is every time it changes (not just on initial mount) -- only when
+  // that combatant is actually in this viewer's own eligible-attacker list (falls through to blank
+  // otherwise, e.g. it's an enemy's turn). Resets Move/Target/result together with it, per the user --
+  // a turn change makes whatever was mid-resolution stale anyway, simpler than trying to preserve an
+  // in-progress manual pick across it.
+  useEffect(() => {
+    setAttackerId(currentAttackerId && attackers.some((a) => a.id === currentAttackerId) ? currentAttackerId : '')
+    setMoveId('')
+    setTargetId('')
+    setResult(null)
+    setDamageInput('')
+    setApplied(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentAttackerId])
 
   function promptForRoll(label: string, max: number): number | null {
     let entry = window.prompt(`Roll ${label} for real and enter the result (1-${max}).`)
