@@ -2,12 +2,12 @@
 
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { resolveAccuracy, type AccuracyResult } from './combatActions'
+import { resolveAccuracy, maybeGrantAffirmationBonus, type AccuracyResult } from './combatActions'
 import { adjustPokemonHp } from '@/app/(authenticated)/pokemon/actions'
 import { adjustTrainerHp } from '@/app/(authenticated)/trainers/actions'
 
-export type AttackerOption = { id: string; name: string; moves: { id: number; name: string }[] }
-export type TargetOption = { id: string; name: string; trainerId: string | null; pokemonId: string | null }
+export type AttackerOption = { id: string; pokemonId: string; side: 'ally' | 'enemy'; name: string; moves: { id: number; name: string }[] }
+export type TargetOption = { id: string; name: string; side: 'ally' | 'enemy'; trainerId: string | null; pokemonId: string | null }
 
 // [[Feature - Add attack resolution to combat encounters]]: the one genuinely multi-step, physical-
 // dice interaction in this feature -- pick attacker + Move + target, roll a d20 for real and enter it
@@ -34,6 +34,7 @@ export function AttackResolver({
   const [damageInput, setDamageInput] = useState('')
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState(false)
+  const [affirmationMessage, setAffirmationMessage] = useState<string | null>(null)
 
   const attacker = attackers.find((a) => a.id === attackerId)
   const target = targets.find((t) => t.id === targetId)
@@ -51,6 +52,7 @@ export function AttackResolver({
     setResult(null)
     setDamageInput('')
     setApplied(false)
+    setAffirmationMessage(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAttackerId])
 
@@ -72,24 +74,45 @@ export function AttackResolver({
     setResult(null)
     setApplied(false)
     setDamageInput('')
+    setAffirmationMessage(null)
     const res = await resolveAccuracy(attackerId, targetId, Number(moveId), roll)
     setResolving(false)
     setResult(res)
   }
 
+  // [[Feature - Grant temporary HP on Affirmation (Ace trainer)]]: both triggers this Feature cares
+  // about are already knowable right here, from data the app already has -- no new input from the
+  // player. A KO only exists once the applied damage's resulting HP is in hand, and only counts per the
+  // Feature's own text -- "knock out an opposing Pokemon" -- so it needs a Pokemon target on the
+  // opposite side from the attacker, not an ally and not a Trainer; a critical hit is, per the user,
+  // simply a natural 20 on the Accuracy Check's own d20 (the roll the player already entered to resolve
+  // this attack), on an actual damage-dealing hit, with no such side/kind restriction.
   async function handleApplyDamage() {
-    if (!target || !damageInput) return
+    if (!target || !damageInput || !attacker || !result || 'error' in result) return
     const amount = Number(damageInput)
     if (!Number.isInteger(amount) || amount < 0) return
     setApplying(true)
     const applyResult = target.pokemonId
       ? await adjustPokemonHp(target.pokemonId, -1, amount)
       : await adjustTrainerHp(target.trainerId!, -1, amount)
-    setApplying(false)
-    if (!('error' in applyResult)) {
-      setApplied(true)
-      router.refresh()
+    if ('error' in applyResult) {
+      setApplying(false)
+      return
     }
+    setApplied(true)
+
+    const isKo = target.pokemonId !== null && target.side !== attacker.side && applyResult.currentHp <= 0
+    const isCrit = result.hit && result.isDamageMove && result.roll === 20
+    if (isKo || isCrit) {
+      const affirmation = await maybeGrantAffirmationBonus(attacker.pokemonId, isKo, isCrit)
+      if (affirmation.granted > 0) {
+        const labels = affirmation.triggers.map((t) => (t === 'ko' ? 'KO' : 'critical hit')).join(' + ')
+        setAffirmationMessage(`Affirmation: +${affirmation.granted} temporary HP (${labels}).`)
+      }
+    }
+
+    setApplying(false)
+    router.refresh()
   }
 
   return (
@@ -222,6 +245,7 @@ export function AttackResolver({
               >
                 {applied ? 'Applied' : applying ? 'Applying…' : 'Apply damage'}
               </button>
+              {affirmationMessage && <p className="w-full text-xs font-semibold text-success">{affirmationMessage}</p>}
             </div>
           )}
         </div>

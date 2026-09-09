@@ -2,9 +2,11 @@
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { loadQualifyingMilestones, computeEffectiveStats, type StatColumn } from '@/lib/pta3/trainerFeatures'
+import { loadQualifyingMilestones, computeEffectiveStats, loadTrainerDerived, type StatColumn } from '@/lib/pta3/trainerFeatures'
+import { statModifier } from '@/lib/pta3/pointBuy'
 import { loadPokemonEffectiveStats, loadPokemonEffectiveType } from '@/lib/pta3/pokemonStats'
 import { resolveAccuracyStat, stabBonus, effectivenessFor, adjustDiceCount, type TypeMatchupInfo, type TypeImmunityInfo } from '@/lib/pta3/combatMath'
+import { grantPokemonTemporaryHp } from '@/app/(authenticated)/pokemon/actions'
 
 export type AccuracyResult =
   | { error: string }
@@ -177,4 +179,71 @@ export async function resolveAccuracy(
     effectivenessLabel,
     isImmune,
   }
+}
+
+export type AffirmationResult = { granted: number; triggers: ('ko' | 'critical')[] }
+
+// [[Feature - Grant temporary HP on Affirmation (Ace trainer)]]: called right after a hit's damage is
+// applied, once both triggers this Feature cares about are actually knowable -- a KO only exists once
+// the target's resulting HP is in hand, a critical hit (per the user, 2026-09-09: a natural 20 on the
+// Accuracy Check's d20, no modifier) is already known from the same roll the player already entered.
+// No new UI at all -- both signals come from data the app already has. Per the user: the bonus is
+// always the *higher* of the Trainer's own Attack/Special Attack modifier, regardless of which stat the
+// triggering Move actually used (unlike resolveAccuracyStat's per-Move split) -- and each true trigger
+// grants independently, stacking via grantPokemonTemporaryHp's own existing additive behavior (so a hit
+// that's both a KO and a crit grants twice, once per trigger).
+export async function maybeGrantAffirmationBonus(attackerPokemonId: string, isKo: boolean, isCrit: boolean): Promise<AffirmationResult> {
+  const none: AffirmationResult = { granted: 0, triggers: [] }
+  if (!isKo && !isCrit) return none
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    redirect('/login')
+  }
+
+  // A Pokemon has at most one current owning Trainer (trainers_pokemon is keyed by pokemon_id) --
+  // none for a Wild Pokemon, which can't have resolved any Trainer Feature.
+  const { data: link } = await supabase.from('trainers_pokemon').select('trainer_id').eq('pokemon_id', attackerPokemonId).maybeSingle()
+  if (!link) return none
+
+  const { data: trainer } = await supabase
+    .from('trainers')
+    .select('class_id, level, base_attack, base_defense, base_special_attack, base_special_defense, base_speed')
+    .eq('id', link.trainer_id)
+    .maybeSingle()
+  if (!trainer || trainer.class_id === null) return none
+
+  // Same "check the owning Trainer's resolved Features by name" pattern
+  // [[Feature - Apply unconditional Class Feature stat bonuses]] already uses -- Affirmation is
+  // unconditional/passive (requires_activation: false), so it can show up in either list depending on
+  // how a future Feature-audit pass categorizes it; checking both is cheap and correct either way.
+  const { activeFeatures, passiveFeatures } = await loadTrainerDerived(supabase, link.trainer_id, { classId: trainer.class_id, level: trainer.level })
+  if (![...activeFeatures, ...passiveFeatures].some((f) => f.name === 'Affirmation')) return none
+
+  const milestones = await loadQualifyingMilestones(supabase, link.trainer_id, trainer.level)
+  const effective = computeEffectiveStats(
+    {
+      attack: trainer.base_attack,
+      defense: trainer.base_defense,
+      special_attack: trainer.base_special_attack,
+      special_defense: trainer.base_special_defense,
+      speed: trainer.base_speed,
+    },
+    milestones,
+  )
+  const bonus = Math.max(statModifier(effective.attack), statModifier(effective.special_attack))
+  if (bonus <= 0) return none
+
+  const triggers: ('ko' | 'critical')[] = []
+  if (isKo) triggers.push('ko')
+  if (isCrit) triggers.push('critical')
+
+  for (const _trigger of triggers) {
+    await grantPokemonTemporaryHp(attackerPokemonId, bonus)
+  }
+
+  return { granted: bonus * triggers.length, triggers }
 }
