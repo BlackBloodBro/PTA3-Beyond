@@ -221,11 +221,21 @@ type StatRows = ReturnType<typeof computeStatRows>
 // same "physical -> Attack, special -> Special Attack, either -> higher of the two, effect -> Speed"
 // mapping, now shared with attack resolution's own server-side Accuracy Check.
 
+// [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: static reference data
+// backing the two "How does this work?" disclosures -- rendered as-is from the seed tables so the
+// explanation can't silently drift from what the app actually computes.
+export type LoyaltyTierRow = { name: string; minPoints: number; modifier: number }
+export type LpEventRow = { name: string; points: number }
+export type LevelThresholdRow = { levelNumber: number; cumulativeExp: number }
+
 type PokemonStateValue = {
   pokemonId: string
   basePath: string
   isOwner: boolean
   isGM: boolean
+  loyaltyTiers: LoyaltyTierRow[]
+  loyaltyPointEvents: LpEventRow[]
+  levelThresholds: LevelThresholdRow[]
   effectiveType1?: string
   effectiveType2?: string
   typeMatchups: TypeMatchupInfo[]
@@ -304,6 +314,9 @@ export function PokemonStateProvider(props: {
   basePath: string
   isOwner: boolean
   isGM: boolean
+  loyaltyTiers: LoyaltyTierRow[]
+  loyaltyPointEvents: LpEventRow[]
+  levelThresholds: LevelThresholdRow[]
   effectiveType1?: string
   effectiveType2?: string
   typeMatchups: TypeMatchupInfo[]
@@ -402,6 +415,9 @@ export function PokemonStateProvider(props: {
     basePath: props.basePath,
     isOwner: props.isOwner,
     isGM: props.isGM,
+    loyaltyTiers: props.loyaltyTiers,
+    loyaltyPointEvents: props.loyaltyPointEvents,
+    levelThresholds: props.levelThresholds,
     effectiveType1: props.effectiveType1,
     effectiveType2: props.effectiveType2,
     typeMatchups: props.typeMatchups,
@@ -496,6 +512,7 @@ export function ExperienceSection() {
   const {
     isGM,
     pokemonId,
+    level,
     currentExp,
     effectiveExp,
     growthRateName,
@@ -503,6 +520,7 @@ export function ExperienceSection() {
     obtainMethodName,
     obtainMethodModifier,
     isShiny,
+    levelThresholds,
     setExp,
   } = usePokemonState()
   const [amount, setAmount] = useState(0)
@@ -539,6 +557,35 @@ export function ExperienceSection() {
         <p>Shiny: {isShiny ? 'Yes' : 'No'}</p>
       </div>
 
+      {/* [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: the formula and
+          "EXP is GM-awarded" are static prose; the contextual level line is read from levelThresholds
+          against the live `level`/`effectiveExp`, so it stays right after an exp adjustment. */}
+      <details className="mt-2 text-xs text-muted">
+        <summary className="cursor-pointer">How does this work?</summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <p>EXP is only ever added by the GM by hand -- there is no automatic source.</p>
+          <p>
+            A Pokémon&apos;s <span className="font-semibold">effective exp</span> is its current exp
+            multiplied by four modifiers:
+          </p>
+          <p className="font-mono">effective exp = current exp × growth rate × obtain method × shiny × loyalty</p>
+          <p>
+            Its Level is the highest level whose exp requirement the effective exp has reached. Level is
+            never stored -- it is recomputed every time, so changing any input (an exp award, a loyalty
+            shift, the obtain method, even shininess) moves it immediately.
+          </p>
+          {(() => {
+            const next = levelThresholds.find((l) => l.levelNumber === level + 1)
+            return (
+              <p>
+                Right now: {Math.round(effectiveExp)} effective exp.{' '}
+                {next ? `Level ${next.levelNumber} needs ${next.cumulativeExp}.` : 'This is the maximum level.'}
+              </p>
+            )
+          })()}
+        </div>
+      </details>
+
       <div className="mt-3 flex items-center gap-2 border-t pt-3">
         <button
           type="button"
@@ -574,7 +621,7 @@ export function ExperienceSection() {
 // Loyalty <select>. A change here can also shift Level (LP feeds the exp-to-level formula via
 // loyaltyModifier), so setLoyalty updates both in one go.
 export function LoyaltySection() {
-  const { isGM, pokemonId, loyaltyPoints, loyaltyName, loyaltyModifier, setLoyalty } = usePokemonState()
+  const { isGM, pokemonId, loyaltyPoints, loyaltyName, loyaltyModifier, loyaltyTiers, loyaltyPointEvents, setLoyalty } = usePokemonState()
   const [amount, setAmount] = useState(0)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -603,6 +650,43 @@ export function LoyaltySection() {
           Tier: {loyaltyName ?? '—'} (×{loyaltyModifier})
         </p>
       </div>
+
+      {/* [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: tier table and LP
+          events rendered straight from the seed tables so they can't drift from the real values. */}
+      <details className="mt-2 text-xs text-muted">
+        <summary className="cursor-pointer">How does this work?</summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <p>
+            Loyalty points (LP) place a Pokémon in the highest loyalty tier whose threshold its LP total
+            has reached. That tier&apos;s modifier feeds back into the exp-to-level formula (see the
+            Experience section), so raising loyalty can also raise level.
+          </p>
+          <div>
+            <p className="font-semibold">Tiers</p>
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {[...loyaltyTiers]
+                .sort((a, b) => a.minPoints - b.minPoints)
+                .map((t) => (
+                  <li key={t.name}>
+                    {t.name} -- {t.minPoints}+ LP (×{t.modifier} exp)
+                  </li>
+                ))}
+            </ul>
+          </div>
+          <div>
+            <p className="font-semibold">What changes LP automatically</p>
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {loyaltyPointEvents.map((e) => (
+                <li key={e.name}>
+                  {e.name}: {e.points > 0 ? '+' : ''}
+                  {e.points} LP
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1">The GM can also add or remove LP directly below.</p>
+          </div>
+        </div>
+      </details>
 
       <div className="mt-3 flex items-center gap-2 border-t pt-3">
         <button
