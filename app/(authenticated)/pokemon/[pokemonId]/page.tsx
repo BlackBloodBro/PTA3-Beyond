@@ -284,6 +284,14 @@ export default async function PokemonPage({
   const { data: loyaltyRows } = await supabase.from('loyalties').select('name, modifier, sort_order, min_points')
   const loyaltyTier = computeLoyaltyTier(pokemon.loyalty_points, loyaltyRows ?? [])
 
+  // [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: reference data for the
+  // GM-only "How does this work?" disclosures in the Experience/Loyalty sections -- rendered as-is so
+  // the explanation can't drift from the seed tables.
+  const [{ data: lpEventRows }, { data: levelRows }] = await Promise.all([
+    supabase.from('loyalty_point_events').select('name, points').order('points', { ascending: false }),
+    supabase.from('levels').select('level_number, cumulative_exp').order('level_number'),
+  ])
+
   // [[Add Evolution functionality]]: every outgoing evolution edge from this species, every other
   // species in its chain (for the GM-override picker), whether this Pokemon is at max Loyalty, and
   // (only if it has a Trainer to hold items) that Trainer's Evolution Stone inventory.
@@ -482,6 +490,9 @@ export default async function PokemonPage({
         basePath={basePath}
         isOwner={isOwner}
         isGM={isGM}
+        loyaltyTiers={(loyaltyRows ?? []).map((r) => ({ name: r.name, minPoints: r.min_points, modifier: r.modifier }))}
+        loyaltyPointEvents={(lpEventRows ?? []).map((r) => ({ name: r.name, points: r.points }))}
+        levelThresholds={(levelRows ?? []).map((r) => ({ levelNumber: r.level_number, cumulativeExp: r.cumulative_exp }))}
         effectiveType1={effectiveType1}
         effectiveType2={effectiveType2}
         typeMatchups={typeMatchups}
