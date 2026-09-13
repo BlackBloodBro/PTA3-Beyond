@@ -45,7 +45,15 @@ export function AttackResolver({
   // otherwise, e.g. it's an enemy's turn). Resets Move/Target/result together with it, per the user --
   // a turn change makes whatever was mid-resolution stale anyway, simpler than trying to preserve an
   // in-progress manual pick across it.
+  //
+  // Bug fix (2026-09-13): `currentAttackerId` also shifts when *any* combatant elsewhere goes to 0 HP
+  // (it's derived from the live active-combatant list, not just explicit "Advance turn" clicks), and
+  // the 4s live poll delivers that shift to every viewer almost immediately. That silently wiped an
+  // already-hit, damage-entered-but-not-yet-applied attack out from under a player who was off rolling
+  // physical dice -- the exact "damage not dealt" bug report. Guard: skip the reset while there's a
+  // resolved hit still waiting on Apply damage; it'll sync on the next real change once they're done.
   useEffect(() => {
+    if (result && !('error' in result) && result.hit && result.isDamageMove && !result.isImmune && !applied) return
     setAttackerId(currentAttackerId && attackers.some((a) => a.id === currentAttackerId) ? currentAttackerId : '')
     setMoveId('')
     setTargetId('')
