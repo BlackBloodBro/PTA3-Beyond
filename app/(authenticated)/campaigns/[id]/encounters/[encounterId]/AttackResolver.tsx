@@ -34,6 +34,7 @@ export function AttackResolver({
   const [damageInput, setDamageInput] = useState('')
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
   const [affirmationMessage, setAffirmationMessage] = useState<string | null>(null)
 
   const attacker = attackers.find((a) => a.id === attackerId)
@@ -60,6 +61,7 @@ export function AttackResolver({
     setResult(null)
     setDamageInput('')
     setApplied(false)
+    setApplyError(null)
     setAffirmationMessage(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAttackerId])
@@ -81,6 +83,7 @@ export function AttackResolver({
     setResolving(true)
     setResult(null)
     setApplied(false)
+    setApplyError(null)
     setDamageInput('')
     setAffirmationMessage(null)
     const res = await resolveAccuracy(attackerId, targetId, Number(moveId), roll)
@@ -100,11 +103,19 @@ export function AttackResolver({
     const amount = Number(damageInput)
     if (!Number.isInteger(amount) || amount < 0) return
     setApplying(true)
+    setApplyError(null)
     const applyResult = target.pokemonId
       ? await adjustPokemonHp(target.pokemonId, -1, amount)
       : await adjustTrainerHp(target.trainerId!, -1, amount)
     if ('error' in applyResult) {
+      // Bug fix (2026-09-13): this used to just bail out silently, with no visible feedback at all --
+      // the button reverts to "Apply damage" as if nothing was clicked, indistinguishable from success
+      // that did nothing. This is the other confirmed contributor to "damage is not dealt when
+      // resolving a move" (alongside the reset-on-turn-change fix above): a transient failure in
+      // adjustPokemonHp/adjustTrainerHp's own read (see their fix) surfaced as exactly this. Now
+      // surfaced so the player knows to retry rather than assuming it worked.
       setApplying(false)
+      setApplyError(applyResult.error)
       return
     }
     setApplied(true)
@@ -253,6 +264,11 @@ export function AttackResolver({
               >
                 {applied ? 'Applied' : applying ? 'Applying…' : 'Apply damage'}
               </button>
+              {applyError && (
+                <p className="w-full text-xs font-semibold text-danger">
+                  {applyError} Damage was not applied -- try &quot;Apply damage&quot; again.
+                </p>
+              )}
               {affirmationMessage && <p className="w-full text-xs font-semibold text-success">{affirmationMessage}</p>}
             </div>
           )}

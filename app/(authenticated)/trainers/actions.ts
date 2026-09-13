@@ -920,12 +920,19 @@ export async function adjustTrainerHp(
 
   // No ownership filter needed -- RLS already covers both the trainer's owner and the campaign's
   // GM (both have UPDATE rights), and this control should work for either.
-  const { data: trainer } = await supabase
+  const { data: trainer, error: trainerError } = await supabase
     .from('trainers')
     .select('current_hp, temporary_hp, level')
     .eq('id', trainerId)
     .single()
 
+  // Bug fix (2026-09-13): only PGRST116 ("no matching row") is a genuine not-found -- any other
+  // error (a transient Supabase blip, which real concurrent multi-viewer combat makes far more
+  // likely) was being read the same way, silently reporting "Trainer not found" for what's actually
+  // a temporary read failure. Same fix as adjustPokemonHp above -- see its comment.
+  if (trainerError && trainerError.code !== 'PGRST116') {
+    return { error: `Couldn't load this Trainer -- try again (${trainerError.message}).` }
+  }
   if (!trainer) {
     return { error: 'Trainer not found' }
   }

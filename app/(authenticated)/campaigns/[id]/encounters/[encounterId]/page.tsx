@@ -64,15 +64,27 @@ export default async function EncounterDetailPage({
   }
   const isGM = campaign.gm_user_id === user.id
 
-  const { data: encounterRaw } = await supabase
+  const { data: encounterRaw, error: encounterError } = await supabase
     .from('encounters')
     .select('id, campaign_id, name, status, current_turn_position, started_at, ended_at')
     .eq('id', encounterId)
     .single()
 
   // RLS already scopes what a non-GM can even see (only their own campaign's *active* encounter) --
-  // this just resolves the right redirect for every other case (wrong campaign in the URL, or the
+  // this resolves the right redirect for every other case (wrong campaign in the URL, or the
   // encounter genuinely doesn't exist/isn't visible to this user).
+  //
+  // Bug fix (2026-09-13): only PGRST116 (Postgrest's "no matching row") is a genuine "not found/not
+  // yours" -- any other error (a transient Supabase/network blip, far more likely to actually surface
+  // under real concurrent multi-viewer play than a real access change) must not be silently read the
+  // same way and boot the player back to the Campaign page. This is the confirmed root cause of
+  // "we keep getting removed from the Encounter" -- reproduced live by triggering a burst of concurrent
+  // requests (a second viewer's action landing at the same moment) and observing this exact redirect
+  // fire with no underlying access change. Let a real error throw instead, so the existing
+  // (authenticated)/error.tsx boundary's "Try again" shows up rather than silently losing the page.
+  if (encounterError && encounterError.code !== 'PGRST116') {
+    throw new Error(`Failed to load encounter: ${encounterError.message}`)
+  }
   if (!encounterRaw || encounterRaw.campaign_id !== campaignId) {
     redirect(isGM ? `/campaigns/${campaignId}/encounters` : `/campaigns/${campaignId}`)
   }
