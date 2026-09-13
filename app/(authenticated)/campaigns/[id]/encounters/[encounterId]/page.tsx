@@ -7,6 +7,7 @@ import { PokemonSprite } from '@/components/PokemonSprite'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { RollInputButton } from '@/components/RollInputButton'
 import { loadQualifyingMilestones, computeMaxHp, loadTrainerDerived } from '@/lib/pta3/trainerFeatures'
+import { loadPokemonEffectiveType } from '@/lib/pta3/pokemonStats'
 import { loadBagSnapshot } from '@/lib/pta3/bag'
 import {
   startEncounter,
@@ -129,6 +130,25 @@ export default async function EncounterDetailPage({
   function combatantIsIdentified(c: CombatantRow): boolean {
     if (!c.pokemon || c.side !== 'enemy') return true
     return isGM || viewerHasWalkingEncyclopedia || scannedPokedexIds.has(c.pokemon.pokedex_id)
+  }
+
+  // [[Feature - Add types to initiative tracker]]: type is identity information, same bucket
+  // name/sprite already fall into -- only ever shown once combatantIsIdentified(c) is true. Reuses
+  // loadPokemonEffectiveType (the same override-aware type attack resolution's own STAB/effectiveness
+  // computation already relies on), not a new lookup.
+  const effectiveTypeByPokemonId = new Map<string, { type1: string | null; type2: string | null }>(
+    await Promise.all(
+      combatants
+        .filter((c): c is CombatantRow & { pokemon: NonNullable<CombatantRow['pokemon']> } => c.pokemon !== null)
+        .map(async (c) => [c.pokemon.id, (await loadPokemonEffectiveType(supabase, c.pokemon.id)) ?? { type1: null, type2: null }] as const),
+    ),
+  )
+
+  function combatantTypeLabel(c: CombatantRow): string | null {
+    if (!c.pokemon || !combatantIsIdentified(c)) return null
+    const t = effectiveTypeByPokemonId.get(c.pokemon.id)
+    if (!t?.type1) return null
+    return t.type2 ? `${t.type1} / ${t.type2}` : t.type1
   }
 
   const trainerMaxHpById = new Map<string, number>(
@@ -410,6 +430,7 @@ export default async function EncounterDetailPage({
                     ) : (
                       <span className="font-semibold">{combatantName(c)}</span>
                     )}
+                    {combatantTypeLabel(c) && <span className="text-muted"> -- {combatantTypeLabel(c)}</span>}
                     {c.id === currentCombatantId && <span className="ml-2 text-xs font-semibold text-warning">← Current turn</span>}
                   </p>
                   <p className="text-xs text-muted">
