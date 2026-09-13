@@ -18,6 +18,7 @@ import {
   removeCombatant,
   setCombatantInitiative,
   advanceTurn,
+  skipMyTurn,
   scanSpecies,
 } from '../actions'
 import { AttackResolver, type AttackerOption, type TargetOption } from './AttackResolver'
@@ -268,6 +269,12 @@ export default async function EncounterDetailPage({
   // only (see the FR's own scoping) -- the GM can attack with any of them, a member only with their
   // own. Target options are every combatant, either kind, any side (a status/support Move can target
   // an ally too). Moves are fetched once active is confirmed rather than for every page load.
+  //
+  // [[Feature - Only active player on initiative tracker can do an action]]: a member's own Pokemon is
+  // only offered as an attacker while it's actually that combatant's turn -- restricting the option set
+  // itself (not a disabled state) reuses the exact same data this page already computes
+  // (currentCombatantId), matching this codebase's existing "eligible list" pattern elsewhere on this
+  // page. GM stays fully exempt, per the FR -- can still attack as any combatant regardless of turn.
   let attackerOptions: AttackerOption[] = []
   const targetOptions: TargetOption[] = combatants.map((c) => ({
     id: c.id,
@@ -278,7 +285,7 @@ export default async function EncounterDetailPage({
   }))
   if (isActive) {
     const pokemonCombatants = combatants.filter((c): c is CombatantRow & { pokemon: NonNullable<CombatantRow['pokemon']> } => c.pokemon !== null)
-    const eligible = pokemonCombatants.filter((c) => isGM || ownTeamPokemonIds.has(c.pokemon.id))
+    const eligible = pokemonCombatants.filter((c) => isGM || (ownTeamPokemonIds.has(c.pokemon.id) && c.id === currentCombatantId))
     if (eligible.length > 0) {
       const { data: movesRaw } = await supabase
         .from('pokemon_moves')
@@ -306,6 +313,12 @@ export default async function EncounterDetailPage({
   // stays that Feature's own FR to automate, same relationship attack resolution has with Afflictions/
   // stat changes today. Trainer Moves are read-only -- no resolution or "use" action exists for those,
   // matching attack resolution's own Pokemon-only scoping.
+  //
+  // [[Feature - Only active player on initiative tracker can do an action]]: the panel itself still
+  // shows for a member's own Trainer combatant regardless of turn (Moves stay visible/read-only either
+  // way, per the FR), but each one carries its own isCurrentTurn -- TrainerActionsPanel disables the
+  // Use buttons on Features/Items unless it's actually that Trainer combatant's turn. GM stays fully
+  // exempt, per the FR.
   let trainerActionsData: TrainerActionsData[] = []
   if (isActive) {
     const trainerCombatants = combatants.filter((c): c is CombatantRow & { trainers: NonNullable<CombatantRow['trainers']> } => c.trainers !== null)
@@ -323,6 +336,7 @@ export default async function EncounterDetailPage({
         return {
           trainerId,
           trainerName: c.trainers.name,
+          isCurrentTurn: isGM || c.id === currentCombatantId,
           moves: ((trainerMovesRaw ?? []) as unknown as { uses_remaining: number | null; moves: { name: string } | null }[])
             .filter((m) => m.moves)
             .map((m) => ({ name: m.moves!.name, usesRemaining: m.uses_remaining })),
@@ -666,6 +680,18 @@ export default async function EncounterDetailPage({
                       <ConfirmButton confirmMessage="Recall this Pokémon from the encounter?" className="rounded border px-2 py-1 text-xs">
                         Recall
                       </ConfirmButton>
+                    </form>
+                  )}
+                  {/* [[Feature - Only active player on initiative tracker can do an action]]: the new
+                      self-service escape hatch -- a player who doesn't want to (or can't) act on their
+                      own turn no longer has to wait on the GM's "Advance turn". Only offered on the
+                      player's own current-turn combatant; skip_my_turn() re-checks ownership itself
+                      server-side regardless. */}
+                  {!isGM && c.id === currentCombatantId && ((c.trainers?.id && ownTrainerIds.has(c.trainers.id)) || (c.pokemon?.id && ownTeamPokemonIds.has(c.pokemon.id))) && (
+                    <form action={skipMyTurn.bind(null, encounterId, campaignId)}>
+                      <button type="submit" className="rounded border px-2 py-1 text-xs">
+                        Skip turn
+                      </button>
                     </form>
                   )}
                   {c.pokemon && !combatantIsIdentified(c) && (

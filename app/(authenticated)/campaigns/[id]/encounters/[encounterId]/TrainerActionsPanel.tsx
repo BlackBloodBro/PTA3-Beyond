@@ -8,6 +8,7 @@ import { useItem } from '@/app/(authenticated)/trainers/[id]/bag/actions'
 export type TrainerActionsData = {
   trainerId: string
   trainerName: string
+  isCurrentTurn: boolean
   moves: { name: string; usesRemaining: number | null }[]
   features: { id: number; name: string; description: string; usesRemaining: number | null }[]
   items: { id: string; name: string; quantity: number }[]
@@ -57,6 +58,10 @@ export function TrainerActionsPanel({ trainers }: { trainers: TrainerActionsData
       {trainers.map((t) => (
         <div key={t.trainerId} className="flex flex-col gap-3 rounded border p-3">
           {trainers.length > 1 && <p className="font-medium">{t.trainerName}</p>}
+          {/* [[Feature - Only active player on initiative tracker can do an action]]: Moves stay
+              visible/read-only regardless of turn (no "use" action exists for those anyway) -- only
+              Features/Items' Use buttons below are gated on isCurrentTurn. */}
+          {!t.isCurrentTurn && <p className="text-xs text-muted">Not your turn yet -- Features/Items can only be used during your own turn.</p>}
 
           <div>
             <p className="text-xs font-semibold text-muted">Moves</p>
@@ -90,7 +95,7 @@ export function TrainerActionsPanel({ trainers }: { trainers: TrainerActionsData
                       <button
                         type="button"
                         onClick={() => handleUseFeature(t.trainerId, f.id, f.usesRemaining!)}
-                        disabled={f.usesRemaining <= 0 || pendingId === `feature-${f.id}`}
+                        disabled={f.usesRemaining <= 0 || !t.isCurrentTurn || pendingId === `feature-${f.id}`}
                         className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         {pendingId === `feature-${f.id}` ? 'Using…' : 'Use'}
@@ -116,7 +121,7 @@ export function TrainerActionsPanel({ trainers }: { trainers: TrainerActionsData
                     <button
                       type="button"
                       onClick={() => handleUseItem(t.trainerId, i.id)}
-                      disabled={pendingId === `item-${i.id}`}
+                      disabled={!t.isCurrentTurn || pendingId === `item-${i.id}`}
                       className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       {pendingId === `item-${i.id}` ? 'Using…' : 'Use'}
