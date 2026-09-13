@@ -634,14 +634,22 @@ export default async function EncounterDetailPage({
                       </form>
                     </>
                   )}
-                  {!isGM && c.trainers?.id && ownTrainers.some((t) => t.id === c.trainers!.id) && (
+                  {/* Bug fix (2026-09-13): these two used to check `ownTrainers`/`ownTeamPokemon` --
+                      but those are deliberately *filtered to exclude anyone already a combatant*
+                      (they back the "Join the fight"/"Send out" dropdowns, per the comment on their own
+                      declaration above). That meant Leave/Recall could never appear for the exact
+                      combatant row they're meant to act on, since being a combatant is precisely what
+                      got it excluded from that list. Fixed to use the unfiltered `ownTrainerIds`/
+                      `ownTeamPokemonIds` sets instead -- the same ones Attack Resolver/Trainer Actions
+                      already rely on for this identical "is this already-in-combat one mine" check. */}
+                  {!isGM && c.trainers?.id && ownTrainerIds.has(c.trainers.id) && (
                     <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
                       <ConfirmButton confirmMessage="Leave this encounter?" className="rounded border px-2 py-1 text-xs">
                         Leave
                       </ConfirmButton>
                     </form>
                   )}
-                  {!isGM && c.pokemon?.id && ownTeamPokemon.some((p) => p.id === c.pokemon!.id) && (
+                  {!isGM && c.pokemon?.id && ownTeamPokemonIds.has(c.pokemon.id) && (
                     <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
                       <ConfirmButton confirmMessage="Recall this Pokémon from the encounter?" className="rounded border px-2 py-1 text-xs">
                         Recall
