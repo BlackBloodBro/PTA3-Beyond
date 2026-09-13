@@ -34,6 +34,7 @@ export function AttackResolver({
   const [damageInput, setDamageInput] = useState('')
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
   const [affirmationMessage, setAffirmationMessage] = useState<string | null>(null)
 
   const attacker = attackers.find((a) => a.id === attackerId)
@@ -45,13 +46,22 @@ export function AttackResolver({
   // otherwise, e.g. it's an enemy's turn). Resets Move/Target/result together with it, per the user --
   // a turn change makes whatever was mid-resolution stale anyway, simpler than trying to preserve an
   // in-progress manual pick across it.
+  //
+  // Bug fix (2026-09-13): `currentAttackerId` also shifts when *any* combatant elsewhere goes to 0 HP
+  // (it's derived from the live active-combatant list, not just explicit "Advance turn" clicks), and
+  // the 4s live poll delivers that shift to every viewer almost immediately. That silently wiped an
+  // already-hit, damage-entered-but-not-yet-applied attack out from under a player who was off rolling
+  // physical dice -- the exact "damage not dealt" bug report. Guard: skip the reset while there's a
+  // resolved hit still waiting on Apply damage; it'll sync on the next real change once they're done.
   useEffect(() => {
+    if (result && !('error' in result) && result.hit && result.isDamageMove && !result.isImmune && !applied) return
     setAttackerId(currentAttackerId && attackers.some((a) => a.id === currentAttackerId) ? currentAttackerId : '')
     setMoveId('')
     setTargetId('')
     setResult(null)
     setDamageInput('')
     setApplied(false)
+    setApplyError(null)
     setAffirmationMessage(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAttackerId])
@@ -73,6 +83,7 @@ export function AttackResolver({
     setResolving(true)
     setResult(null)
     setApplied(false)
+    setApplyError(null)
     setDamageInput('')
     setAffirmationMessage(null)
     const res = await resolveAccuracy(attackerId, targetId, Number(moveId), roll)
@@ -92,11 +103,19 @@ export function AttackResolver({
     const amount = Number(damageInput)
     if (!Number.isInteger(amount) || amount < 0) return
     setApplying(true)
+    setApplyError(null)
     const applyResult = target.pokemonId
       ? await adjustPokemonHp(target.pokemonId, -1, amount)
       : await adjustTrainerHp(target.trainerId!, -1, amount)
     if ('error' in applyResult) {
+      // Bug fix (2026-09-13): this used to just bail out silently, with no visible feedback at all --
+      // the button reverts to "Apply damage" as if nothing was clicked, indistinguishable from success
+      // that did nothing. This is the other confirmed contributor to "damage is not dealt when
+      // resolving a move" (alongside the reset-on-turn-change fix above): a transient failure in
+      // adjustPokemonHp/adjustTrainerHp's own read (see their fix) surfaced as exactly this. Now
+      // surfaced so the player knows to retry rather than assuming it worked.
       setApplying(false)
+      setApplyError(applyResult.error)
       return
     }
     setApplied(true)
@@ -245,6 +264,11 @@ export function AttackResolver({
               >
                 {applied ? 'Applied' : applying ? 'Applying…' : 'Apply damage'}
               </button>
+              {applyError && (
+                <p className="w-full text-xs font-semibold text-danger">
+                  {applyError} Damage was not applied -- try &quot;Apply damage&quot; again.
+                </p>
+              )}
               {affirmationMessage && <p className="w-full text-xs font-semibold text-success">{affirmationMessage}</p>}
             </div>
           )}

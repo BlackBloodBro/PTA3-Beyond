@@ -847,12 +847,21 @@ export async function adjustPokemonHp(
 
   // No ownership filter needed -- RLS already covers both the Pokemon's owner and the campaign's
   // GM (both have UPDATE rights), same as the trainer HP control.
-  const { data: pokemon } = await supabase
+  const { data: pokemon, error: pokemonError } = await supabase
     .from('pokemon')
     .select('current_hp, temporary_hp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp)')
     .eq('id', pokemonId)
     .single()
 
+  // Bug fix (2026-09-13): only PGRST116 ("no matching row") is a genuine not-found -- any other
+  // error (a transient Supabase blip, which real concurrent multi-viewer combat makes far more
+  // likely) was being read the same way, silently reporting "Pokemon not found" for what's actually
+  // a temporary read failure. Root-caused this as a contributor to "damage is not dealt when
+  // resolving a move" -- AttackResolver's Apply damage button swallowed this exact error with no
+  // visible feedback at all (see AttackResolver.tsx's fix), so it looked like nothing happened.
+  if (pokemonError && pokemonError.code !== 'PGRST116') {
+    return { error: `Couldn't load this Pokemon -- try again (${pokemonError.message}).` }
+  }
   if (!pokemon || !pokemon.pokedex) {
     return { error: 'Pokemon not found' }
   }
