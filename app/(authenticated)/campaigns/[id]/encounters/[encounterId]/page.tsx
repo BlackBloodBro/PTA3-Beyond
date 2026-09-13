@@ -350,306 +350,317 @@ export default async function EncounterDetailPage({
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center gap-6 p-24">
+    <main className="flex min-h-screen justify-center p-24">
       {isActive && <EncounterLivePoll />}
-      <div className="w-full max-w-2xl">
-        <Link href={isGM ? `/campaigns/${campaignId}/encounters` : `/campaigns/${campaignId}`} className="text-sm underline">
-          ← {isGM ? 'Encounters' : campaign.name}
-        </Link>
-      </div>
-
-      <div className="flex w-full max-w-2xl items-center justify-between">
-        <h1 className="text-2xl font-bold">
-          {encounter.name} <span className="text-base font-normal text-muted">({encounter.status})</span>
-        </h1>
-        {isGM && (
-          <div className="flex gap-2">
-            {isDraft && (
-              <form action={startEncounter.bind(null, campaignId, encounterId)}>
-                <button type="submit" className="rounded bg-accent px-4 py-2 text-sm text-accent-foreground">
-                  Start encounter
-                </button>
-              </form>
-            )}
-            {isActive && (
-              <>
-                <form action={advanceTurn.bind(null, encounterId, campaignId)}>
-                  <button type="submit" className="rounded border px-4 py-2 text-sm">
-                    Advance turn
-                  </button>
-                </form>
-                <form action={resetEncounterToDraft.bind(null, campaignId, encounterId)}>
-                  <ConfirmButton
-                    confirmMessage="Reset this encounter back to Draft? Every combatant's initiative and the current turn will be cleared -- you'll need to Start it again to re-roll."
-                    className="rounded border px-4 py-2 text-sm"
-                  >
-                    Reset to draft
-                  </ConfirmButton>
-                </form>
-              </>
-            )}
-            <form action={deleteEncounter.bind(null, campaignId, encounterId)}>
-              <ConfirmButton confirmMessage={`Permanently delete "${encounter.name}"? This cannot be undone.`} className="rounded border border-danger px-4 py-2 text-sm text-danger">
-                Delete
-              </ConfirmButton>
-            </form>
+      {/* [[Improvement - Move initiative tracker to a right sidebar]]: same two-column shape as the PC
+          board's own sidebar (`flex ... items-start gap-4` wrapping a flex-1 main column and a
+          `sticky top-4 w-64 shrink-0` aside) -- only the tracker moves; everything else keeps its
+          existing max-w-2xl width inside the now-narrower main column. No responsive stacking, per the
+          user -- matches that same existing precedent, which has none either. */}
+      <div className="flex w-full max-w-6xl items-start gap-4">
+        <div className="flex flex-1 flex-col items-center gap-6">
+          <div className="w-full max-w-2xl">
+            <Link href={isGM ? `/campaigns/${campaignId}/encounters` : `/campaigns/${campaignId}`} className="text-sm underline">
+              ← {isGM ? 'Encounters' : campaign.name}
+            </Link>
           </div>
-        )}
-      </div>
 
-      {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
-
-      <div className="flex w-full max-w-2xl flex-col gap-2">
-        {sortedForDisplay.length === 0 ? (
-          <p className="text-sm text-muted">No combatants yet.</p>
-        ) : (
-          sortedForDisplay.map((c) => (
-            <div
-              key={c.id}
-              className={`flex items-center justify-between gap-2 rounded border p-3 ${
-                c.id === currentCombatantId ? 'border-2 border-warning bg-warning/10' : 'border-accent bg-accent/10'
-              } ${combatantIsDown(c) ? 'opacity-50' : ''}`}
-            >
-              <div className="flex items-center gap-2">
-                {c.pokemon && !combatantIsIdentified(c) ? (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-surface-muted text-sm text-muted">?</div>
-                ) : (
-                  c.pokemon?.pokedex?.sprite_code && (
-                    <PokemonSprite spriteCode={c.pokemon.pokedex.sprite_code} shiny={c.pokemon.is_shiny} alt={combatantName(c)} size={32} />
-                  )
-                )}
-                <div>
-                  <p className="text-sm">
-                    <span className={`mr-1 rounded px-1.5 py-0.5 text-xs font-semibold ${c.side === 'ally' ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'}`}>
-                      {c.side === 'ally' ? 'Ally' : 'Enemy'}
-                    </span>
-                    {combatantHref(c) ? (
-                      <Link href={combatantHref(c)!} className="font-semibold underline">
-                        {combatantName(c)}
-                      </Link>
-                    ) : (
-                      <span className="font-semibold">{combatantName(c)}</span>
-                    )}
-                    {combatantTypeLabel(c) && <span className="text-muted"> -- {combatantTypeLabel(c)}</span>}
-                    {c.id === currentCombatantId && <span className="ml-2 text-xs font-semibold text-warning">← Current turn</span>}
-                  </p>
-                  <p className="text-xs text-muted">
-                    {c.trainers ? c.trainers.current_hp : c.pokemon?.current_hp}/{combatantMaxHp(c)} HP · Initiative{' '}
-                    {c.turn_order ?? 'not set'}
-                    {combatantIsDown(c) ? ' · Down (0 HP)' : ''}
-                  </p>
-                </div>
-              </div>
-              {isGM && (
-                <div className="flex items-center gap-2">
-                  <form action={setCombatantInitiative.bind(null, encounterId, campaignId, c.id)} className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      name="turnOrder"
-                      defaultValue={c.turn_order ?? ''}
-                      placeholder="Init."
-                      className="bg-surface-subtle w-16 rounded border px-1 py-1 text-xs"
-                    />
-                    <button type="submit" className="rounded border px-2 py-1 text-xs">
-                      Set
+          <div className="flex w-full max-w-2xl items-center justify-between">
+            <h1 className="text-2xl font-bold">
+              {encounter.name} <span className="text-base font-normal text-muted">({encounter.status})</span>
+            </h1>
+            {isGM && (
+              <div className="flex gap-2">
+                {isDraft && (
+                  <form action={startEncounter.bind(null, campaignId, encounterId)}>
+                    <button type="submit" className="rounded bg-accent px-4 py-2 text-sm text-accent-foreground">
+                      Start encounter
                     </button>
                   </form>
-                  <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
-                    <ConfirmButton confirmMessage={`Remove ${combatantName(c)} from this encounter?`} className="rounded border border-danger px-2 py-1 text-xs text-danger">
-                      Remove
-                    </ConfirmButton>
-                  </form>
-                </div>
-              )}
-              {!isGM && c.trainers?.id && ownTrainers.some((t) => t.id === c.trainers!.id) && (
-                <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
-                  <ConfirmButton confirmMessage="Leave this encounter?" className="rounded border px-2 py-1 text-xs">
-                    Leave
+                )}
+                {isActive && (
+                  <>
+                    <form action={advanceTurn.bind(null, encounterId, campaignId)}>
+                      <button type="submit" className="rounded border px-4 py-2 text-sm">
+                        Advance turn
+                      </button>
+                    </form>
+                    <form action={resetEncounterToDraft.bind(null, campaignId, encounterId)}>
+                      <ConfirmButton
+                        confirmMessage="Reset this encounter back to Draft? Every combatant's initiative and the current turn will be cleared -- you'll need to Start it again to re-roll."
+                        className="rounded border px-4 py-2 text-sm"
+                      >
+                        Reset to draft
+                      </ConfirmButton>
+                    </form>
+                  </>
+                )}
+                <form action={deleteEncounter.bind(null, campaignId, encounterId)}>
+                  <ConfirmButton confirmMessage={`Permanently delete "${encounter.name}"? This cannot be undone.`} className="rounded border border-danger px-4 py-2 text-sm text-danger">
+                    Delete
                   </ConfirmButton>
                 </form>
+              </div>
+            )}
+          </div>
+
+          {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
+
+          {isGM && (
+            <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
+              <h2 className="font-semibold">Add a combatant</h2>
+              {isDraft && (
+                <p className="text-xs text-muted">
+                  No initiative is rolled yet while this Encounter is a Draft -- it's filled in automatically (or you can set it by hand
+                  below) once you Start it.
+                </p>
               )}
-              {!isGM && c.pokemon?.id && ownTeamPokemon.some((p) => p.id === c.pokemon!.id) && (
-                <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
-                  <ConfirmButton confirmMessage="Recall this Pokémon from the encounter?" className="rounded border px-2 py-1 text-xs">
-                    Recall
-                  </ConfirmButton>
+
+              {campaignTrainers.length > 0 && (
+                <form action={addTrainerCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="trainerId">Trainer / NPC</label>
+                    <select id="trainerId" name="trainerId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
+                      <option value="" disabled>
+                        Select...
+                      </option>
+                      {campaignTrainers.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                          {t.is_npc ? ' (NPC)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {npcTeamPokemon.length > 0 && (
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="teamPokemonId">Team member (for an NPC)</label>
+                      <select id="teamPokemonId" name="teamPokemonId" defaultValue="" className="bg-surface-subtle rounded border p-2">
+                        <option value="">None</option>
+                        {npcTeamPokemon.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="side1">Side</label>
+                    <select id="side1" name="side" defaultValue="enemy" className="bg-surface-subtle rounded border p-2">
+                      <option value="ally">Ally</option>
+                      <option value="enemy">Enemy</option>
+                    </select>
+                  </div>
+                  {isDraft ? (
+                    <button type="submit" className="rounded border px-3 py-2">
+                      Add
+                    </button>
+                  ) : (
+                    <RollInputButton
+                      promptMessage="Roll a d20 for initiative and enter the result (1-20)."
+                      min={1}
+                      max={20}
+                      fieldName="d20Roll"
+                      formAction={addTrainerCombatant.bind(null, encounterId, campaignId)}
+                      className="rounded border px-3 py-2"
+                    >
+                      Add (roll d20)
+                    </RollInputButton>
+                  )}
                 </form>
               )}
-              {c.pokemon && !combatantIsIdentified(c) && (
-                <form action={scanSpecies.bind(null, encounterId, campaignId, c.pokemon.pokedex_id)}>
-                  <button type="submit" className="rounded border border-accent px-2 py-1 text-xs font-semibold text-accent">
-                    Use Pokédex
+
+              {campaignPool.length > 0 && (
+                <form action={addPokemonCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="pokemonId">Wild Pokémon</label>
+                    <select id="pokemonId" name="pokemonId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
+                      <option value="" disabled>
+                        Select...
+                      </option>
+                      {campaignPool.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="side2">Side</label>
+                    <select id="side2" name="side" defaultValue="enemy" className="bg-surface-subtle rounded border p-2">
+                      <option value="ally">Ally</option>
+                      <option value="enemy">Enemy</option>
+                    </select>
+                  </div>
+                  <button type="submit" className="rounded border px-3 py-2">
+                    Add
                   </button>
                 </form>
               )}
+
+              {campaignTrainers.length === 0 && campaignPool.length === 0 && (
+                <p className="text-xs text-muted">No Trainers, NPCs, or unassigned Wild Pokémon in this Campaign to add yet.</p>
+              )}
             </div>
-          ))
-        )}
-      </div>
-
-      {isGM && (
-        <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
-          <h2 className="font-semibold">Add a combatant</h2>
-          {isDraft && (
-            <p className="text-xs text-muted">
-              No initiative is rolled yet while this Encounter is a Draft -- it's filled in automatically (or you can set it by hand
-              below) once you Start it.
-            </p>
           )}
 
-          {campaignTrainers.length > 0 && (
-            <form action={addTrainerCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
-              <div className="flex flex-col gap-1">
-                <label htmlFor="trainerId">Trainer / NPC</label>
-                <select id="trainerId" name="trainerId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
-                  <option value="" disabled>
-                    Select...
-                  </option>
-                  {campaignTrainers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                      {t.is_npc ? ' (NPC)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {npcTeamPokemon.length > 0 && (
-                <div className="flex flex-col gap-1">
-                  <label htmlFor="teamPokemonId">Team member (for an NPC)</label>
-                  <select id="teamPokemonId" name="teamPokemonId" defaultValue="" className="bg-surface-subtle rounded border p-2">
-                    <option value="">None</option>
-                    {npcTeamPokemon.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
+          {!isGM && isActive && (
+            <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
+              <h2 className="font-semibold">Join the fight</h2>
+
+              {ownTrainers.length > 0 && (
+                <form action={addTrainerCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
+                  <input type="hidden" name="side" value="ally" />
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="joinTrainerId">Your Trainer</label>
+                    <select id="joinTrainerId" name="trainerId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
+                      <option value="" disabled>
+                        Select...
                       </option>
-                    ))}
-                  </select>
-                </div>
+                      {ownTrainers.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <RollInputButton
+                    promptMessage="Roll a d20 for initiative and enter the result (1-20)."
+                    min={1}
+                    max={20}
+                    fieldName="d20Roll"
+                    formAction={addTrainerCombatant.bind(null, encounterId, campaignId)}
+                    className="rounded bg-accent px-3 py-2 text-accent-foreground"
+                  >
+                    Join (roll d20)
+                  </RollInputButton>
+                </form>
               )}
-              <div className="flex flex-col gap-1">
-                <label htmlFor="side1">Side</label>
-                <select id="side1" name="side" defaultValue="enemy" className="bg-surface-subtle rounded border p-2">
-                  <option value="ally">Ally</option>
-                  <option value="enemy">Enemy</option>
-                </select>
-              </div>
-              {isDraft ? (
-                <button type="submit" className="rounded border px-3 py-2">
-                  Add
-                </button>
-              ) : (
-                <RollInputButton
-                  promptMessage="Roll a d20 for initiative and enter the result (1-20)."
-                  min={1}
-                  max={20}
-                  fieldName="d20Roll"
-                  formAction={addTrainerCombatant.bind(null, encounterId, campaignId)}
-                  className="rounded border px-3 py-2"
-                >
-                  Add (roll d20)
-                </RollInputButton>
+
+              {ownTeamPokemon.length > 0 && (
+                <form action={addPokemonCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
+                  <input type="hidden" name="side" value="ally" />
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="sendPokemonId">Send out a Pokémon</label>
+                    <select id="sendPokemonId" name="pokemonId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
+                      <option value="" disabled>
+                        Select...
+                      </option>
+                      {ownTeamPokemon.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button type="submit" className="rounded bg-accent px-3 py-2 text-accent-foreground">
+                    Send out
+                  </button>
+                </form>
               )}
-            </form>
+
+              {ownTrainers.length === 0 && ownTeamPokemon.length === 0 && (
+                <p className="text-xs text-muted">You don&apos;t have a Trainer or Team Pokémon in this Campaign to join with.</p>
+              )}
+            </div>
           )}
 
-          {campaignPool.length > 0 && (
-            <form action={addPokemonCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
-              <div className="flex flex-col gap-1">
-                <label htmlFor="pokemonId">Wild Pokémon</label>
-                <select id="pokemonId" name="pokemonId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
-                  <option value="" disabled>
-                    Select...
-                  </option>
-                  {campaignPool.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="side2">Side</label>
-                <select id="side2" name="side" defaultValue="enemy" className="bg-surface-subtle rounded border p-2">
-                  <option value="ally">Ally</option>
-                  <option value="enemy">Enemy</option>
-                </select>
-              </div>
-              <button type="submit" className="rounded border px-3 py-2">
-                Add
-              </button>
-            </form>
-          )}
+          {isActive && <AttackResolver attackers={attackerOptions} targets={targetOptions} currentAttackerId={currentCombatantId} />}
 
-          {campaignTrainers.length === 0 && campaignPool.length === 0 && (
-            <p className="text-xs text-muted">No Trainers, NPCs, or unassigned Wild Pokémon in this Campaign to add yet.</p>
-          )}
+          {isActive && trainerActionsData.length > 0 && <TrainerActionsPanel trainers={trainerActionsData} />}
         </div>
-      )}
 
-      {!isGM && isActive && (
-        <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
-          <h2 className="font-semibold">Join the fight</h2>
-
-          {ownTrainers.length > 0 && (
-            <form action={addTrainerCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
-              <input type="hidden" name="side" value="ally" />
-              <div className="flex flex-col gap-1">
-                <label htmlFor="joinTrainerId">Your Trainer</label>
-                <select id="joinTrainerId" name="trainerId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
-                  <option value="" disabled>
-                    Select...
-                  </option>
-                  {ownTrainers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <RollInputButton
-                promptMessage="Roll a d20 for initiative and enter the result (1-20)."
-                min={1}
-                max={20}
-                fieldName="d20Roll"
-                formAction={addTrainerCombatant.bind(null, encounterId, campaignId)}
-                className="rounded bg-accent px-3 py-2 text-accent-foreground"
+        <aside className="sticky top-4 flex w-64 shrink-0 flex-col gap-2">
+          {sortedForDisplay.length === 0 ? (
+            <p className="text-sm text-muted">No combatants yet.</p>
+          ) : (
+            sortedForDisplay.map((c) => (
+              <div
+                key={c.id}
+                className={`flex flex-col gap-2 rounded border p-3 ${
+                  c.id === currentCombatantId ? 'border-2 border-warning bg-warning/10' : 'border-accent bg-accent/10'
+                } ${combatantIsDown(c) ? 'opacity-50' : ''}`}
               >
-                Join (roll d20)
-              </RollInputButton>
-            </form>
-          )}
-
-          {ownTeamPokemon.length > 0 && (
-            <form action={addPokemonCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
-              <input type="hidden" name="side" value="ally" />
-              <div className="flex flex-col gap-1">
-                <label htmlFor="sendPokemonId">Send out a Pokémon</label>
-                <select id="sendPokemonId" name="pokemonId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
-                  <option value="" disabled>
-                    Select...
-                  </option>
-                  {ownTeamPokemon.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-start gap-2">
+                  {c.pokemon && !combatantIsIdentified(c) ? (
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-surface-muted text-sm text-muted">?</div>
+                  ) : (
+                    c.pokemon?.pokedex?.sprite_code && (
+                      <PokemonSprite spriteCode={c.pokemon.pokedex.sprite_code} shiny={c.pokemon.is_shiny} alt={combatantName(c)} size={32} />
+                    )
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm">
+                      <span className={`mr-1 rounded px-1.5 py-0.5 text-xs font-semibold ${c.side === 'ally' ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'}`}>
+                        {c.side === 'ally' ? 'Ally' : 'Enemy'}
+                      </span>
+                      {combatantHref(c) ? (
+                        <Link href={combatantHref(c)!} className="font-semibold underline">
+                          {combatantName(c)}
+                        </Link>
+                      ) : (
+                        <span className="font-semibold">{combatantName(c)}</span>
+                      )}
+                      {combatantTypeLabel(c) && <span className="text-muted"> -- {combatantTypeLabel(c)}</span>}
+                    </p>
+                    {c.id === currentCombatantId && <p className="text-xs font-semibold text-warning">← Current turn</p>}
+                    <p className="text-xs text-muted">
+                      {c.trainers ? c.trainers.current_hp : c.pokemon?.current_hp}/{combatantMaxHp(c)} HP · Initiative{' '}
+                      {c.turn_order ?? 'not set'}
+                      {combatantIsDown(c) ? ' · Down (0 HP)' : ''}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {isGM && (
+                    <>
+                      <form action={setCombatantInitiative.bind(null, encounterId, campaignId, c.id)} className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          name="turnOrder"
+                          defaultValue={c.turn_order ?? ''}
+                          placeholder="Init."
+                          className="bg-surface-subtle w-16 rounded border px-1 py-1 text-xs"
+                        />
+                        <button type="submit" className="rounded border px-2 py-1 text-xs">
+                          Set
+                        </button>
+                      </form>
+                      <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
+                        <ConfirmButton confirmMessage={`Remove ${combatantName(c)} from this encounter?`} className="rounded border border-danger px-2 py-1 text-xs text-danger">
+                          Remove
+                        </ConfirmButton>
+                      </form>
+                    </>
+                  )}
+                  {!isGM && c.trainers?.id && ownTrainers.some((t) => t.id === c.trainers!.id) && (
+                    <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
+                      <ConfirmButton confirmMessage="Leave this encounter?" className="rounded border px-2 py-1 text-xs">
+                        Leave
+                      </ConfirmButton>
+                    </form>
+                  )}
+                  {!isGM && c.pokemon?.id && ownTeamPokemon.some((p) => p.id === c.pokemon!.id) && (
+                    <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
+                      <ConfirmButton confirmMessage="Recall this Pokémon from the encounter?" className="rounded border px-2 py-1 text-xs">
+                        Recall
+                      </ConfirmButton>
+                    </form>
+                  )}
+                  {c.pokemon && !combatantIsIdentified(c) && (
+                    <form action={scanSpecies.bind(null, encounterId, campaignId, c.pokemon.pokedex_id)}>
+                      <button type="submit" className="rounded border border-accent px-2 py-1 text-xs font-semibold text-accent">
+                        Use Pokédex
+                      </button>
+                    </form>
+                  )}
+                </div>
               </div>
-              <button type="submit" className="rounded bg-accent px-3 py-2 text-accent-foreground">
-                Send out
-              </button>
-            </form>
+            ))
           )}
-
-          {ownTrainers.length === 0 && ownTeamPokemon.length === 0 && (
-            <p className="text-xs text-muted">You don&apos;t have a Trainer or Team Pokémon in this Campaign to join with.</p>
-          )}
-        </div>
-      )}
-
-      {isActive && <AttackResolver attackers={attackerOptions} targets={targetOptions} currentAttackerId={currentCombatantId} />}
-
-      {isActive && trainerActionsData.length > 0 && <TrainerActionsPanel trainers={trainerActionsData} />}
+        </aside>
+      </div>
     </main>
   )
 }
