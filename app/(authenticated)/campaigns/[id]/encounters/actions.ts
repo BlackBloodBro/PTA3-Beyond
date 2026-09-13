@@ -396,3 +396,28 @@ export async function advanceTurn(encounterId: string, campaignId: string) {
 
   redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
 }
+
+// [[Feature - Only active player on initiative tracker can do an action]]: the self-service half of
+// this FR -- a player who doesn't want to (or can't) act on their own turn no longer has to wait on
+// the GM's "Advance turn". Unlike advanceTurn above, this can't just rely on RLS's plain
+// is_campaign_gm(campaign_id) check (a member has no such blanket UPDATE right, deliberately -- only
+// their own current turn should ever move it), so the real "is it actually my turn" check lives in the
+// skip_my_turn() Postgres function itself (re-derives the same activeSorted computation this page
+// already does, then only advances if that combatant is one of the caller's own) rather than here.
+export async function skipMyTurn(encounterId: string, campaignId: string) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { error } = await supabase.rpc('skip_my_turn', { target_encounter_id: encounterId })
+
+  if (error) {
+    redirect(`/campaigns/${campaignId}/encounters/${encounterId}?error=${encodeURIComponent(error.message)}`)
+  }
+
+  redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
+}
