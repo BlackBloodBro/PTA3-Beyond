@@ -845,8 +845,9 @@ export async function adjustPokemonHp(
     return { error: 'Enter a whole number amount' }
   }
 
-  // No ownership filter needed -- RLS already covers both the Pokemon's owner and the campaign's
-  // GM (both have UPDATE rights), same as the trainer HP control.
+  // No ownership filter needed for reading -- RLS already covers both the Pokemon's owner, the
+  // campaign's GM, and (since [[Feature - Add a combat encounter tracker]]) any campaign member
+  // viewing an active encounter's combatants, same as the trainer HP control.
   const { data: pokemon, error: pokemonError } = await supabase
     .from('pokemon')
     .select('current_hp, temporary_hp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp)')
@@ -893,10 +894,33 @@ export async function adjustPokemonHp(
     updates.loyalty_points = Math.max(0, pokemon.loyalty_points + (faintEvent?.points ?? 0))
   }
 
-  const { error } = await supabase.from('pokemon').update(updates).eq('id', pokemonId)
+  // Bug fix (2026-09-14): the plain update above only ever actually writes when the caller is this
+  // Pokemon's own owner or the campaign's GM -- those are the only two UPDATE policies `pokemon` has.
+  // A regular campaign member applying combat damage to anyone else's combatant (an enemy, almost
+  // always) matched neither, so this silently affected 0 rows -- Postgrest doesn't treat "RLS excluded
+  // every row" as an error, so the caller got back success with nothing actually changed. This is the
+  // confirmed root cause of "so many issues" resolving a turn as a player while the GM saw none: every
+  // real attack a player made against something they didn't personally own quietly did nothing.
+  // `.select('id')` forces Postgrest to report which rows the update actually touched -- an empty
+  // result means RLS excluded it, not a real error -- so we can fall back to the narrowly-scoped
+  // apply_combat_pokemon_hp() RPC (only succeeds if this Pokemon is currently a combatant in an active
+  // encounter the caller is a member of) instead of silently reporting success for nothing.
+  const { data: updatedRows, error } = await supabase.from('pokemon').update(updates).eq('id', pokemonId).select('id')
 
   if (error) {
     return { error: error.message }
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    const { error: combatError } = await supabase.rpc('apply_combat_pokemon_hp', {
+      target_pokemon_id: pokemonId,
+      new_current_hp: newHp,
+      new_temporary_hp: newTempHp,
+      new_loyalty_points: updates.loyalty_points ?? pokemon.loyalty_points,
+    })
+    if (combatError) {
+      return { error: `Couldn't update this Pokemon's HP -- it's not yours, and not currently a combatant you have access to (${combatError.message}).` }
+    }
   }
 
   return { currentHp: newHp, temporaryHp: newTempHp }
