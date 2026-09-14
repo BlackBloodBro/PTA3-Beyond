@@ -186,11 +186,27 @@ export default async function EncounterDetailPage({
   // startEncounter fills it in -- sorts last, and is excluded from the "whose turn" computation.
   // current_turn_position is a plain incrementing counter indexed modulo this active-only sorted
   // list, so a combatant at 0 HP is skipped automatically without needing its own "skip" logic.
+  //
+  // Bug fix (2026-09-14): a tied turn_order (a real, common occurrence -- e.g. two Pokemon with the
+  // same effective Speed) used to break arbitrarily, since neither this sort nor the
+  // `encounter_combatants` query it reads from (fetched with no explicit `.order(...)`) had any
+  // secondary key -- Postgres gives no ordering guarantee for an unordered SELECT. That was harmless
+  // while "whose turn" only ever needed to be self-consistent within one page render, but the new
+  // skip_my_turn() Postgres function ([[Feature - Only active player on initiative tracker can do an
+  // action]]) re-derives the same ranking independently in SQL, and Postgres's own `row_number() over
+  // (order by turn_order desc)` breaks ties arbitrarily too -- with no guarantee of agreeing with
+  // whatever this sort happened to produce. Root-caused as the actual cause of the user's live report
+  // ("It is not your turn" firing repeatedly for a real player on their own turn) -- confirmed via the
+  // real campaign's own combatant data, which has three separate tied turn_order groups. Fixed by
+  // giving both a deterministic secondary key (`id`) -- same tiebreak convention now used in
+  // skip_my_turn()'s own `order by`.
   const activeSorted = [...combatants]
     .filter((c) => !combatantIsDown(c) && c.turn_order !== null)
-    .sort((a, b) => b.turn_order! - a.turn_order!)
+    .sort((a, b) => b.turn_order! - a.turn_order! || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const currentCombatantId = isActive && activeSorted.length > 0 ? activeSorted[encounter.current_turn_position % activeSorted.length].id : null
-  const sortedForDisplay = [...combatants].sort((a, b) => (b.turn_order ?? -Infinity) - (a.turn_order ?? -Infinity))
+  const sortedForDisplay = [...combatants].sort(
+    (a, b) => (b.turn_order ?? -Infinity) - (a.turn_order ?? -Infinity) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  )
 
   // [[Feature - Add a combat encounter tracker]]: per the user (2026-09-08) -- the same Trainer/
   // Pokemon can't be added twice (also enforced in the DB), so every "add" dropdown below excludes

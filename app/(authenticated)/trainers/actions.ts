@@ -918,8 +918,9 @@ export async function adjustTrainerHp(
     return { error: 'Enter a whole number amount' }
   }
 
-  // No ownership filter needed -- RLS already covers both the trainer's owner and the campaign's
-  // GM (both have UPDATE rights), and this control should work for either.
+  // No ownership filter needed for reading -- RLS already covers both the trainer's owner, the
+  // campaign's GM, and (since [[Feature - Add a combat encounter tracker]]) any campaign member
+  // viewing an active encounter's combatants.
   const { data: trainer, error: trainerError } = await supabase
     .from('trainers')
     .select('current_hp, temporary_hp, level')
@@ -956,10 +957,28 @@ export async function adjustTrainerHp(
     newHp = trainer.current_hp - (amount - absorbed)
   }
 
-  const { error } = await supabase.from('trainers').update({ current_hp: newHp, temporary_hp: newTempHp }).eq('id', trainerId)
+  // Bug fix (2026-09-14): same gap as adjustPokemonHp in app/(authenticated)/pokemon/actions.ts -- see
+  // its comment. The plain update only ever actually writes for this trainer's own owner or the
+  // campaign's GM (the only two UPDATE policies `trainers` has); a regular campaign member applying
+  // combat damage to anyone else's Trainer/NPC silently affected 0 rows with no error. `.select('id')`
+  // exposes that (an empty result means RLS excluded it), so we can fall back to the narrowly-scoped
+  // apply_combat_trainer_hp() RPC (only succeeds if this Trainer is currently a combatant in an active
+  // encounter the caller is a member of).
+  const { data: updatedRows, error } = await supabase.from('trainers').update({ current_hp: newHp, temporary_hp: newTempHp }).eq('id', trainerId).select('id')
 
   if (error) {
     return { error: error.message }
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    const { error: combatError } = await supabase.rpc('apply_combat_trainer_hp', {
+      target_trainer_id: trainerId,
+      new_current_hp: newHp,
+      new_temporary_hp: newTempHp,
+    })
+    if (combatError) {
+      return { error: `Couldn't update this Trainer's HP -- it's not yours, and not currently a combatant you have access to (${combatError.message}).` }
+    }
   }
 
   return { currentHp: newHp, temporaryHp: newTempHp }
