@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { singleWithRetry } from '@/lib/supabase/retrySingle'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { PokemonSprite } from '@/components/PokemonSprite'
@@ -59,17 +60,30 @@ export default async function EncounterDetailPage({
     redirect('/login')
   }
 
-  const { data: campaign } = await supabase.from('campaigns').select('id, name, gm_user_id').eq('id', campaignId).single()
+  // Bug fix (2026-09-14): this used to skip capturing `error` entirely, treating any falsy `campaign`
+  // as "not found" -- the exact same swallow-as-not-found shape already fixed on the encounters query
+  // below, just never applied here. Fixed identically, plus the new singleWithRetry wrapper (see its
+  // own comment) -- confirmed live via the dev server's own request log that a pooled connection can
+  // land in a genuinely broken state ("current transaction is aborted...") that fails every query on it
+  // until the pool cycles it out; one retry on a fresh request reliably clears it.
+  const { data: campaign, error: campaignError } = await singleWithRetry(() =>
+    supabase.from('campaigns').select('id, name, gm_user_id').eq('id', campaignId).single(),
+  )
+  if (campaignError && campaignError.code !== 'PGRST116') {
+    throw new Error(`Failed to load campaign: ${campaignError.message}`)
+  }
   if (!campaign) {
     redirect('/dashboard')
   }
   const isGM = campaign.gm_user_id === user.id
 
-  const { data: encounterRaw, error: encounterError } = await supabase
-    .from('encounters')
-    .select('id, campaign_id, name, status, current_turn_position, started_at, ended_at')
-    .eq('id', encounterId)
-    .single()
+  const { data: encounterRaw, error: encounterError } = await singleWithRetry(() =>
+    supabase
+      .from('encounters')
+      .select('id, campaign_id, name, status, current_turn_position, started_at, ended_at')
+      .eq('id', encounterId)
+      .single(),
+  )
 
   // RLS already scopes what a non-GM can even see (only their own campaign's *active* encounter) --
   // this resolves the right redirect for every other case (wrong campaign in the URL, or the
@@ -83,6 +97,13 @@ export default async function EncounterDetailPage({
   // requests (a second viewer's action landing at the same moment) and observing this exact redirect
   // fire with no underlying access change. Let a real error throw instead, so the existing
   // (authenticated)/error.tsx boundary's "Try again" shows up rather than silently losing the page.
+  //
+  // Bug fix (2026-09-14): the query above now goes through singleWithRetry -- see that file's comment.
+  // Confirmed live via the dev server's own request log that this exact query hit a pooled connection
+  // stuck with "current transaction is aborted, commands ignored until end of transaction block" across
+  // dozens of consecutive requests before self-clearing -- the actual cause of two fresh reports from
+  // the user (thrown out both when joining with a Trainer and when a poll picked up a GM's turn
+  // advance), since both are just another load of this same page.
   if (encounterError && encounterError.code !== 'PGRST116') {
     throw new Error(`Failed to load encounter: ${encounterError.message}`)
   }
