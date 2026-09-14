@@ -114,16 +114,22 @@ export default async function EncounterDetailPage({
   const isDraft = encounter.status === 'draft'
   const isActive = encounter.status === 'active'
 
-  const { data: combatantsRaw } = await supabase
-    .from('encounter_combatants')
-    .select(
-      `
+  // Bug fix (2026-09-14): the single most consequential query on this page to lose to a poisoned
+  // pooled connection (see singleWithRetry's own comment) -- every combatant on the page, GM and
+  // player controls included, comes from this one call. Retried the same way as the other queries on
+  // this page for the same reason.
+  const { data: combatantsRaw } = await singleWithRetry(() =>
+    supabase
+      .from('encounter_combatants')
+      .select(
+        `
       id, side, trainer_id, pokemon_id, turn_order,
       trainers(id, name, level, current_hp, is_npc, campaign_id, class_id, classes(name)),
       pokemon(id, nickname, current_hp, is_shiny, bonus_base_hp, ev_hp, pokedex_id, pokedex(name, sprite_code, base_hp))
     `,
-    )
-    .eq('encounter_id', encounterId)
+      )
+      .eq('encounter_id', encounterId),
+  )
 
   // Same reverse/forward-embed quirk documented throughout this codebase -- trainers/pokemon/classes/
   // pokedex come back as single objects at runtime, not the arrays TS infers.
@@ -286,12 +292,18 @@ export default async function EncounterDetailPage({
   let ownTrainerIds = new Set<string>()
   let ownTeamPokemonIds = new Set<string>()
   if (!isGM && isActive) {
-    const { data: ownTrainersRaw } = await supabase
-      .from('trainers')
-      .select('id, name, trainers_pokemon(party_slot, pokemon(id, nickname, pokedex(name)))')
-      .eq('campaign_id', campaignId)
-      .eq('user_id', user.id)
-      .eq('is_npc', false)
+    // Bug fix (2026-09-14): backs both the eligibility restrictions from
+    // [[Feature - Only active player on initiative tracker can do an action]] and the Join/Send-out
+    // dropdowns -- same poisoned-pooled-connection vulnerability as the other queries on this page (see
+    // singleWithRetry's own comment), retried the same way.
+    const { data: ownTrainersRaw } = await singleWithRetry(() =>
+      supabase
+        .from('trainers')
+        .select('id, name, trainers_pokemon(party_slot, pokemon(id, nickname, pokedex(name)))')
+        .eq('campaign_id', campaignId)
+        .eq('user_id', user.id)
+        .eq('is_npc', false),
+    )
     ownTrainerIds = new Set((ownTrainersRaw ?? []).map((t) => t.id))
     ownTrainers = (ownTrainersRaw ?? []).filter((t) => !combatantTrainerIds.has(t.id)).map((t) => ({ id: t.id, name: t.name }))
     const allOwnTeamPokemon = ((ownTrainersRaw ?? []) as unknown as { trainers_pokemon: { party_slot: number | null; pokemon: { id: string; nickname: string | null; pokedex: { name: string } | null } | null }[] }[])
@@ -324,13 +336,22 @@ export default async function EncounterDetailPage({
     const pokemonCombatants = combatants.filter((c): c is CombatantRow & { pokemon: NonNullable<CombatantRow['pokemon']> } => c.pokemon !== null)
     const eligible = pokemonCombatants.filter((c) => isGM || (ownTeamPokemonIds.has(c.pokemon.id) && c.id === currentCombatantId))
     if (eligible.length > 0) {
-      const { data: movesRaw } = await supabase
-        .from('pokemon_moves')
-        .select('pokemon_id, moves(id, name)')
-        .in(
-          'pokemon_id',
-          eligible.map((c) => c.pokemon.id),
-        )
+      // Bug fix (2026-09-14): reproduced live while running a full multi-player encounter test --
+      // this query has the exact same unguarded vulnerability to a poisoned pooled connection as the
+      // `encounters`/`campaigns` queries above (see singleWithRetry's own comment): it silently came
+      // back empty for a Pokemon that genuinely knows a Move, with no thrown error, making a real
+      // attacker's Move dropdown show nothing to select. singleWithRetry's "retry once on any error"
+      // behavior applies just as well here (a plain multi-row select never returns PGRST116 for an
+      // empty result -- there's no special case to avoid, unlike the .single() call sites).
+      const { data: movesRaw } = await singleWithRetry(() =>
+        supabase
+          .from('pokemon_moves')
+          .select('pokemon_id, moves(id, name)')
+          .in(
+            'pokemon_id',
+            eligible.map((c) => c.pokemon.id),
+          ),
+      )
       const movesByPokemonId = new Map<string, { id: number; name: string }[]>()
       for (const row of (movesRaw ?? []) as unknown as { pokemon_id: string; moves: { id: number; name: string } | null }[]) {
         if (!row.moves) continue
