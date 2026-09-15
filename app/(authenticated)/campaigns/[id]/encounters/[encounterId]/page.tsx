@@ -589,7 +589,12 @@ export default async function EncounterDetailPage({
             </div>
           )}
 
-          {!isGM && isActive && (
+          {/* [[Feature - Hide certain sections in Encounters]]: hides entirely once the player has
+              already joined with everything they have, rather than showing the section with an
+              explanatory "nothing to join with" message -- that message read oddly once the real
+              reason was "already joined," not "nothing exists." GM stays unaffected (this section
+              never showed for the GM in the first place). */}
+          {!isGM && isActive && (ownTrainers.length > 0 || ownTeamPokemon.length > 0) && (
             <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
               <h2 className="font-semibold">Join the fight</h2>
 
@@ -643,14 +648,15 @@ export default async function EncounterDetailPage({
                   </button>
                 </form>
               )}
-
-              {ownTrainers.length === 0 && ownTeamPokemon.length === 0 && (
-                <p className="text-xs text-muted">You don&apos;t have a Trainer or Team Pokémon in this Campaign to join with.</p>
-              )}
             </div>
           )}
 
-          {isActive && (
+          {/* [[Feature - Hide certain sections in Encounters]]: hides entirely for a non-GM player
+              when it isn't their own Pokemon's turn, rather than showing the panel with "No Pokemon
+              combatants available to attack with." Stays visible unconditionally for the GM (who can
+              always attack with any Pokemon combatant, or hits that same message if there are truly
+              none in the encounter at all). */}
+          {isActive && (isGM || attackerOptions.length > 0) && (
             <AttackResolver
               attackers={attackerOptions}
               targets={targetOptions}
