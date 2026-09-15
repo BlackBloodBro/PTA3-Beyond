@@ -1,5 +1,24 @@
 [
   {
+    "version": "1.2.0",
+    "date": "2026-09-15",
+    "title": "Combat update",
+    "entries": [
+      { "category": "feature", "summary": "Added a persisted combat Encounter tracker: group Trainers/Pokémon and enemy/Wild Pokémon into one resumable fight with tracked turn order." },
+      { "category": "feature", "summary": "Added attack resolution to Encounters: roll to hit and apply damage to a target, right from the fight." },
+      { "category": "feature", "summary": "Trainers can now see and use their own Moves, Features, and Items from within an Encounter." },
+      { "category": "feature", "summary": "The Ace trainer's \"Affirmation\" Feature now actually grants temporary HP on a knockout or critical hit." },
+      { "category": "feature", "summary": "Researchers with \"Walking encyclopedia\" now always see full opponent Pokémon info in an Encounter, even before scanning them." },
+      { "category": "feature", "summary": "Added Pokémon types to the Encounter's initiative tracker, shown once identified." },
+      { "category": "feature", "summary": "Only the combatant whose turn it is can now act in an Encounter (GMs are still exempt)." },
+      { "category": "feature", "summary": "A Pokémon's turn in an Encounter now ends automatically once it's used a Move." },
+      { "category": "feature", "summary": "Encounter sections that don't apply to you now hide themselves instead of showing disabled." },
+      { "category": "feature", "summary": "Clicking a combatant in an Encounter now opens an overlay with their full stats, type, Moves, Features, Bag, and Afflictions instead of navigating away." },
+      { "category": "feature", "summary": "A Trainer's Feature description can now be expanded on demand from the Encounter's actions panel." },
+      { "category": "improve", "summary": "Added an explanation of how LP/Loyalty and EXP/Leveling actually work, on the Pokémon page." }
+    ]
+  },
+  {
     "version": "1.1.1",
     "date": "2026-09-06",
     "entries": [
