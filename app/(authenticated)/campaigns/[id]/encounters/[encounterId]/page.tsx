@@ -650,7 +650,16 @@ export default async function EncounterDetailPage({
             </div>
           )}
 
-          {isActive && <AttackResolver attackers={attackerOptions} targets={targetOptions} currentAttackerId={currentCombatantId} />}
+          {isActive && (
+            <AttackResolver
+              attackers={attackerOptions}
+              targets={targetOptions}
+              currentAttackerId={currentCombatantId}
+              isGM={isGM}
+              encounterId={encounterId}
+              campaignId={campaignId}
+            />
+          )}
 
           {isActive && trainerActionsData.length > 0 && <TrainerActionsPanel trainers={trainerActionsData} />}
         </div>

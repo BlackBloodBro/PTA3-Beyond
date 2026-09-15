@@ -1,10 +1,10 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { resolveAccuracy, maybeGrantAffirmationBonus, type AccuracyResult } from './combatActions'
 import { adjustPokemonHp } from '@/app/(authenticated)/pokemon/actions'
 import { adjustTrainerHp } from '@/app/(authenticated)/trainers/actions'
+import { advanceTurn, skipMyTurn } from '../actions'
 
 export type AttackerOption = { id: string; pokemonId: string; side: 'ally' | 'enemy'; name: string; moves: { id: number; name: string }[] }
 export type TargetOption = { id: string; name: string; side: 'ally' | 'enemy'; trainerId: string | null; pokemonId: string | null }
@@ -20,12 +20,17 @@ export function AttackResolver({
   attackers,
   targets,
   currentAttackerId,
+  isGM,
+  encounterId,
+  campaignId,
 }: {
   attackers: AttackerOption[]
   targets: TargetOption[]
   currentAttackerId: string | null
+  isGM: boolean
+  encounterId: string
+  campaignId: string
 }) {
-  const router = useRouter()
   const [attackerId, setAttackerId] = useState('')
   const [moveId, setMoveId] = useState('')
   const [targetId, setTargetId] = useState('')
@@ -66,6 +71,24 @@ export function AttackResolver({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAttackerId])
 
+  // [[Feature - Auto advance turn in Encounters]]: once a Pokemon has actually used a move (a real
+  // action, not a miss/status/immune no-op that just makes the whole panel reset next render either
+  // way), the turn concludes on its own -- no separate "Skip turn"/"Advance turn" click needed.
+  // Dispatches on isGM rather than always calling skip_my_turn(): that RPC is gated on genuinely
+  // *owning* the current combatant, which happens to cover the GM's own NPCs (an NPC's own
+  // trainers.user_id is the GM) but wouldn't generalize to a GM resolving through a combatant they
+  // don't own (e.g. acting on an absent player's behalf) -- advanceTurn is already unconditional for
+  // the GM via RLS and works for any combatant, so that's the one the GM path calls instead. Both
+  // actions redirect back to this same page on completion (success or error), which is what actually
+  // refreshes the tracker -- no separate router.refresh() needed alongside this.
+  async function autoAdvanceTurn() {
+    if (isGM) {
+      await advanceTurn(encounterId, campaignId)
+    } else {
+      await skipMyTurn(encounterId, campaignId)
+    }
+  }
+
   function promptForRoll(label: string, max: number): number | null {
     let entry = window.prompt(`Roll ${label} for real and enter the result (1-${max}).`)
     while (entry !== null) {
@@ -89,6 +112,11 @@ export function AttackResolver({
     const res = await resolveAccuracy(attackerId, targetId, Number(moveId), roll)
     setResolving(false)
     setResult(res)
+    // A miss, a status Move, or an immune hit has nothing left to do -- the move was still used, so
+    // the turn concludes right here rather than waiting on an "Apply damage" step that will never come.
+    if (!('error' in res) && (!res.hit || !res.isDamageMove || res.isImmune)) {
+      await autoAdvanceTurn()
+    }
   }
 
   // [[Feature - Grant temporary HP on Affirmation (Ace trainer)]]: both triggers this Feature cares
@@ -131,7 +159,10 @@ export function AttackResolver({
     }
 
     setApplying(false)
-    router.refresh()
+    // The move was used and its damage applied -- the turn concludes here. This is also what refreshes
+    // the tracker for everyone (the redirect it ends in), so there's no separate router.refresh() call
+    // needed alongside it the way there used to be.
+    await autoAdvanceTurn()
   }
 
   return (
