@@ -25,6 +25,7 @@ import {
 import { AttackResolver, type AttackerOption, type TargetOption } from './AttackResolver'
 import { EncounterLivePoll } from './EncounterLivePoll'
 import { TrainerActionsPanel, type TrainerActionsData } from './TrainerActionsPanel'
+import { CombatantDetailModal } from './CombatantDetailModal'
 
 type CombatantRow = {
   id: string
@@ -694,13 +695,13 @@ export default async function EncounterDetailPage({
                       <span className={`mr-1 rounded px-1.5 py-0.5 text-xs font-semibold ${c.side === 'ally' ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'}`}>
                         {c.side === 'ally' ? 'Ally' : 'Enemy'}
                       </span>
-                      {combatantHref(c) ? (
-                        <Link href={combatantHref(c)!} className="font-semibold underline">
-                          {combatantName(c)}
-                        </Link>
-                      ) : (
-                        <span className="font-semibold">{combatantName(c)}</span>
-                      )}
+                      {/* [[Feature - Show more Pokemon and trainer information in Encounters]]: the
+                          name is now a clickable trigger for the info overlay, regardless of whether
+                          it's identified -- an unidentified enemy's overlay just says so, matching the
+                          gating already enforced server-side in combatantDetailActions.ts. The old
+                          navigate-away link still exists inside the overlay itself ("View full page"),
+                          for the rare case something actually needs editing there. */}
+                      <CombatantDetailModal combatantId={c.id} label={combatantName(c)} href={combatantHref(c)} />
                       {combatantTypeLabel(c) && <span className="text-muted"> -- {combatantTypeLabel(c)}</span>}
                     </p>
                     {c.id === currentCombatantId && <p className="text-xs font-semibold text-warning">← Current turn</p>}
