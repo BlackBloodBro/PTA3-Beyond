@@ -25,6 +25,24 @@ export function TrainerActionsPanel({ trainers }: { trainers: TrainerActionsData
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
+  // [[Feature - Show feature description in Encounters]]: expandable/on-demand rather than always
+  // visible, per the user -- collapsed by default, keeps the list compact when a Trainer has several
+  // Features. A plain Set of currently-expanded Feature ids, not per-Trainer-scoped -- two Trainers
+  // sharing the same Feature id can't happen (Features are id'd globally, not per-Trainer), so this is
+  // safe without needing a composite key.
+  const [expandedFeatureIds, setExpandedFeatureIds] = useState<Set<number>>(new Set())
+
+  function toggleFeatureDescription(featureId: number) {
+    setExpandedFeatureIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(featureId)) {
+        next.delete(featureId)
+      } else {
+        next.add(featureId)
+      }
+      return next
+    })
+  }
 
   // [[Feature - Hide certain sections in Encounters]]: each Trainer's own block hides independently
   // once it isn't their turn, rather than showing it with a "Not your turn yet" message -- replaces
@@ -89,24 +107,35 @@ export function TrainerActionsPanel({ trainers }: { trainers: TrainerActionsData
               <p className="text-xs text-muted">None usable.</p>
             ) : (
               <ul className="flex flex-col gap-1">
-                {t.features.map((f) => (
-                  <li key={f.id} className="flex flex-wrap items-center gap-2">
-                    <span>
-                      {f.name}
-                      {f.usesRemaining !== null && <span className="text-xs text-muted"> ({f.usesRemaining} left)</span>}
-                    </span>
-                    {f.usesRemaining !== null && (
-                      <button
-                        type="button"
-                        onClick={() => handleUseFeature(t.trainerId, f.id, f.usesRemaining!)}
-                        disabled={f.usesRemaining <= 0 || pendingId === `feature-${f.id}`}
-                        className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
-                      >
-                        {pendingId === `feature-${f.id}` ? 'Using…' : 'Use'}
-                      </button>
-                    )}
-                  </li>
-                ))}
+                {t.features.map((f) => {
+                  const isExpanded = expandedFeatureIds.has(f.id)
+                  return (
+                    <li key={f.id} className="flex flex-col gap-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleFeatureDescription(f.id)}
+                          className="text-left underline decoration-dotted underline-offset-2"
+                          aria-expanded={isExpanded}
+                        >
+                          {isExpanded ? '▾' : '▸'} {f.name}
+                          {f.usesRemaining !== null && <span className="text-xs text-muted"> ({f.usesRemaining} left)</span>}
+                        </button>
+                        {f.usesRemaining !== null && (
+                          <button
+                            type="button"
+                            onClick={() => handleUseFeature(t.trainerId, f.id, f.usesRemaining!)}
+                            disabled={f.usesRemaining <= 0 || pendingId === `feature-${f.id}`}
+                            className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
+                          >
+                            {pendingId === `feature-${f.id}` ? 'Using…' : 'Use'}
+                          </button>
+                        )}
+                      </div>
+                      {isExpanded && <p className="text-xs text-muted">{f.description}</p>}
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </div>
