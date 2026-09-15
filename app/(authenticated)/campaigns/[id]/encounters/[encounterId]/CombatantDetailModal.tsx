@@ -65,7 +65,7 @@ export function CombatantDetailModal({ combatantId, label, href }: { combatantId
               aria-modal="true"
               aria-label={label}
               onClick={(e) => e.stopPropagation()}
-              className="bg-background flex max-h-[85vh] w-full max-w-md flex-col gap-3 overflow-y-auto rounded border p-4 text-sm shadow-lg"
+              className="bg-page flex max-h-[85vh] w-full max-w-md flex-col gap-3 overflow-y-auto rounded border p-4 text-sm shadow-lg"
             >
               <div className="flex items-start justify-between gap-2">
                 <h3 className="text-base font-semibold">{label}</h3>
