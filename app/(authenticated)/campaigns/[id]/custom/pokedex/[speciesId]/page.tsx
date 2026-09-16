@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { updateCustomSpecies, deleteCustomSpecies } from '../actions'
-import { SpeciesForm } from '../SpeciesForm'
+import { SpeciesStatBlockFields } from '../SpeciesStatBlockFields'
 import { SpeciesRelationsEditor } from './SpeciesRelationsEditor'
 
 export default async function EditCustomSpeciesPage({
@@ -42,7 +42,7 @@ export default async function EditCustomSpeciesPage({
     .maybeSingle()
 
   if (!speciesRaw) {
-    redirect(`/campaigns/${id}/pokedex`)
+    redirect(`/campaigns/${id}/custom/pokedex`)
   }
 
   const [
@@ -86,45 +86,53 @@ export default async function EditCustomSpeciesPage({
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-sm">
-        <Link href={`/campaigns/${id}/pokedex`} className="text-sm underline">
+        <Link href={`/campaigns/${id}/custom/pokedex`} className="text-sm underline">
           ← Custom Pokédex
         </Link>
       </div>
 
       <div className="flex w-full max-w-sm items-center justify-between">
         <h1 className="text-2xl font-bold">{species.name}</h1>
-        <form action={deleteCustomSpecies.bind(null, id, speciesId)}>
-          <ConfirmButton
-            confirmMessage={`Permanently delete "${species.name}"? Any Pokémon already using it will keep working, but this can't be used to create new ones anymore. This cannot be undone.`}
-            className="rounded border border-danger px-3 py-2 text-sm text-danger"
-          >
-            Delete
-          </ConfirmButton>
-        </form>
+        <div className="flex items-center gap-2">
+          <Link href={`/campaigns/${id}/custom/pokedex/new?templateId=${speciesId}`} className="rounded border px-3 py-2 text-sm">
+            Duplicate
+          </Link>
+          <form action={deleteCustomSpecies.bind(null, id, speciesId)}>
+            <ConfirmButton
+              confirmMessage={`Permanently delete "${species.name}"? Any Pokémon already using it will keep working, but this can't be used to create new ones anymore. This cannot be undone.`}
+              className="rounded border border-danger px-3 py-2 text-sm text-danger"
+            >
+              Delete
+            </ConfirmButton>
+          </form>
+        </div>
       </div>
 
       {error && <p className="w-full max-w-sm text-danger">{error}</p>}
       {saved && <p className="w-full max-w-sm text-success">Saved.</p>}
 
-      <SpeciesForm
-        action={updateCustomSpecies.bind(null, id, speciesId)}
-        submitLabel="Save changes"
-        types={types ?? []}
-        sizes={sizes ?? []}
-        weights={weights ?? []}
-        growthRates={growthRates ?? []}
-        habitats={habitats ?? []}
-        proficiencies={proficiencies ?? []}
-        diets={diets ?? []}
-        eggGroups={eggGroups ?? []}
-        initial={{
-          ...species,
-          habitatIds: (habitatRows ?? []).map((r) => r.habitat_id),
-          proficiencyIds: (proficiencyRows ?? []).map((r) => r.proficiency_id),
-          dietIds: (dietRows ?? []).map((r) => r.diet_id),
-          eggGroupIds: (eggGroupRows ?? []).map((r) => r.egg_group_id),
-        }}
-      />
+      <form action={updateCustomSpecies.bind(null, id, speciesId)} className="flex w-full max-w-sm flex-col gap-3">
+        <SpeciesStatBlockFields
+          types={types ?? []}
+          sizes={sizes ?? []}
+          weights={weights ?? []}
+          growthRates={growthRates ?? []}
+          habitats={habitats ?? []}
+          proficiencies={proficiencies ?? []}
+          diets={diets ?? []}
+          eggGroups={eggGroups ?? []}
+          initial={{
+            ...species,
+            habitatIds: (habitatRows ?? []).map((r) => r.habitat_id),
+            proficiencyIds: (proficiencyRows ?? []).map((r) => r.proficiency_id),
+            dietIds: (dietRows ?? []).map((r) => r.diet_id),
+            eggGroupIds: (eggGroupRows ?? []).map((r) => r.egg_group_id),
+          }}
+        />
+        <button type="submit" className="mt-2 rounded bg-accent px-4 py-2 text-accent-foreground">
+          Save changes
+        </button>
+      </form>
 
       <SpeciesRelationsEditor
         campaignId={id}

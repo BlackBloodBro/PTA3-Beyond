@@ -71,16 +71,13 @@ export default async function CampaignPage({
   // the actual rows live on their own dedicated (searchable/filterable) pages.
   let npcCount = 0
   let wildPokemonCount = 0
-  let customSpeciesCount = 0
   if (isGM) {
-    const [{ count: npcCountRaw }, { data: poolForCount }, { count: customSpeciesCountRaw }] = await Promise.all([
+    const [{ count: npcCountRaw }, { data: poolForCount }] = await Promise.all([
       supabase.from('trainers').select('id', { count: 'exact', head: true }).eq('campaign_id', id).eq('is_npc', true),
       supabase.from('pokemon').select('id, trainers_pokemon(trainer_id)').eq('campaign_id', id).eq('created_by_user_id', user.id),
-      supabase.from('pokedex').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     ])
     npcCount = npcCountRaw ?? 0
     wildPokemonCount = (poolForCount ?? []).filter((p) => !p.trainers_pokemon).length
-    customSpeciesCount = customSpeciesCountRaw ?? 0
   }
 
   // [[Feature - Add a combat encounter tracker]]: RLS already scopes this to what each role can
@@ -135,8 +132,8 @@ export default async function CampaignPage({
             <span className="text-lg font-semibold">{activeEncounter ? activeEncounter.name : 'Encounters'}</span>
             <span className="block text-sm text-muted underline">{activeEncounter ? 'Active — view' : 'Prepare / view'}</span>
           </Link>
-          <Link href={`/campaigns/${id}/pokedex`} className="flex-1 rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-            <span className="text-lg font-semibold">{customSpeciesCount} Custom Pokédex</span>
+          <Link href={`/campaigns/${id}/custom`} className="flex-1 rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+            <span className="text-lg font-semibold">Custom</span>
             <span className="block text-sm text-muted underline">View all</span>
           </Link>
         </div>

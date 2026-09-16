@@ -1,14 +1,36 @@
 type NamedIdOption = { id: number; name: string }
 
-// [[Feature - GM Custom - Pokemon]]: the stat-block half of the create/edit form (name, types,
-// size/weight/growth rate, the 6 base stats, catch rate, egg hatch rate, description, sprite code)
-// plus the checkbox multi-selects (34/58/14/11 rows -- small enough to pick from directly, per the
-// FR's own row-count check). Shared by /new and /[speciesId] as a plain server-rendered <form
-// action>, no client state needed -- Moves/Passives (632/327 rows, too large for a checkbox wall)
-// are their own incremental client-side editor on the edit page only, not part of this form.
-export function SpeciesForm({
-  action,
-  submitLabel,
+export type SpeciesStatBlockInitial = {
+  name: string
+  type_1_id: number
+  type_2_id: number | null
+  size_id: number | null
+  weight_id: number | null
+  growth_rate_id: number | null
+  base_hp: number
+  base_atk: number
+  base_def: number
+  base_sp_atk: number
+  base_sp_def: number
+  base_speed: number
+  catch_rate: number | null
+  egg_hatch_rate: string | null
+  description: string | null
+  sprite_code: string | null
+  habitatIds: number[]
+  proficiencyIds: number[]
+  dietIds: number[]
+  eggGroupIds: number[]
+}
+
+// [[Feature - GM Custom - Pokemon]]: the stat-block fields (name, types, size/weight/growth rate, the
+// 6 base stats, catch rate, egg hatch rate, description, sprite code) plus the checkbox multi-selects
+// (34/58/14/11 rows -- small enough to pick from directly, per the FR's own row-count check). No
+// <form> wrapper or submit button of its own -- the edit page wraps it in a plain <form action>, and
+// the create page wraps it in a client <form onSubmit> alongside the Moves/Passives staging editor
+// ([[Feature - GM Custom - Pokemon]]'s creation-time Moves/Passives + species-template addendum,
+// 2026-09-17) -- both need their own outer <form> and submit button, so this stays a pure field set.
+export function SpeciesStatBlockFields({
   types,
   sizes,
   weights,
@@ -19,8 +41,6 @@ export function SpeciesForm({
   eggGroups,
   initial,
 }: {
-  action: (formData: FormData) => void | Promise<void>
-  submitLabel: string
   types: NamedIdOption[]
   sizes: NamedIdOption[]
   weights: NamedIdOption[]
@@ -29,31 +49,10 @@ export function SpeciesForm({
   proficiencies: NamedIdOption[]
   diets: NamedIdOption[]
   eggGroups: NamedIdOption[]
-  initial?: {
-    name: string
-    type_1_id: number
-    type_2_id: number | null
-    size_id: number | null
-    weight_id: number | null
-    growth_rate_id: number | null
-    base_hp: number
-    base_atk: number
-    base_def: number
-    base_sp_atk: number
-    base_sp_def: number
-    base_speed: number
-    catch_rate: number | null
-    egg_hatch_rate: string | null
-    description: string | null
-    sprite_code: string | null
-    habitatIds: number[]
-    proficiencyIds: number[]
-    dietIds: number[]
-    eggGroupIds: number[]
-  }
+  initial?: SpeciesStatBlockInitial
 }) {
   return (
-    <form action={action} className="flex w-full max-w-sm flex-col gap-3">
+    <>
       <section className="flex flex-col gap-3 rounded border border-accent bg-accent/10 p-4">
         <h2 className="font-semibold">Basics</h2>
 
@@ -156,7 +155,14 @@ export function SpeciesForm({
         <textarea id="description" name="description" defaultValue={initial?.description ?? ''} rows={3} className="bg-surface-subtle rounded border px-3 py-2" />
 
         <label htmlFor="spriteCode">Sprite code (optional)</label>
-        <input id="spriteCode" name="spriteCode" type="text" placeholder="e.g. an existing species' slug to reuse its look" defaultValue={initial?.sprite_code ?? ''} className="bg-surface-subtle rounded border px-3 py-2" />
+        <input
+          id="spriteCode"
+          name="spriteCode"
+          type="text"
+          placeholder="e.g. an existing species' slug to reuse its look"
+          defaultValue={initial?.sprite_code ?? ''}
+          className="bg-surface-subtle rounded border px-3 py-2"
+        />
         <p className="text-xs text-muted">Leave blank to show the plain placeholder box instead of a sprite.</p>
       </section>
 
@@ -207,10 +213,6 @@ export function SpeciesForm({
           ))}
         </div>
       </section>
-
-      <button type="submit" className="mt-2 rounded bg-accent px-4 py-2 text-accent-foreground">
-        {submitLabel}
-      </button>
-    </form>
+    </>
   )
 }

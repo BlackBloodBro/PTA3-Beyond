@@ -38,14 +38,14 @@ export default async function CampaignPokedexPage({
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-2xl">
-        <Link href={`/campaigns/${id}`} className="text-sm underline">
-          ← {campaign.name}
+        <Link href={`/campaigns/${id}/custom`} className="text-sm underline">
+          ← Custom
         </Link>
       </div>
 
       <div className="flex w-full max-w-2xl items-center justify-between">
         <h1 className="text-2xl font-bold">Custom Pokédex</h1>
-        <Link href={`/campaigns/${id}/pokedex/new`} className="rounded bg-accent px-4 py-2 text-sm text-accent-foreground">
+        <Link href={`/campaigns/${id}/custom/pokedex/new`} className="rounded bg-accent px-4 py-2 text-sm text-accent-foreground">
           + New species
         </Link>
       </div>
@@ -63,7 +63,7 @@ export default async function CampaignPokedexPage({
         <ul className="flex w-full max-w-2xl flex-col gap-2">
           {list.map((s) => (
             <li key={s.id}>
-              <Link href={`/campaigns/${id}/pokedex/${s.id}`} className="block rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+              <Link href={`/campaigns/${id}/custom/pokedex/${s.id}`} className="block rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
                 <span className="font-semibold underline">{s.name}</span>
                 <span className="ml-2 text-sm text-muted">{[s.type_1?.name, s.type_2?.name].filter(Boolean).join(' / ') || 'No type'}</span>
               </Link>

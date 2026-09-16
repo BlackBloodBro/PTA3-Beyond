@@ -21,6 +21,26 @@ function toIdArray(formData: FormData, key: string): number[] {
     .filter((n) => !Number.isNaN(n))
 }
 
+// [[Feature - GM Custom - Pokemon]]: Moves/Passives picked during creation ([[Feature - GM Custom -
+// Pokemon]]'s creation-time-editing addendum, 2026-09-17) arrive as one JSON-encoded array field --
+// unlike habitatIds/etc.'s repeated-checkbox-value shape, each entry here also carries its own
+// optional level_learned, which a plain repeated `<input>` can't express as cleanly. Malformed/absent
+// input is treated as "nothing staged" rather than an error -- this only ever comes from this
+// codebase's own client component, never a bare user-typed form.
+function parseStagedLearnset(formData: FormData, key: string): { id: number; levelLearned: number | null }[] {
+  const raw = formData.get(key) as string | null
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((entry) => ({ id: Number(entry?.id), levelLearned: entry?.levelLearned === null || entry?.levelLearned === undefined ? null : Number(entry.levelLearned) }))
+      .filter((entry) => Number.isInteger(entry.id))
+  } catch {
+    return []
+  }
+}
+
 function optionalInt(formData: FormData, key: string): number | null {
   const raw = (formData.get(key) as string)?.trim()
   if (!raw) return null
@@ -108,12 +128,12 @@ export async function createCustomSpecies(campaignId: string, formData: FormData
   if (!user) redirect('/login')
 
   if (!(await requireGm(supabase, campaignId, user.id))) {
-    redirect(`/campaigns/${campaignId}/pokedex?error=${encodeURIComponent('Only the GM can add custom species')}`)
+    redirect(`/campaigns/${campaignId}/custom/pokedex?error=${encodeURIComponent('Only the GM can add custom species')}`)
   }
 
   const parsed = parseStatBlock(formData)
   if ('error' in parsed) {
-    redirect(`/campaigns/${campaignId}/pokedex/new?error=${encodeURIComponent(parsed.error)}`)
+    redirect(`/campaigns/${campaignId}/custom/pokedex/new?error=${encodeURIComponent(parsed.error)}`)
   }
 
   const { data: inserted, error } = await supabase
@@ -126,17 +146,26 @@ export async function createCustomSpecies(campaignId: string, formData: FormData
     // A duplicate name within this Campaign hits the partial unique index added alongside
     // campaign_id -- surface that plainly rather than a raw constraint-violation message.
     const message = error?.code === '23505' ? `This campaign already has a species named "${parsed.fields.name}"` : (error?.message ?? 'Could not create species')
-    redirect(`/campaigns/${campaignId}/pokedex/new?error=${encodeURIComponent(message)}`)
+    redirect(`/campaigns/${campaignId}/custom/pokedex/new?error=${encodeURIComponent(message)}`)
   }
+
+  const stagedMoves = parseStagedLearnset(formData, 'movesJson')
+  const stagedPassives = parseStagedLearnset(formData, 'passivesJson')
 
   await Promise.all([
     replaceRelationRows(supabase, 'pokedex_habitats', 'habitat_id', inserted.id, toIdArray(formData, 'habitatIds')),
     replaceRelationRows(supabase, 'pokedex_proficiencies', 'proficiency_id', inserted.id, toIdArray(formData, 'proficiencyIds')),
     replaceRelationRows(supabase, 'pokedex_diets', 'diet_id', inserted.id, toIdArray(formData, 'dietIds')),
     replaceRelationRows(supabase, 'pokedex_egg_groups', 'egg_group_id', inserted.id, toIdArray(formData, 'eggGroupIds')),
+    stagedMoves.length > 0
+      ? supabase.from('pokedex_moves').insert(stagedMoves.map((m) => ({ pokedex_id: inserted.id, move_id: m.id, level_learned: m.levelLearned })))
+      : Promise.resolve(),
+    stagedPassives.length > 0
+      ? supabase.from('pokedex_passives').insert(stagedPassives.map((p) => ({ pokedex_id: inserted.id, passive_id: p.id, level_learned: p.levelLearned })))
+      : Promise.resolve(),
   ])
 
-  redirect(`/campaigns/${campaignId}/pokedex/${inserted.id}`)
+  redirect(`/campaigns/${campaignId}/custom/pokedex/${inserted.id}`)
 }
 
 export async function updateCustomSpecies(campaignId: string, pokedexId: number, formData: FormData) {
@@ -147,12 +176,12 @@ export async function updateCustomSpecies(campaignId: string, pokedexId: number,
   if (!user) redirect('/login')
 
   if (!(await requireGm(supabase, campaignId, user.id))) {
-    redirect(`/campaigns/${campaignId}/pokedex?error=${encodeURIComponent('Only the GM can edit custom species')}`)
+    redirect(`/campaigns/${campaignId}/custom/pokedex?error=${encodeURIComponent('Only the GM can edit custom species')}`)
   }
 
   const parsed = parseStatBlock(formData)
   if ('error' in parsed) {
-    redirect(`/campaigns/${campaignId}/pokedex/${pokedexId}?error=${encodeURIComponent(parsed.error)}`)
+    redirect(`/campaigns/${campaignId}/custom/pokedex/${pokedexId}?error=${encodeURIComponent(parsed.error)}`)
   }
 
   // Scoped to this Campaign's own id too, not just the row id -- belt-and-suspenders alongside RLS,
@@ -161,7 +190,7 @@ export async function updateCustomSpecies(campaignId: string, pokedexId: number,
 
   if (error) {
     const message = error.code === '23505' ? `This campaign already has a species named "${parsed.fields.name}"` : error.message
-    redirect(`/campaigns/${campaignId}/pokedex/${pokedexId}?error=${encodeURIComponent(message)}`)
+    redirect(`/campaigns/${campaignId}/custom/pokedex/${pokedexId}?error=${encodeURIComponent(message)}`)
   }
 
   await Promise.all([
@@ -171,7 +200,7 @@ export async function updateCustomSpecies(campaignId: string, pokedexId: number,
     replaceRelationRows(supabase, 'pokedex_egg_groups', 'egg_group_id', pokedexId, toIdArray(formData, 'eggGroupIds')),
   ])
 
-  redirect(`/campaigns/${campaignId}/pokedex/${pokedexId}?saved=1`)
+  redirect(`/campaigns/${campaignId}/custom/pokedex/${pokedexId}?saved=1`)
 }
 
 export async function deleteCustomSpecies(campaignId: string, pokedexId: number) {
@@ -182,7 +211,7 @@ export async function deleteCustomSpecies(campaignId: string, pokedexId: number)
   if (!user) redirect('/login')
 
   if (!(await requireGm(supabase, campaignId, user.id))) {
-    redirect(`/campaigns/${campaignId}/pokedex?error=${encodeURIComponent('Only the GM can delete custom species')}`)
+    redirect(`/campaigns/${campaignId}/custom/pokedex?error=${encodeURIComponent('Only the GM can delete custom species')}`)
   }
 
   // No on-delete-cascade from pokemon.pokedex_id -- deleting a species still in use by a real
@@ -190,10 +219,10 @@ export async function deleteCustomSpecies(campaignId: string, pokedexId: number)
   const { error } = await supabase.from('pokedex').delete().eq('id', pokedexId).eq('campaign_id', campaignId)
   if (error) {
     const message = error.code === '23503' ? "Can't delete a species that's already in use by a Pokémon" : error.message
-    redirect(`/campaigns/${campaignId}/pokedex/${pokedexId}?error=${encodeURIComponent(message)}`)
+    redirect(`/campaigns/${campaignId}/custom/pokedex/${pokedexId}?error=${encodeURIComponent(message)}`)
   }
 
-  redirect(`/campaigns/${campaignId}/pokedex`)
+  redirect(`/campaigns/${campaignId}/custom/pokedex`)
 }
 
 // Moves/Passives are added one at a time from the edit page's own search-and-click UI ([[Feature -
