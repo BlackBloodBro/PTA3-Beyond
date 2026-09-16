@@ -6,16 +6,22 @@ import { PokemonSprite } from './PokemonSprite'
 // Replaces the old free-text "type the species name" input (backed by a <datalist>) with an
 // actual select-from-a-list control, plus a live sprite preview of whichever species is currently
 // highlighted -- a <select>'s own <option>s can't embed images, so the preview has to be driven by
-// onChange in a client component; the dropdown itself still submits by name exactly like the old
-// text input did, so no Server Action changed.
+// onChange in a client component.
+//
+// [[Feature - GM Custom - Pokemon]]: keyed by id, not name -- a plain global unique(name) no longer
+// holds once a Campaign's own custom species can share a name with the global catalog or another
+// Campaign's customs (see that FR's "Required fix" section), so name can no longer safely identify
+// which <option> is selected. The dropdown still submits under `name` (the form-field name, e.g.
+// "speciesId") via its native value, so an uncontrolled plain <form action> consumer just needs to
+// read that field as a number instead of a string.
 export function SpeciesPicker({
   species,
-  name = 'species',
+  name = 'speciesId',
   label = 'Species',
   value,
   onChange,
 }: {
-  species: { name: string; sprite_code: string }[]
+  species: { id: number; name: string; sprite_code: string }[]
   name?: string
   label?: string
   // Optional controlled mode -- the Pokemon-creation form rebuild ([[Bug - Improve Wild Pokemon
@@ -23,12 +29,12 @@ export function SpeciesPicker({
   // rate for the Moves/Passives/EXP panels), so it lifts this state up instead of letting the
   // picker own it. Omitting both keeps the original uncontrolled behavior (starter-Pokemon flow's
   // plain <form action> submission, which only reads the value at submit time).
-  value?: string
-  onChange?: (name: string) => void
+  value?: number
+  onChange?: (id: number) => void
 }) {
-  const [internalName, setInternalName] = useState(species[0]?.name ?? '')
-  const selectedName = value ?? internalName
-  const selected = species.find((s) => s.name === selectedName)
+  const [internalId, setInternalId] = useState(species[0]?.id ?? null)
+  const selectedId = value ?? internalId
+  const selected = species.find((s) => s.id === selectedId)
 
   if (species.length === 0) {
     return <p className="text-sm text-muted">No species match the current filters.</p>
@@ -47,12 +53,12 @@ export function SpeciesPicker({
           id={name}
           name={name}
           required
-          value={selectedName}
-          onChange={(e) => (onChange ? onChange(e.target.value) : setInternalName(e.target.value))}
+          value={selectedId ?? ''}
+          onChange={(e) => (onChange ? onChange(Number(e.target.value)) : setInternalId(Number(e.target.value)))}
           className="bg-surface-subtle flex-1 rounded border px-3 py-2"
         >
           {species.map((s) => (
-            <option key={s.name} value={s.name}>
+            <option key={s.id} value={s.id}>
               {s.name}
             </option>
           ))}

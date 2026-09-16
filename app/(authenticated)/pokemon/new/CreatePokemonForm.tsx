@@ -60,8 +60,8 @@ export function CreatePokemonForm({
   const [error, setError] = useState<string | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
 
-  const [speciesName, setSpeciesName] = useState(species[0]?.name ?? '')
-  const selectedSpecies = species.find((s) => s.name === speciesName) ?? null
+  const [speciesId, setSpeciesId] = useState(species[0]?.id ?? null)
+  const selectedSpecies = species.find((s) => s.id === speciesId) ?? null
 
   const [nickname, setNickname] = useState('')
   const [natureChoice, setNatureChoice] = useState<'random' | string>('random')
@@ -208,7 +208,7 @@ export function CreatePokemonForm({
 
       <section className="flex flex-col gap-3 rounded border border-accent bg-accent/10 p-4">
         <h2 className="font-semibold">Basics</h2>
-        <SpeciesPicker species={species} value={speciesName} onChange={setSpeciesName} />
+        <SpeciesPicker species={species} value={speciesId ?? undefined} onChange={setSpeciesId} />
 
         <label htmlFor="nickname">Nickname (optional)</label>
         <input
