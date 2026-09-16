@@ -59,14 +59,19 @@ export default async function EditCustomItemPage({
 
       <div className="flex w-full max-w-sm items-center justify-between">
         <h1 className="text-2xl font-bold">{item.name}</h1>
-        <form action={deleteCustomItem.bind(null, id, itemId)}>
-          <ConfirmButton
-            confirmMessage={`Permanently delete "${item.name}"? Any Trainer already carrying it will keep it, but this can't be used to grant/buy new ones anymore. This cannot be undone.`}
-            className="rounded border border-danger px-3 py-2 text-sm text-danger"
-          >
-            Delete
-          </ConfirmButton>
-        </form>
+        <div className="flex items-center gap-2">
+          <Link href={`/campaigns/${id}/custom/items/new?templateId=${itemId}`} className="rounded border px-3 py-2 text-sm">
+            Duplicate
+          </Link>
+          <form action={deleteCustomItem.bind(null, id, itemId)}>
+            <ConfirmButton
+              confirmMessage={`Permanently delete "${item.name}"? Any Trainer already carrying it will keep it, but this can't be used to grant/buy new ones anymore. This cannot be undone.`}
+              className="rounded border border-danger px-3 py-2 text-sm text-danger"
+            >
+              Delete
+            </ConfirmButton>
+          </form>
+        </div>
       </div>
 
       {error && <p className="w-full max-w-sm text-danger">{error}</p>}
