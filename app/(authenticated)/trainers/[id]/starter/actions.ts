@@ -29,23 +29,25 @@ export async function createStarterPokemon(trainerId: string, formData: FormData
     redirect('/dashboard')
   }
 
-  const speciesName = (formData.get('species') as string)?.trim()
+  // [[Feature - GM Custom - Pokemon]]: id-based, not name-based -- a plain unique(name) no longer
+  // holds once a Campaign's own custom species can share a name with the global catalog or another
+  // Campaign's customs, so a name lookup could match the wrong row (or, under `.single()`, start
+  // erroring on an unrelated same-named species entirely).
+  const speciesId = Number(formData.get('speciesId'))
   const nickname = (formData.get('nickname') as string)?.trim()
 
-  if (!speciesName) {
+  if (!speciesId) {
     redirect(`/trainers/${trainerId}/starter?error=${encodeURIComponent('Species is required')}`)
   }
 
   const { data: species } = await supabase
     .from('pokedex')
     .select('id, base_hp')
-    .ilike('name', speciesName)
-    .single()
+    .eq('id', speciesId)
+    .maybeSingle()
 
   if (!species) {
-    redirect(
-      `/trainers/${trainerId}/starter?error=${encodeURIComponent(`No species named "${speciesName}" found`)}`,
-    )
+    redirect(`/trainers/${trainerId}/starter?error=${encodeURIComponent('Species not found')}`)
   }
 
   const { data: obtainMethod } = await supabase

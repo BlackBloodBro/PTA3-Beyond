@@ -90,8 +90,10 @@ export function BagBoard({
   const [bagQuantities, setBagQuantities] = useState<Record<string, number>>({})
   const [catalogQuantities, setCatalogQuantities] = useState<Record<number, number>>({})
   // Species picked per catalog row -- only meaningful for items in the "Eggs" category, keyed by
-  // item id so switching rows doesn't clobber each other's in-progress pick.
-  const [catalogSpecies, setCatalogSpecies] = useState<Record<number, string>>({})
+  // item id so switching rows doesn't clobber each other's in-progress pick. By id, not name --
+  // [[Feature - GM Custom - Pokemon]]: a plain unique(name) no longer holds once a Campaign's own
+  // custom species can share a name with the global catalog or another Campaign's customs.
+  const [catalogSpecies, setCatalogSpecies] = useState<Record<number, number>>({})
   // Move picked per catalog row -- only meaningful for items in the "Technical Machines" category.
   const [catalogMove, setCatalogMove] = useState<Record<number, string>>({})
   const [teachingItemId, setTeachingItemId] = useState<string | null>(null)
@@ -163,8 +165,7 @@ export function BagBoard({
   // pokedexId is meaningless for those.
   function resolveCatalogPokedexId(item: CatalogItem): number | null {
     if (!item.categoryNames.includes('Eggs')) return null
-    const pickedName = catalogSpecies[item.id] ?? speciesList[0]?.name
-    return speciesList.find((s) => s.name === pickedName)?.id ?? null
+    return catalogSpecies[item.id] ?? speciesList[0]?.id ?? null
   }
 
   // TM and TR are now single generic items (not one row per frequency tier), so the full TM-eligible
@@ -585,8 +586,8 @@ export function BagBoard({
                       species={speciesList}
                       name={`egg-species-${it.id}`}
                       label="Species"
-                      value={catalogSpecies[it.id] ?? speciesList[0]?.name ?? ''}
-                      onChange={(name) => setCatalogSpecies((prev) => ({ ...prev, [it.id]: name }))}
+                      value={catalogSpecies[it.id] ?? speciesList[0]?.id}
+                      onChange={(id) => setCatalogSpecies((prev) => ({ ...prev, [it.id]: id }))}
                     />
                   </div>
                 )}

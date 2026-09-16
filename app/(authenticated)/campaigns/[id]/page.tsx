@@ -132,6 +132,10 @@ export default async function CampaignPage({
             <span className="text-lg font-semibold">{activeEncounter ? activeEncounter.name : 'Encounters'}</span>
             <span className="block text-sm text-muted underline">{activeEncounter ? 'Active — view' : 'Prepare / view'}</span>
           </Link>
+          <Link href={`/campaigns/${id}/custom`} className="flex-1 rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+            <span className="text-lg font-semibold">Custom</span>
+            <span className="block text-sm text-muted underline">View all</span>
+          </Link>
         </div>
       )}
 
