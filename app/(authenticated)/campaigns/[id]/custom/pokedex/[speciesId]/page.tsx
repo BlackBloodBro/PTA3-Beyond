@@ -111,7 +111,13 @@ export default async function EditCustomSpeciesPage({
       {error && <p className="w-full max-w-sm text-danger">{error}</p>}
       {saved && <p className="w-full max-w-sm text-success">Saved.</p>}
 
-      <form action={updateCustomSpecies.bind(null, id, speciesId)} className="flex w-full max-w-sm flex-col gap-3">
+      {/* [[Feature - GM Custom - Pokemon]]: Save sits at the true bottom of the page, after the
+          Moves/Passives editor too, matching this codebase's own convention (CampaignInfoSection,
+          SellPricePercentSection, PokemonInteractive's EV editor -- Save always follows every field,
+          never precedes them). The button lives outside this <form>'s own DOM subtree (after
+          SpeciesRelationsEditor below), so it's tied back to the form by id via the `form` attribute
+          instead of literal nesting. */}
+      <form id="species-edit-form" action={updateCustomSpecies.bind(null, id, speciesId)} className="flex w-full max-w-sm flex-col gap-3">
         <SpeciesStatBlockFields
           types={types ?? []}
           sizes={sizes ?? []}
@@ -129,9 +135,6 @@ export default async function EditCustomSpeciesPage({
             eggGroupIds: (eggGroupRows ?? []).map((r) => r.egg_group_id),
           }}
         />
-        <button type="submit" className="mt-2 rounded bg-accent px-4 py-2 text-accent-foreground">
-          Save changes
-        </button>
       </form>
 
       <SpeciesRelationsEditor
@@ -146,6 +149,10 @@ export default async function EditCustomSpeciesPage({
           (passiveRows ?? []) as unknown as { level_learned: number | null; passive: { id: number; name: string; passive_type: string; category: string | null } }[]
         }
       />
+
+      <button type="submit" form="species-edit-form" className="w-full max-w-sm rounded bg-accent px-4 py-2 text-accent-foreground">
+        Save changes
+      </button>
     </main>
   )
 }
