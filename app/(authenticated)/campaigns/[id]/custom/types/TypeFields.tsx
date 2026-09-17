@@ -15,12 +15,13 @@ const CHOICE_LABELS: Record<MatchupChoice, string> = {
   effective: 'Super-effective (+1 die)',
 }
 
+// Defaults to Neutral when no initial value is given (a blank, non-templated new Type) -- per the
+// user's own follow-up request, so the common case (most pairs really are neutral) doesn't require
+// clicking through every row. Still a real, submitted value either way, not skipped -- the GM reviews
+// and overrides whichever specific pairs actually matter.
 function MatchupSelect({ name, defaultValue }: { name: string; defaultValue?: MatchupChoice }) {
   return (
-    <select id={name} name={name} required defaultValue={defaultValue ?? ''} className="bg-surface-subtle rounded border px-2 py-1 text-sm">
-      <option value="" disabled>
-        Select...
-      </option>
+    <select id={name} name={name} required defaultValue={defaultValue ?? 'neutral'} className="bg-surface-subtle rounded border px-2 py-1 text-sm">
       {MATCHUP_CHOICES.map((c) => (
         <option key={c} value={c}>
           {CHOICE_LABELS[c]}
