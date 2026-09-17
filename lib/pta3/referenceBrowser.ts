@@ -71,13 +71,43 @@ export type OriginBrowseRow = {
   features: FeatureBrowseRow[]
 }
 
+export type StatModifierRow = { statName: string; modifier: number }
+
+export type AfflictionBrowseRow = {
+  id: number
+  name: string
+  description: string | null
+  catch_modifier: number | null
+  statModifiers: StatModifierRow[]
+}
+
+export type PassiveBrowseRow = {
+  id: number
+  name: string
+  description: string | null
+  passive_type: string
+  category: string | null
+  context: string | null
+  statModifiers: StatModifierRow[]
+}
+
+export type NamedCatalogRow = { id: number; name: string; description: string | null }
+
+// [[Improvement - Move Pokedex browsing into a Campaign's context]]: every Campaign-scopable catalog
+// loader below takes an optional campaignId -- omitted (undefined) preserves every existing call
+// site's current behavior (no extra filter beyond RLS itself), `null` scopes to "global only" (the
+// no-Campaign-selected default), and a real id scopes to "global + this Campaign's own customs". Same
+// inline "reassign query if a condition applies" shape as loadItemCatalog (lib/pta3/bag.ts) and
+// loadOtherVisibleTypes ([[Feature - GM Custom - Type]]) -- deliberately not a shared generic helper,
+// since the Supabase query builder's own generics don't thread cleanly through one.
+
 // Loaded once per page visit, filtered client-side -- same "load everything upfront" pattern as
 // loadItemCatalog. Deliberately excludes pokedex_moves/pokedex_passives (each species' full learnset)
 // from this bulk query -- embedding that across ~986 species would multiply the payload far beyond
 // loadItemCatalog's single-join precedent. Learnset eligibility stays visible on the owned-Pokémon
 // detail page, where it's actually actionable.
-export async function loadPokedexBrowse(supabase: SupabaseClient): Promise<PokedexBrowseRow[]> {
-  const { data } = await supabase
+export async function loadPokedexBrowse(supabase: SupabaseClient, campaignId?: string | null): Promise<PokedexBrowseRow[]> {
+  let query = supabase
     .from('pokedex')
     .select(
       `
@@ -93,8 +123,40 @@ export async function loadPokedexBrowse(supabase: SupabaseClient): Promise<Poked
     `,
     )
     .order('name')
+  if (campaignId !== undefined) {
+    query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+  }
+  const { data } = await query
 
-  return (data ?? []).map((p) => ({
+  // Same reverse/forward-embed quirk documented elsewhere in this codebase (lib/pta3/bag.ts) --
+  // a single-row FK embed (type_1, type_2, size, weight, growth_rate) comes back as one object at
+  // runtime, not the array TS sometimes infers once enough distinct embed shapes exist project-wide.
+  type Row = {
+    id: number
+    name: string
+    description: string | null
+    base_hp: number
+    base_atk: number
+    base_def: number
+    base_sp_atk: number
+    base_sp_def: number
+    base_speed: number
+    catch_rate: number | null
+    egg_hatch_rate: string | null
+    sprite_code: string | null
+    type_1: { name: string } | null
+    type_2: { name: string } | null
+    size: { name: string } | null
+    weight: { name: string } | null
+    growth_rate: { name: string } | null
+    pokedex_habitats: { habitats: { name: string } | null }[]
+    pokedex_diets: { diets: { name: string } | null }[]
+    pokedex_egg_groups: { egg_groups: { name: string } | null }[]
+    pokedex_proficiencies: { proficiencies: { name: string } | null }[]
+  }
+  const rows = (data ?? []) as unknown as Row[]
+
+  return rows.map((p) => ({
     id: p.id,
     name: p.name,
     description: p.description,
@@ -112,20 +174,24 @@ export async function loadPokedexBrowse(supabase: SupabaseClient): Promise<Poked
     sizeName: p.size?.name ?? null,
     weightName: p.weight?.name ?? null,
     growthRateName: p.growth_rate?.name ?? null,
-    habitatNames: (p.pokedex_habitats ?? []).map((h) => h.habitats!.name),
-    dietNames: (p.pokedex_diets ?? []).map((d) => d.diets!.name),
-    eggGroupNames: (p.pokedex_egg_groups ?? []).map((e) => e.egg_groups!.name),
-    proficiencyNames: (p.pokedex_proficiencies ?? []).map((pr) => pr.proficiencies!.name),
+    habitatNames: p.pokedex_habitats.map((h) => h.habitats!.name),
+    dietNames: p.pokedex_diets.map((d) => d.diets!.name),
+    eggGroupNames: p.pokedex_egg_groups.map((e) => e.egg_groups!.name),
+    proficiencyNames: p.pokedex_proficiencies.map((pr) => pr.proficiencies!.name),
   }))
 }
 
-export async function loadMovesBrowse(supabase: SupabaseClient): Promise<MoveBrowseRow[]> {
-  const { data } = await supabase
-    .from('moves')
-    .select('id, name, damage_stat, frequency, damage_dice, range, description, types(name)')
-    .order('name')
+export async function loadMovesBrowse(supabase: SupabaseClient, campaignId?: string | null): Promise<MoveBrowseRow[]> {
+  let query = supabase.from('moves').select('id, name, damage_stat, frequency, damage_dice, range, description, types(name)').order('name')
+  if (campaignId !== undefined) {
+    query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+  }
+  const { data } = await query
 
-  return (data ?? []).map((m) => ({
+  type Row = { id: number; name: string; damage_stat: string; frequency: string | null; damage_dice: string | null; range: string | null; description: string | null; types: { name: string } | null }
+  const rows = (data ?? []) as unknown as Row[]
+
+  return rows.map((m) => ({
     id: m.id,
     name: m.name,
     typeName: m.types!.name,
@@ -137,10 +203,17 @@ export async function loadMovesBrowse(supabase: SupabaseClient): Promise<MoveBro
   }))
 }
 
-export async function loadSkillsBrowse(supabase: SupabaseClient): Promise<SkillBrowseRow[]> {
-  const { data } = await supabase.from('skills').select('id, name, stats(name)').order('name')
+export async function loadSkillsBrowse(supabase: SupabaseClient, campaignId?: string | null): Promise<SkillBrowseRow[]> {
+  let query = supabase.from('skills').select('id, name, stats(name)').order('name')
+  if (campaignId !== undefined) {
+    query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+  }
+  const { data } = await query
 
-  return (data ?? []).map((s) => ({
+  type Row = { id: number; name: string; stats: { name: string } | null }
+  const rows = (data ?? []) as unknown as Row[]
+
+  return rows.map((s) => ({
     id: s.id,
     name: s.name,
     statName: s.stats?.name ?? null,
@@ -205,4 +278,82 @@ export async function loadOriginsBrowse(supabase: SupabaseClient): Promise<Origi
     lifestyle: o.lifestyle,
     features: featuresByOrigin.get(o.id) ?? [],
   }))
+}
+
+// [[Improvement - Move Pokedex browsing into a Campaign's context]]: five catalogs that are
+// Campaign-scopable (the "GM Custom X" family) but had no browsable tab in this reference browser at
+// all before this FR -- same "load everything, filter client-side" shape as every loader above.
+export async function loadAfflictionsBrowse(supabase: SupabaseClient, campaignId?: string | null): Promise<AfflictionBrowseRow[]> {
+  let query = supabase.from('afflictions').select('id, name, description, catch_modifier, afflictions_stats(modifier, stats(name))').order('name')
+  if (campaignId !== undefined) {
+    query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+  }
+  const { data } = await query
+
+  type Row = { id: number; name: string; description: string | null; catch_modifier: number | null; afflictions_stats: { modifier: number; stats: { name: string } | null }[] }
+  const rows = (data ?? []) as unknown as Row[]
+
+  return rows.map((a) => ({
+    id: a.id,
+    name: a.name,
+    description: a.description,
+    catch_modifier: a.catch_modifier,
+    statModifiers: a.afflictions_stats.map((s) => ({ statName: s.stats!.name, modifier: s.modifier })),
+  }))
+}
+
+export async function loadPassivesBrowse(supabase: SupabaseClient, campaignId?: string | null): Promise<PassiveBrowseRow[]> {
+  let query = supabase.from('passives').select('id, name, description, passive_type, category, context, passives_stats(modifier, stats(name))').order('name')
+  if (campaignId !== undefined) {
+    query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+  }
+  const { data } = await query
+
+  type Row = {
+    id: number
+    name: string
+    description: string | null
+    passive_type: string
+    category: string | null
+    context: string | null
+    passives_stats: { modifier: number; stats: { name: string } | null }[]
+  }
+  const rows = (data ?? []) as unknown as Row[]
+
+  return rows.map((p) => ({
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    passive_type: p.passive_type,
+    category: p.category,
+    context: p.context,
+    statModifiers: p.passives_stats.map((s) => ({ statName: s.stats!.name, modifier: s.modifier })),
+  }))
+}
+
+export async function loadItemCategoriesBrowse(supabase: SupabaseClient, campaignId?: string | null): Promise<NamedCatalogRow[]> {
+  let query = supabase.from('item_categories').select('id, name, description').order('name')
+  if (campaignId !== undefined) {
+    query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+  }
+  const { data } = await query
+  return data ?? []
+}
+
+export async function loadProficienciesBrowse(supabase: SupabaseClient, campaignId?: string | null): Promise<NamedCatalogRow[]> {
+  let query = supabase.from('proficiencies').select('id, name, description').order('name')
+  if (campaignId !== undefined) {
+    query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+  }
+  const { data } = await query
+  return data ?? []
+}
+
+export async function loadTypesBrowse(supabase: SupabaseClient, campaignId?: string | null): Promise<NamedCatalogRow[]> {
+  let query = supabase.from('types').select('id, name, description').neq('name', 'Special/Variable').order('name')
+  if (campaignId !== undefined) {
+    query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+  }
+  const { data } = await query
+  return data ?? []
 }

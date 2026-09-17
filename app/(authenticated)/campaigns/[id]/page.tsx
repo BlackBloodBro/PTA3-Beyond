@@ -109,6 +109,16 @@ export default async function CampaignPage({
         initialName={campaign.name}
         initialDescription={campaign.description}
       />
+
+      {/* [[Improvement - Move Pokedex browsing into a Campaign's context]]: visible to every member,
+          not just the GM -- unlike the GM-only tools below, this is a reference tool players use
+          during play too. Pre-selects this Campaign's own context via ?campaign= rather than landing
+          on the global-only default. */}
+      <Link href={`/pokedex?campaign=${id}`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+        <span className="text-lg font-semibold">Pokédex</span>
+        <span className="block text-sm text-muted underline">Browse the global catalog + this Campaign&apos;s own homebrew</span>
+      </Link>
+
       {isGM && (
         <div className="flex w-full max-w-2xl flex-col gap-2">
           <p className="text-sm">

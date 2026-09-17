@@ -60,11 +60,33 @@ export async function loadBagSnapshot(supabase: SupabaseClient, trainerId: strin
       .eq('trainer_id', trainerId),
     supabase.from('trainers').select('money, campaign_id, campaigns(sell_price_percent)').eq('id', trainerId).single(),
   ])
+  const trainerRow = trainer as unknown as { money: number; campaign_id: string | null; campaigns: { sell_price_percent: number } | null } | null
 
-  const items: BagItem[] = (rows ?? []).map((r) => {
+  // Same reverse/forward-embed quirk documented elsewhere in this file (loadTmEligibleMoves) --
+  // explicit cast rather than relying on inference through a query with several distinct embeds.
+  type Row = {
+    id: string
+    quantity: number
+    uses_remaining: number | null
+    items: {
+      id: number
+      name: string
+      description: string | null
+      price: number | null
+      stackable: boolean
+      holdable: boolean
+      items_item_categories: { item_categories: { name: string } | null }[]
+      item_aliases: { alias: string }[]
+    } | null
+    moves: { id: number; name: string } | null
+    pokedex: { id: number; name: string } | null
+  }
+  const typedRows = (rows ?? []) as unknown as Row[]
+
+  const items: BagItem[] = typedRows.map((r) => {
     const item = r.items!
-    const categoryNames = (item.items_item_categories ?? []).map((c) => c.item_categories!.name)
-    const aliases = (item.item_aliases ?? []).map((a) => a.alias)
+    const categoryNames = item.items_item_categories.map((c) => c.item_categories!.name)
+    const aliases = item.item_aliases.map((a) => a.alias)
     return {
       id: r.id,
       itemId: item.id,
@@ -86,8 +108,8 @@ export async function loadBagSnapshot(supabase: SupabaseClient, trainerId: strin
 
   return {
     items,
-    money: trainer?.money ?? 0,
-    sellPricePercent: trainer?.campaign_id ? (trainer.campaigns?.sell_price_percent ?? 50) : 50,
+    money: trainerRow?.money ?? 0,
+    sellPricePercent: trainerRow?.campaign_id ? (trainerRow.campaigns?.sell_price_percent ?? 50) : 50,
   }
 }
 
@@ -168,15 +190,38 @@ export async function resolveItemPrice(supabase: SupabaseClient, itemId: number,
 // Loaded once per page visit, filtered client-side -- same "load everything upfront" pattern used
 // for Skill Talents and the Class Builder's milestone options. 337 rows is small enough that this
 // isn't a real cost, and it means granting/buying never needs a follow-up search request.
-export async function loadItemCatalog(supabase: SupabaseClient): Promise<CatalogItem[]> {
-  const { data } = await supabase
+//
+// campaignId is optional and, when omitted, changes nothing about this function's existing behavior
+// (every current call site -- the Bag page -- keeps seeing whatever RLS already lets through, same as
+// before). [[Improvement - Move Pokedex browsing into a Campaign's context]] is the only caller that
+// passes it, to scope the general reference browser to "global + this one Campaign's own customs"
+// instead of every Campaign a viewer happens to belong to.
+export async function loadItemCatalog(supabase: SupabaseClient, campaignId?: string | null): Promise<CatalogItem[]> {
+  let query = supabase
     .from('items')
     .select(
       'id, name, description, price, buyable, stackable, holdable, items_item_categories(item_categories(name)), item_aliases(alias)',
     )
     .order('name')
+  if (campaignId !== undefined) {
+    query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+  }
+  const { data } = await query
 
-  return (data ?? []).map((item) => ({
+  type Row = {
+    id: number
+    name: string
+    description: string | null
+    price: number | null
+    buyable: boolean
+    stackable: boolean
+    holdable: boolean
+    items_item_categories: { item_categories: { name: string } | null }[]
+    item_aliases: { alias: string }[]
+  }
+  const rows = (data ?? []) as unknown as Row[]
+
+  return rows.map((item) => ({
     id: item.id,
     name: item.name,
     description: item.description,
@@ -184,7 +229,7 @@ export async function loadItemCatalog(supabase: SupabaseClient): Promise<Catalog
     buyable: item.buyable,
     stackable: item.stackable,
     holdable: item.holdable,
-    categoryNames: (item.items_item_categories ?? []).map((c) => c.item_categories!.name),
-    aliases: (item.item_aliases ?? []).map((a) => a.alias),
+    categoryNames: item.items_item_categories.map((c) => c.item_categories!.name),
+    aliases: item.item_aliases.map((a) => a.alias),
   }))
 }

@@ -9,7 +9,6 @@ const SECTIONS = [
   { href: '/campaigns', label: 'Campaigns' },
   { href: '/trainers', label: 'Trainers' },
   { href: '/pokemon', label: 'Pokémon' },
-  { href: '/pokedex', label: 'Pokédex' },
 ]
 
 // Persistent left-column section nav, separate from the topbar's account-level links (Settings).
