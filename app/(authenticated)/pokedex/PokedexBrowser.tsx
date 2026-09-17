@@ -4,7 +4,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { PaginationControls } from '@/components/PaginationControls'
 import { usePagination } from '@/lib/pta3/usePagination'
-import type { PokedexBrowseRow, MoveBrowseRow, SkillBrowseRow, ClassBrowseRow, OriginBrowseRow, FeatureBrowseRow } from '@/lib/pta3/referenceBrowser'
+import type {
+  PokedexBrowseRow,
+  MoveBrowseRow,
+  SkillBrowseRow,
+  ClassBrowseRow,
+  OriginBrowseRow,
+  FeatureBrowseRow,
+  AfflictionBrowseRow,
+  PassiveBrowseRow,
+  NamedCatalogRow,
+} from '@/lib/pta3/referenceBrowser'
 import type { CatalogItem } from '@/lib/pta3/bag'
 
 type TypeOption = { id: number; name: string }
@@ -78,6 +88,10 @@ export function PokedexBrowser({
   skills,
   classes,
   origins,
+  afflictions,
+  passives,
+  itemCategories,
+  proficiencies,
   types,
   habitats,
 }: {
@@ -87,20 +101,31 @@ export function PokedexBrowser({
   skills: SkillBrowseRow[]
   classes: ClassBrowseRow[]
   origins: OriginBrowseRow[]
-  types: TypeOption[]
+  afflictions: AfflictionBrowseRow[]
+  passives: PassiveBrowseRow[]
+  itemCategories: NamedCatalogRow[]
+  proficiencies: NamedCatalogRow[]
+  types: NamedCatalogRow[]
   habitats: HabitatOption[]
 }) {
-  const [tab, setTab] = useState<'pokedex' | 'moves' | 'items' | 'skills' | 'classes' | 'origins'>('pokedex')
+  const [tab, setTab] = useState<
+    'pokedex' | 'moves' | 'items' | 'skills' | 'classes' | 'origins' | 'afflictions' | 'passives' | 'itemCategories' | 'proficiencies' | 'types'
+  >('pokedex')
 
   return (
     <div className="flex w-full max-w-4xl flex-col gap-6">
-      <div className="flex gap-2 border-b">
+      <div className="flex flex-wrap gap-2 border-b">
         {(
           [
             ['pokedex', 'Pokédex'],
             ['moves', 'Moves'],
             ['items', 'Items'],
             ['skills', 'Skills'],
+            ['afflictions', 'Afflictions'],
+            ['passives', 'Passives'],
+            ['itemCategories', 'Item Categories'],
+            ['proficiencies', 'Proficiencies'],
+            ['types', 'Types'],
             ['classes', 'Classes'],
             ['origins', 'Origins'],
           ] as const
@@ -120,6 +145,11 @@ export function PokedexBrowser({
       {tab === 'moves' && <MovesTab moves={moves} types={types} />}
       {tab === 'items' && <ItemsTab items={items} />}
       {tab === 'skills' && <SkillsTab skills={skills} />}
+      {tab === 'afflictions' && <AfflictionsTab afflictions={afflictions} />}
+      {tab === 'passives' && <PassivesTab passives={passives} />}
+      {tab === 'itemCategories' && <NamedCatalogTab title="item category" items={itemCategories} />}
+      {tab === 'proficiencies' && <NamedCatalogTab title="proficiency" items={proficiencies} />}
+      {tab === 'types' && <NamedCatalogTab title="type" items={types} />}
       {tab === 'classes' && <ClassesTab classes={classes} />}
       {tab === 'origins' && <OriginsTab origins={origins} />}
     </div>
@@ -410,6 +440,134 @@ function SkillsTab({ skills }: { skills: SkillBrowseRow[] }) {
         {skills.map((s) => (
           <li key={s.id} className="rounded border px-2 py-1 text-sm">
             {s.name} — {s.statName ?? '—'}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function StatModifierList({ modifiers }: { modifiers: { statName: string; modifier: number }[] }) {
+  if (modifiers.length === 0) return null
+  return <p className="mt-1 text-xs text-muted">{modifiers.map((m) => `${m.statName} ${m.modifier > 0 ? '+' : ''}${m.modifier}`).join(', ')}</p>
+}
+
+function AfflictionsTab({ afflictions }: { afflictions: AfflictionBrowseRow[] }) {
+  const [search, setSearch] = useState('')
+  const filtered = useMemo(() => afflictions.filter((a) => !search || a.name.toLowerCase().includes(search.toLowerCase())), [afflictions, search])
+
+  return (
+    <section>
+      <div className="mb-2 flex flex-wrap items-end gap-2 text-sm">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="afflictionSearch">Search</label>
+          <input
+            id="afflictionSearch"
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-surface-subtle rounded border px-2 py-1"
+          />
+        </div>
+        <p className="ml-auto text-xs text-muted">
+          {filtered.length} of {afflictions.length}
+        </p>
+      </div>
+      <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
+        {filtered.map((a) => (
+          <li key={a.id} className="rounded border px-2 py-1 text-sm">
+            <details>
+              <summary className="cursor-pointer font-medium">{a.name}</summary>
+              <div className="mt-1 text-xs text-muted">
+                {a.catch_modifier !== null && <p>Catch modifier: {a.catch_modifier}</p>}
+                <StatModifierList modifiers={a.statModifiers} />
+                {a.description && <p className="mt-1 text-sm text-foreground">{a.description}</p>}
+              </div>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function PassivesTab({ passives }: { passives: PassiveBrowseRow[] }) {
+  const [search, setSearch] = useState('')
+  const filtered = useMemo(() => passives.filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase())), [passives, search])
+
+  return (
+    <section>
+      <div className="mb-2 flex flex-wrap items-end gap-2 text-sm">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="passiveSearch">Search</label>
+          <input
+            id="passiveSearch"
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-surface-subtle rounded border px-2 py-1"
+          />
+        </div>
+        <p className="ml-auto text-xs text-muted">
+          {filtered.length} of {passives.length}
+        </p>
+      </div>
+      <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
+        {filtered.map((p) => (
+          <li key={p.id} className="rounded border px-2 py-1 text-sm">
+            <details>
+              <summary className="flex cursor-pointer flex-wrap items-center gap-1.5">
+                <span className="font-medium">{p.name}</span>
+                <span className="rounded bg-surface-muted px-1.5 py-0.5 text-xs">{p.passive_type}</span>
+                {p.category && <span className="rounded bg-surface-muted px-1.5 py-0.5 text-xs">{p.category.replace('_', ' ')}</span>}
+              </summary>
+              <div className="mt-1 text-xs text-muted">
+                {p.context && <p>Context: {p.context.replace('_', ' ')}</p>}
+                <StatModifierList modifiers={p.statModifiers} />
+                {p.description && <p className="mt-1 text-sm text-foreground">{p.description}</p>}
+              </div>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// Shared simple list for the three plain name+description catalogs (Item Categories, Proficiencies,
+// Types) -- same shape as SkillsTab, just with an optional description shown on expand.
+function NamedCatalogTab({ title, items }: { title: string; items: NamedCatalogRow[] }) {
+  const [search, setSearch] = useState('')
+  const filtered = useMemo(() => items.filter((i) => !search || i.name.toLowerCase().includes(search.toLowerCase())), [items, search])
+
+  return (
+    <section>
+      <div className="mb-2 flex flex-wrap items-end gap-2 text-sm">
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`${title}Search`}>Search</label>
+          <input
+            id={`${title}Search`}
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-surface-subtle rounded border px-2 py-1"
+          />
+        </div>
+        <p className="ml-auto text-xs text-muted">
+          {filtered.length} of {items.length}
+        </p>
+      </div>
+      <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
+        {filtered.map((i) => (
+          <li key={i.id} className="rounded border px-2 py-1 text-sm">
+            {i.description ? (
+              <details>
+                <summary className="cursor-pointer font-medium">{i.name}</summary>
+                <p className="mt-1 text-xs text-muted">{i.description}</p>
+              </details>
+            ) : (
+              <span className="font-medium">{i.name}</span>
+            )}
           </li>
         ))}
       </ul>
