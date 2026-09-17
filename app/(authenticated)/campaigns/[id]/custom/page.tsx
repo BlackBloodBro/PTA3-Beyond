@@ -31,6 +31,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     { count: customMoveCount },
     { count: customPassiveCount },
     { count: customItemCategoryCount },
+    { count: customProficiencyCount },
   ] = await Promise.all([
     supabase.from('pokedex').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     supabase.from('items').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
@@ -38,6 +39,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     supabase.from('moves').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     supabase.from('passives').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     supabase.from('item_categories').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
+    supabase.from('proficiencies').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
   ])
 
   return (
@@ -78,6 +80,11 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
 
       <Link href={`/campaigns/${id}/custom/item-categories`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
         <span className="text-lg font-semibold">{customItemCategoryCount ?? 0} Item Categories</span>
+        <span className="block text-sm text-muted underline">View all</span>
+      </Link>
+
+      <Link href={`/campaigns/${id}/custom/proficiencies`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+        <span className="text-lg font-semibold">{customProficiencyCount ?? 0} Proficiencies</span>
         <span className="block text-sm text-muted underline">View all</span>
       </Link>
     </main>
