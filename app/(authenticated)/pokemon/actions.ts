@@ -16,6 +16,7 @@ import { previewPassiveLoss, shiftSizeOrWeightOverride, isMaxLoyalty } from '@/l
 import { setOriginalTrainerIfUnset } from '@/lib/pta3/pokemonOrigin'
 import { loadExcludedPokedexIds } from '@/lib/pta3/pokedexExclusions'
 import { loadLoyaltyEventPoints, loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
+import { loadShinyRateDenominator } from '@/lib/pta3/shinyRateSettings'
 
 export type MoveOption = {
   id: number
@@ -190,6 +191,11 @@ export async function createPokemon(input: CreatePokemonInput): Promise<{ error:
 
   const quantity = input.trainerId ? 1 : Math.max(1, Math.min(50, Math.floor(input.quantity) || 1))
 
+  // Same effective-campaign resolution as every other Customization-setting lookup for a Pokemon --
+  // a direct-to-Trainer assignment uses that Trainer's own Campaign, a pool creation uses campaignId
+  // directly. Loaded once, not per-copy -- the rate itself doesn't change mid-batch.
+  const shinyDenominator = await loadShinyRateDenominator(supabase, input.trainerId ? trainerCampaignId : input.campaignId)
+
   const warnings: string[] = []
   let lastPokemonId: string | null = null
 
@@ -199,7 +205,7 @@ export async function createPokemon(input: CreatePokemonInput): Promise<{ error:
     // copies (locked design, [[Bug - Improve Wild Pokemon creation and editing]]).
     const natureId = input.natureChoice === 'random' ? await pickRandomNatureId(supabase) : input.natureChoice
     const gender = input.genderChoice === 'random' ? pickRandomGender() : input.genderChoice
-    const isShiny = input.shininessChoice === 'random' ? pickRandomShiny() : input.shininessChoice === 'yes'
+    const isShiny = input.shininessChoice === 'random' ? pickRandomShiny(shinyDenominator) : input.shininessChoice === 'yes'
 
     // Generate the id up front rather than reading it back after insert -- same RETURNING-requires-
     // SELECT-policy reasoning as the starter Pokemon flow.
