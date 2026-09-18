@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { resolveAccuracy, maybeGrantAffirmationBonus, type AccuracyResult } from './combatActions'
+import { resolveAccuracy, maybeGrantAffirmationBonus, grantMoveUseExp, type AccuracyResult } from './combatActions'
 import { adjustPokemonHp } from '@/app/(authenticated)/pokemon/actions'
 import { adjustTrainerHp } from '@/app/(authenticated)/trainers/actions'
 import { advanceTurn, skipMyTurn } from '../actions'
@@ -41,6 +41,7 @@ export function AttackResolver({
   const [applied, setApplied] = useState(false)
   const [applyError, setApplyError] = useState<string | null>(null)
   const [affirmationMessage, setAffirmationMessage] = useState<string | null>(null)
+  const [expMessage, setExpMessage] = useState<string | null>(null)
 
   const attacker = attackers.find((a) => a.id === attackerId)
   const target = targets.find((t) => t.id === targetId)
@@ -68,6 +69,7 @@ export function AttackResolver({
     setApplied(false)
     setApplyError(null)
     setAffirmationMessage(null)
+    setExpMessage(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAttackerId])
 
@@ -109,9 +111,21 @@ export function AttackResolver({
     setApplyError(null)
     setDamageInput('')
     setAffirmationMessage(null)
+    setExpMessage(null)
     const res = await resolveAccuracy(attackerId, targetId, Number(moveId), roll)
     setResolving(false)
     setResult(res)
+
+    // [[Feature - Add triggers for a Pokemon to gain EXP automatically]]: fires here, unconditionally
+    // on every resolved move use (hit or miss both count, per the user) -- deliberately not tucked
+    // inside the hit/damage branches below, which only cover a subset of "the move was used."
+    if (!('error' in res)) {
+      const expResult = await grantMoveUseExp(attackerId)
+      if (!('error' in expResult) && expResult.granted > 0) {
+        setExpMessage(`${attacker?.name ?? 'Attacker'} gained ${expResult.granted} EXP for using a Move.`)
+      }
+    }
+
     // A miss, a status Move, or an immune hit has nothing left to do -- the move was still used, so
     // the turn concludes right here rather than waiting on an "Apply damage" step that will never come.
     if (!('error' in res) && (!res.hit || !res.isDamageMove || res.isImmune)) {
@@ -263,6 +277,8 @@ export function AttackResolver({
           </p>
 
           {result.moveDescription && <p className="mt-1 text-xs text-muted">{result.moveDescription}</p>}
+
+          {expMessage && <p className="mt-1 text-xs font-semibold text-success">{expMessage}</p>}
 
           {result.hit && !result.isDamageMove && (
             <p className="mt-1 text-xs text-muted">Status Move -- apply its effect manually (Afflictions/Stats), nothing else happens here.</p>
