@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { SellPricePercentSection } from '../SellPricePercentSection'
 import { LoyaltySettingsSection } from '../LoyaltySettingsSection'
+import { ExpGrantSettingsSection } from '../ExpGrantSettingsSection'
 
 // [[Improvement - Move all Customization settings into one menu]]: the single GM-only "Customization"
 // menu -- every tunable Campaign setting (Sell price, Loyalty settings) plus every "GM Custom X"
@@ -43,6 +44,8 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     { data: tierOverrides },
     { data: globalEvents },
     { data: eventOverrides },
+    { data: globalExpEvents },
+    { data: expEventOverrides },
   ] = await Promise.all([
     supabase.from('pokedex').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     supabase.from('items').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
@@ -63,6 +66,10 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     supabase.from('campaign_loyalty_tier_overrides').select('loyalty_id, min_points').eq('campaign_id', id),
     supabase.from('loyalty_point_events').select('id, name, points'),
     supabase.from('campaign_loyalty_event_overrides').select('event_id, points').eq('campaign_id', id),
+    // [[Feature - Add triggers for a Pokemon to gain EXP automatically]]: same effective-value /
+    // isOverridden shape as the Loyalty event rows above, for ExpGrantSettingsSection.
+    supabase.from('exp_grant_events').select('id, name, exp'),
+    supabase.from('campaign_exp_grant_overrides').select('event_id, exp').eq('campaign_id', id),
   ])
 
   const tierOverrideById = new Map((tierOverrides ?? []).map((o) => [o.loyalty_id, o.min_points]))
@@ -83,6 +90,15 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     isOverridden: eventOverrideById.has(e.id),
   }))
 
+  const expEventOverrideById = new Map((expEventOverrides ?? []).map((o) => [o.event_id, o.exp]))
+  const expGrantRows = (globalExpEvents ?? []).map((e) => ({
+    id: e.id,
+    name: e.name,
+    defaultExp: e.exp,
+    exp: expEventOverrideById.get(e.id) ?? e.exp,
+    isOverridden: expEventOverrideById.has(e.id),
+  }))
+
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-2xl">
@@ -97,6 +113,8 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
       </p>
 
       <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} />
+
+      <ExpGrantSettingsSection campaignId={id} events={expGrantRows} />
 
       <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} />
 

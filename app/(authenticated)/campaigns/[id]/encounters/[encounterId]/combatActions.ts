@@ -7,6 +7,8 @@ import { statModifier } from '@/lib/pta3/pointBuy'
 import { loadPokemonEffectiveStats, loadPokemonEffectiveType } from '@/lib/pta3/pokemonStats'
 import { resolveAccuracyStat, stabBonus, effectivenessFor, adjustDiceCount, type TypeMatchupInfo, type TypeImmunityInfo } from '@/lib/pta3/combatMath'
 import { grantPokemonTemporaryHp } from '@/app/(authenticated)/pokemon/actions'
+import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
+import { loadExpGrantEventPoints } from '@/lib/pta3/expGrantSettings'
 
 export type AccuracyResult =
   | { error: string }
@@ -246,4 +248,85 @@ export async function maybeGrantAffirmationBonus(attackerPokemonId: string, isKo
   }
 
   return { granted: bonus * triggers.length, triggers }
+}
+
+export type MoveUseExpResult = { error: string } | { granted: number; newExp: number; level: number } | { granted: 0 }
+
+// [[Feature - Add triggers for a Pokemon to gain EXP automatically]]: called right after
+// resolveAccuracy returns (hit or miss both count, per the user) -- the first automated EXP trigger in
+// this app. Once per Pokemon per turn: encounter_combatants.last_exp_grant_turn_position guards against
+// a re-resolved/repeated move within the same encounters.current_turn_position granting twice.
+export async function grantMoveUseExp(attackerCombatantId: string): Promise<MoveUseExpResult> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: combatant } = await supabase
+    .from('encounter_combatants')
+    .select('pokemon_id, last_exp_grant_turn_position, encounters(campaign_id, current_turn_position)')
+    .eq('id', attackerCombatantId)
+    .maybeSingle()
+
+  // Same reverse-embed quirk documented throughout this codebase -- encounters is a single object at
+  // runtime (encounter_id is effectively a one-to-one FK here), not the array TS infers.
+  const encounter = combatant?.encounters as unknown as { campaign_id: string; current_turn_position: number } | null
+  if (!combatant?.pokemon_id || !encounter) {
+    return { granted: 0 }
+  }
+
+  if (combatant.last_exp_grant_turn_position === encounter.current_turn_position) {
+    return { granted: 0 }
+  }
+
+  const { data: pokemon } = await supabase
+    .from('pokemon')
+    .select('current_exp, is_shiny, loyalty_points, pokedex(growth_rate_id), trainers_pokemon(obtain_method_id)')
+    .eq('id', combatant.pokemon_id)
+    .maybeSingle()
+  if (!pokemon) {
+    return { error: 'Attacking Pokemon not found' }
+  }
+
+  const expAmount = await loadExpGrantEventPoints(supabase, 'Move used', encounter.campaign_id)
+  if (expAmount === 0) {
+    // Set to 0 by the GM -- explicitly disabled, per this FR's own "remove the trigger" behavior
+    // (mirrors Loyalty settings' identical convention). Still marks the turn as consumed below? No --
+    // nothing to consume if it grants nothing; leave the throttle column untouched so a later
+    // re-enable this same turn (unlikely, but cheap to get right) isn't pre-blocked.
+    return { granted: 0 }
+  }
+
+  const newExp = Math.max(0, pokemon.current_exp + expAmount)
+
+  // trainers_pokemon.pokemon_id is a primary key, so this reverse embed comes back as a single object
+  // at runtime (same quirk documented throughout this codebase), not the array TS infers.
+  const ownerLink = pokemon.trainers_pokemon as unknown as { obtain_method_id: number | null } | null
+
+  const [{ error: pokemonError }, { error: combatantError }] = await Promise.all([
+    supabase.from('pokemon').update({ current_exp: newExp }).eq('id', combatant.pokemon_id),
+    supabase
+      .from('encounter_combatants')
+      .update({ last_exp_grant_turn_position: encounter.current_turn_position })
+      .eq('id', attackerCombatantId),
+  ])
+  if (pokemonError) return { error: pokemonError.message }
+  if (combatantError) return { error: combatantError.message }
+
+  const { level } = await computePokemonLevel(supabase, {
+    currentExp: newExp,
+    isShiny: pokemon.is_shiny,
+    loyaltyPoints: pokemon.loyalty_points,
+    obtainMethodId: ownerLink?.obtain_method_id ?? null,
+    // Same reverse-embed quirk documented throughout this codebase -- a single-field embed like
+    // pokedex(growth_rate_id) alongside other scalar columns in the same select() infers as an array
+    // here even though it's a single row at runtime.
+    growthRateId: (pokemon.pokedex as unknown as { growth_rate_id: number | null } | null)?.growth_rate_id ?? null,
+    campaignId: encounter.campaign_id,
+  })
+
+  return { granted: expAmount, newExp, level }
 }
