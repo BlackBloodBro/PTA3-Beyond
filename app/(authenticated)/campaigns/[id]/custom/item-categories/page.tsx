@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { HomebrewSearchList } from '../HomebrewSearchList'
 
 export default async function CampaignItemCategoriesPage({
   params,
@@ -55,16 +56,11 @@ export default async function CampaignItemCategoriesPage({
       {categories.length === 0 ? (
         <p className="w-full max-w-2xl text-sm text-muted">No custom item categories yet.</p>
       ) : (
-        <ul className="flex w-full max-w-2xl flex-col gap-2">
-          {categories.map((c) => (
-            <li key={c.id}>
-              <Link href={`/campaigns/${id}/custom/item-categories/${c.id}`} className="block rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-                <span className="font-semibold underline">{c.name}</span>
-                {c.description && <span className="ml-2 text-sm text-muted">{c.description}</span>}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <HomebrewSearchList
+          items={categories}
+          href={(c) => `/campaigns/${id}/custom/item-categories/${c.id}`}
+          renderExtra={(c) => c.description && <span className="ml-2 text-sm text-muted">{c.description}</span>}
+        />
       )}
     </main>
   )

@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { HomebrewSearchList } from '../HomebrewSearchList'
 
 export default async function CampaignTypesPage({
   params,
@@ -55,15 +56,7 @@ export default async function CampaignTypesPage({
       {types.length === 0 ? (
         <p className="w-full max-w-2xl text-sm text-muted">No custom types yet.</p>
       ) : (
-        <ul className="flex w-full max-w-2xl flex-col gap-2">
-          {types.map((t) => (
-            <li key={t.id}>
-              <Link href={`/campaigns/${id}/custom/types/${t.id}`} className="block rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-                <span className="font-semibold underline">{t.name}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <HomebrewSearchList items={types} href={(t) => `/campaigns/${id}/custom/types/${t.id}`} />
       )}
     </main>
   )

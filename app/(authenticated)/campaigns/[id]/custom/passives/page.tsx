@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { HomebrewSearchList } from '../HomebrewSearchList'
 
 export default async function CampaignPassivesPage({
   params,
@@ -56,19 +57,16 @@ export default async function CampaignPassivesPage({
       {list.length === 0 ? (
         <p className="w-full max-w-2xl text-sm text-muted">No custom Passives yet.</p>
       ) : (
-        <ul className="flex w-full max-w-2xl flex-col gap-2">
-          {list.map((p) => (
-            <li key={p.id}>
-              <Link href={`/campaigns/${id}/custom/passives/${p.id}`} className="block rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-                <span className="font-semibold underline">{p.name}</span>
-                <span className="ml-2 text-sm text-muted">
-                  {p.passive_type}
-                  {p.category ? ` · ${p.category.replace('_', ' ')}` : ''}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <HomebrewSearchList
+          items={list}
+          href={(p) => `/campaigns/${id}/custom/passives/${p.id}`}
+          renderExtra={(p) => (
+            <span className="ml-2 text-sm text-muted">
+              {p.passive_type}
+              {p.category ? ` · ${p.category.replace('_', ' ')}` : ''}
+            </span>
+          )}
+        />
       )}
     </main>
   )

@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { HomebrewItemsList } from '../HomebrewItemsList'
 
 export default async function CampaignItemsPage({
   params,
@@ -27,9 +28,22 @@ export default async function CampaignItemsPage({
     redirect(`/campaigns/${id}`)
   }
 
-  const { data: itemsRaw } = await supabase.from('items').select('id, name, buyable, price').eq('campaign_id', id).order('name')
+  const { data: itemsRaw } = await supabase
+    .from('items')
+    .select('id, name, buyable, price, items_item_categories(item_categories(name))')
+    .eq('campaign_id', id)
+    .order('name')
 
-  const items = itemsRaw ?? []
+  // Same reverse-embed quirk documented throughout this codebase -- items_item_categories is genuinely
+  // one-to-many so it comes back as an array (no cast needed for that specifically).
+  type ItemRow = { id: number; name: string; buyable: boolean; price: number | null; items_item_categories: { item_categories: { name: string } | null }[] }
+  const items = ((itemsRaw ?? []) as unknown as ItemRow[]).map((it) => ({
+    id: it.id,
+    name: it.name,
+    buyable: it.buyable,
+    price: it.price,
+    categoryNames: it.items_item_categories.map((c) => c.item_categories?.name).filter((n): n is string => !!n),
+  }))
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -56,16 +70,7 @@ export default async function CampaignItemsPage({
       {items.length === 0 ? (
         <p className="w-full max-w-2xl text-sm text-muted">No custom items yet.</p>
       ) : (
-        <ul className="flex w-full max-w-2xl flex-col gap-2">
-          {items.map((it) => (
-            <li key={it.id}>
-              <Link href={`/campaigns/${id}/custom/items/${it.id}`} className="block rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-                <span className="font-semibold underline">{it.name}</span>
-                <span className="ml-2 text-sm text-muted">{it.buyable ? (it.price !== null ? `${it.price}` : 'Buyable, no price set') : 'Not buyable'}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <HomebrewItemsList campaignId={id} items={items} />
       )}
     </main>
   )

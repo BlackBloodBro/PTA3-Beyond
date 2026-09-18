@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { HomebrewSearchList } from '../HomebrewSearchList'
 
 export default async function CampaignAfflictionsPage({
   params,
@@ -56,16 +57,11 @@ export default async function CampaignAfflictionsPage({
       {afflictions.length === 0 ? (
         <p className="w-full max-w-2xl text-sm text-muted">No custom afflictions yet.</p>
       ) : (
-        <ul className="flex w-full max-w-2xl flex-col gap-2">
-          {afflictions.map((a) => (
-            <li key={a.id}>
-              <Link href={`/campaigns/${id}/custom/afflictions/${a.id}`} className="block rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-                <span className="font-semibold underline">{a.name}</span>
-                {a.catch_modifier !== null && <span className="ml-2 text-sm text-muted">Catch modifier: {a.catch_modifier}</span>}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <HomebrewSearchList
+          items={afflictions}
+          href={(a) => `/campaigns/${id}/custom/afflictions/${a.id}`}
+          renderExtra={(a) => a.catch_modifier !== null && <span className="ml-2 text-sm text-muted">Catch modifier: {a.catch_modifier}</span>}
+        />
       )}
     </main>
   )
