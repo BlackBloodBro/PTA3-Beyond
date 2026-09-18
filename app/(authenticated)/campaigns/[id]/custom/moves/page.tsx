@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { loadTypesBrowse } from '@/lib/pta3/referenceBrowser'
+import { HomebrewMovesList } from '../HomebrewMovesList'
 
 export default async function CampaignMovesPage({
   params,
@@ -27,9 +29,20 @@ export default async function CampaignMovesPage({
     redirect(`/campaigns/${id}`)
   }
 
-  const { data: movesRaw } = await supabase.from('moves').select('id, name, damage_stat, types(name)').eq('campaign_id', id).order('name')
+  const [{ data: movesRaw }, types] = await Promise.all([
+    supabase.from('moves').select('id, name, damage_stat, frequency, range, types(name)').eq('campaign_id', id).order('name'),
+    loadTypesBrowse(supabase, id),
+  ])
 
-  const moves = (movesRaw ?? []) as unknown as { id: number; name: string; damage_stat: string; types: { name: string } | null }[]
+  type MoveRow = { id: number; name: string; damage_stat: string; frequency: string | null; range: string | null; types: { name: string } | null }
+  const moves = ((movesRaw ?? []) as unknown as MoveRow[]).map((m) => ({
+    id: m.id,
+    name: m.name,
+    typeName: m.types?.name ?? null,
+    damage_stat: m.damage_stat,
+    frequency: m.frequency,
+    range: m.range,
+  }))
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -55,18 +68,7 @@ export default async function CampaignMovesPage({
       {moves.length === 0 ? (
         <p className="w-full max-w-2xl text-sm text-muted">No custom Moves yet.</p>
       ) : (
-        <ul className="flex w-full max-w-2xl flex-col gap-2">
-          {moves.map((m) => (
-            <li key={m.id}>
-              <Link href={`/campaigns/${id}/custom/moves/${m.id}`} className="block rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-                <span className="font-semibold underline">{m.name}</span>
-                <span className="ml-2 text-sm text-muted">
-                  {m.types?.name} · {m.damage_stat.replace('_', ' ')}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <HomebrewMovesList campaignId={id} moves={moves} types={types} />
       )}
     </main>
   )

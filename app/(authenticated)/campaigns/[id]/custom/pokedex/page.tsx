@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { loadTypesBrowse } from '@/lib/pta3/referenceBrowser'
+import { HomebrewPokedexList } from '../HomebrewPokedexList'
 
 export default async function CampaignPokedexPage({
   params,
@@ -27,13 +29,32 @@ export default async function CampaignPokedexPage({
     redirect(`/campaigns/${id}`)
   }
 
-  const { data: species } = await supabase
-    .from('pokedex')
-    .select('id, name, sprite_code, type_1:types!type_1_id(name), type_2:types!type_2_id(name)')
-    .eq('campaign_id', id)
-    .order('name')
+  const [{ data: speciesRaw }, { data: habitats }, types] = await Promise.all([
+    supabase
+      .from('pokedex')
+      .select('id, name, sprite_code, type_1:types!type_1_id(name), type_2:types!type_2_id(name), pokedex_habitats(habitats(name))')
+      .eq('campaign_id', id)
+      .order('name'),
+    supabase.from('habitats').select('id, name').order('name'),
+    loadTypesBrowse(supabase, id),
+  ])
 
-  const list = (species ?? []) as unknown as { id: number; name: string; sprite_code: string | null; type_1: { name: string } | null; type_2: { name: string } | null }[]
+  type SpeciesRow = {
+    id: number
+    name: string
+    sprite_code: string | null
+    type_1: { name: string } | null
+    type_2: { name: string } | null
+    pokedex_habitats: { habitats: { name: string } | null }[]
+  }
+  const list = ((speciesRaw ?? []) as unknown as SpeciesRow[]).map((s) => ({
+    id: s.id,
+    name: s.name,
+    sprite_code: s.sprite_code,
+    type1Name: s.type_1?.name ?? null,
+    type2Name: s.type_2?.name ?? null,
+    habitatNames: s.pokedex_habitats.map((h) => h.habitats?.name).filter((n): n is string => !!n),
+  }))
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -60,16 +81,7 @@ export default async function CampaignPokedexPage({
       {list.length === 0 ? (
         <p className="w-full max-w-2xl text-sm text-muted">No custom species yet.</p>
       ) : (
-        <ul className="flex w-full max-w-2xl flex-col gap-2">
-          {list.map((s) => (
-            <li key={s.id}>
-              <Link href={`/campaigns/${id}/custom/pokedex/${s.id}`} className="block rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-                <span className="font-semibold underline">{s.name}</span>
-                <span className="ml-2 text-sm text-muted">{[s.type_1?.name, s.type_2?.name].filter(Boolean).join(' / ') || 'No type'}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <HomebrewPokedexList campaignId={id} species={list} types={types} habitats={habitats ?? []} />
       )}
     </main>
   )

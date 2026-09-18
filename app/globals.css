@@ -3,6 +3,12 @@
 @tailwind utilities;
 
 :root {
+  /* Tells the browser to render native widgets (select dropdown popups, checkboxes, scrollbars) with
+     its own dark theme instead of defaulting to light -- without this, Windows/Chrome renders a native
+     <select>'s popup list with a light, semi-translucent (Mica/Acrylic) background that clashes with
+     our dark page. */
+  color-scheme: dark;
+
   /* Dark is now the base palette -- pre-auth pages (login/signup) never pass through
      app/(authenticated)/layout.tsx, so they only ever see :root and are dark automatically. */
   --color-bg: #171717;
@@ -26,6 +32,8 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
+
   --color-bg: #ffffff;
   --color-fg: #000000;
   --color-muted: #737373;

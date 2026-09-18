@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { HomebrewSearchList } from '../HomebrewSearchList'
 
 export default async function CampaignSkillsPage({
   params,
@@ -55,16 +56,11 @@ export default async function CampaignSkillsPage({
       {skills.length === 0 ? (
         <p className="w-full max-w-2xl text-sm text-muted">No custom skills yet.</p>
       ) : (
-        <ul className="flex w-full max-w-2xl flex-col gap-2">
-          {skills.map((s) => (
-            <li key={s.id}>
-              <Link href={`/campaigns/${id}/custom/skills/${s.id}`} className="block rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-                <span className="font-semibold underline">{s.name}</span>
-                {s.stats && <span className="ml-2 text-sm text-muted">{s.stats.name}</span>}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <HomebrewSearchList
+          items={skills}
+          href={(s) => `/campaigns/${id}/custom/skills/${s.id}`}
+          renderExtra={(s) => s.stats && <span className="ml-2 text-sm text-muted">{s.stats.name}</span>}
+        />
       )}
     </main>
   )
