@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { SellPricePercentSection } from '../SellPricePercentSection'
 import { LoyaltySettingsSection } from '../LoyaltySettingsSection'
 import { ExpGrantSettingsSection } from '../ExpGrantSettingsSection'
+import { LevelBandSettingsSection } from '../LevelBandSettingsSection'
 
 // [[Improvement - Move all Customization settings into one menu]]: the single GM-only "Customization"
 // menu -- every tunable Campaign setting (Sell price, Loyalty settings) plus every "GM Custom X"
@@ -46,6 +47,8 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     { data: eventOverrides },
     { data: globalExpEvents },
     { data: expEventOverrides },
+    { data: globalLevelBands },
+    { data: levelBandOverrides },
   ] = await Promise.all([
     supabase.from('pokedex').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     supabase.from('items').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
@@ -70,6 +73,10 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     // isOverridden shape as the Loyalty event rows above, for ExpGrantSettingsSection.
     supabase.from('exp_grant_events').select('id, name, exp'),
     supabase.from('campaign_exp_grant_overrides').select('event_id, exp').eq('campaign_id', id),
+    // [[Feature - Let a GM customize EXP needed per level band]]: same effective-value / isOverridden
+    // shape as the rows above, for LevelBandSettingsSection.
+    supabase.from('level_bands').select('band, exp_per_level').order('band'),
+    supabase.from('campaign_level_band_overrides').select('band, exp_per_level').eq('campaign_id', id),
   ])
 
   const tierOverrideById = new Map((tierOverrides ?? []).map((o) => [o.loyalty_id, o.min_points]))
@@ -99,6 +106,14 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     isOverridden: expEventOverrideById.has(e.id),
   }))
 
+  const levelBandOverrideByBand = new Map((levelBandOverrides ?? []).map((o) => [o.band, o.exp_per_level]))
+  const levelBandRows = (globalLevelBands ?? []).map((b) => ({
+    band: b.band,
+    defaultExpPerLevel: b.exp_per_level,
+    expPerLevel: levelBandOverrideByBand.get(b.band) ?? b.exp_per_level,
+    isOverridden: levelBandOverrideByBand.has(b.band),
+  }))
+
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-2xl">
@@ -115,6 +130,8 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
       <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} />
 
       <ExpGrantSettingsSection campaignId={id} events={expGrantRows} />
+
+      <LevelBandSettingsSection campaignId={id} bands={levelBandRows} />
 
       <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} />
 
