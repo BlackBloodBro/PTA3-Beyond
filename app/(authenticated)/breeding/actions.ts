@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { grantItem } from '@/app/(authenticated)/trainers/[id]/bag/actions'
 import { breedingTargetNumber, type FriendshipContext } from '@/lib/pta3/breeding'
 import { computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
+import { loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
 import { trainerHasBaseClassFeature } from '@/lib/pta3/trainerFeatures'
 import { resolveBaseSpeciesId } from '@/lib/pta3/evolution'
 
@@ -155,9 +156,9 @@ export async function attemptBreedingCheck(
   const eligible = await validateEligibility(supabase, campaignId, initiatingTrainerId, a, b, clampedHours)
   if ('error' in eligible) return eligible
 
-  const { data: loyaltyRows } = await supabase.from('loyalties').select('name, sort_order, min_points')
-  const tierA = computeLoyaltyTier(a.loyaltyPoints, loyaltyRows ?? [])?.sort_order ?? 0
-  const tierB = computeLoyaltyTier(b.loyaltyPoints, loyaltyRows ?? [])?.sort_order ?? 0
+  const loyaltyRows = await loadLoyaltyTiers(supabase, campaignId)
+  const tierA = computeLoyaltyTier(a.loyaltyPoints, loyaltyRows)?.sort_order ?? 0
+  const tierB = computeLoyaltyTier(b.loyaltyPoints, loyaltyRows)?.sort_order ?? 0
 
   const friendship: FriendshipContext = {
     aTrainerIsNpc: a.trainerIsNpc,

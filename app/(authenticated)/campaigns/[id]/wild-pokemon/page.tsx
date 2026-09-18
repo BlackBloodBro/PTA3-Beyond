@@ -91,6 +91,7 @@ export default async function CampaignWildPokemonPage({
       obtainMethodId: null,
       growthRateId: p.pokedex!.growth_rate_id,
     })),
+    id,
   )
 
   return (

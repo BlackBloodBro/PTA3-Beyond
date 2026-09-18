@@ -13,6 +13,7 @@ import {
 } from '@/lib/pta3/eggHatching'
 import { trainerHasBaseClassFeature, loadQualifyingMilestones, computeEffectiveStats } from '@/lib/pta3/trainerFeatures'
 import { statModifier } from '@/lib/pta3/pointBuy'
+import { loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
 import { pickRandomNatureId } from '@/lib/pta3/nature'
 import { pickRandomGender } from '@/lib/pta3/gender'
 import { pickFlavorPreferences } from '@/lib/pta3/flavors'
@@ -256,14 +257,20 @@ export async function hatchEgg(
   // -- always randomly rolled for now, same as every other Pokemon-creation flow.
   const gender = pickRandomGender()
 
-  const [{ data: obtainMethod }, { data: startingLoyalty }] = await Promise.all([
+  // [[Feature - Allow a GM to change Loyalty settings]]: this Trainer's own effective Campaign (null
+  // for a campaign-less Trainer), so the starting-LP lookup below respects that Campaign's own
+  // tier-threshold overrides too.
+  const { data: hatchingTrainer } = await supabase.from('trainers').select('campaign_id').eq('id', trainerId).maybeSingle()
+
+  const [{ data: obtainMethod }, loyaltyTiers] = await Promise.all([
     supabase.from('obtain_methods').select('id').eq('name', 'Hatched').maybeSingle(),
-    // Per the user (2026-09-04): "most hatched Pokemon start at loyalty 2 once they imprint on you" --
-    // this is the `loyalties` table's own tier-2 description text, not an invented rule. Looked up by
-    // `sort_order` rather than hardcoding the point value, so this stays correct if the loyalty scale
-    // is ever retuned.
-    supabase.from('loyalties').select('min_points').eq('sort_order', 2).maybeSingle(),
+    loadLoyaltyTiers(supabase, hatchingTrainer?.campaign_id),
   ])
+  // Per the user (2026-09-04): "most hatched Pokemon start at loyalty 2 once they imprint on you" --
+  // this is the `loyalties` table's own tier-2 description text, not an invented rule. Looked up by
+  // `sort_order` rather than hardcoding the point value, so this stays correct if the loyalty scale
+  // is ever retuned.
+  const startingLoyalty = loyaltyTiers.find((t) => t.sort_order === 2) ?? null
 
   // Generate the id up front -- same RETURNING-requires-SELECT-policy reasoning as the starter and
   // GM-creation Pokemon flows (a freshly inserted row has no trainers_pokemon link yet to pass the

@@ -6,6 +6,7 @@ import { ConfirmButton } from '@/components/ConfirmButton'
 import { RollInputButton } from '@/components/RollInputButton'
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { computePokemonLevel, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
+import { loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
 import { computeLevelEligibleEvolutionSet } from '@/lib/pta3/evolution'
 import { MAX_TEAM_SIZE } from '@/lib/pta3/pokemonTeam'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
@@ -154,7 +155,7 @@ export default async function CampaignTrainerPage({
   const usesRemainingByFeature = Object.fromEntries((featureUses ?? []).map((fu) => [fu.feature_id, fu.uses_remaining]))
 
   // Team only -- a Trainer's off-Team Pokemon (party_slot null) live in the PC page instead.
-  const [{ data: trainersPokemon }, { data: loyaltyRows }] = await Promise.all([
+  const [{ data: trainersPokemon }, loyaltyRows] = await Promise.all([
     supabase
       .from('trainers_pokemon')
       .select(
@@ -169,7 +170,7 @@ export default async function CampaignTrainerPage({
       .eq('trainer_id', id)
       .not('party_slot', 'is', null)
       .order('party_slot'),
-    supabase.from('loyalties').select('name, sort_order, min_points'),
+    loadLoyaltyTiers(supabase, campaignId),
   ])
 
   // Same derivation as the Pokemon detail page -- level is never stored, so the Team list needs to
@@ -197,8 +198,9 @@ export default async function CampaignTrainerPage({
         loyaltyPoints: p.loyalty_points,
         obtainMethodId: tp.obtain_method_id,
         growthRateId: p.pokedex!.growth_rate_id,
+        campaignId,
       })
-      const loyaltyName = computeLoyaltyTier(p.loyalty_points, loyaltyRows ?? [])?.name ?? null
+      const loyaltyName = computeLoyaltyTier(p.loyalty_points, loyaltyRows)?.name ?? null
       return { ...p, level, loyaltyName, maxHp: p.pokedex!.base_hp + p.bonus_base_hp + p.ev_hp * 6 }
     }),
   )

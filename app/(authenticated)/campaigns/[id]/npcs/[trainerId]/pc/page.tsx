@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { computePokemonLevelsBulk, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
+import { loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
 import { fetchPokedexFilterOptions } from '@/lib/pta3/pokedexFilter'
 import { computeLevelEligibleEvolutionSet } from '@/lib/pta3/evolution'
 import { PcBoard, type PcPokemon } from '@/app/(authenticated)/trainers/[id]/pc/PcBoard'
@@ -42,7 +43,7 @@ export default async function NpcPcPage({ params }: { params: Promise<{ id: stri
 
   // Every linked Pokemon, Team and PC alike -- split into the two lists below after computing
   // levels in bulk, rather than two separate queries.
-  const [{ data: trainersPokemon }, { types }, { data: loyaltyRows }] = await Promise.all([
+  const [{ data: trainersPokemon }, { types }, loyaltyRows] = await Promise.all([
     supabase
       .from('trainers_pokemon')
       .select(
@@ -57,7 +58,7 @@ export default async function NpcPcPage({ params }: { params: Promise<{ id: stri
       )
       .eq('trainer_id', id),
     fetchPokedexFilterOptions(supabase),
-    supabase.from('loyalties').select('name, sort_order, min_points'),
+    loadLoyaltyTiers(supabase, campaignId),
   ])
 
   // Cast reflects the real runtime shape (pokemon/pokedex/held_item come back as single objects, not
@@ -93,6 +94,7 @@ export default async function NpcPcPage({ params }: { params: Promise<{ id: stri
       obtainMethodId: tp.obtain_method_id,
       growthRateId: tp.pokemon!.pokedex!.growth_rate_id,
     })),
+    campaignId,
   )
 
   // [[Add Evolution functionality]]: gold-highlights a card whose level meets a level-based evolution
@@ -114,7 +116,7 @@ export default async function NpcPcPage({ params }: { params: Promise<{ id: stri
       spriteCode: p.pokedex!.sprite_code,
       speciesName: p.pokedex!.name,
       level: levelsByPokemonId.get(p.id)?.level ?? 1,
-      loyaltyName: computeLoyaltyTier(p.loyalty_points, loyaltyRows ?? [])?.name ?? null,
+      loyaltyName: computeLoyaltyTier(p.loyalty_points, loyaltyRows)?.name ?? null,
       type1Id: p.pokedex!.type_1_id,
       type2Id: p.pokedex!.type_2_id,
       partySlot: tp.party_slot,

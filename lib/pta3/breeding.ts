@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computeLoyaltyTier } from './pokemonLevel'
+import { loadLoyaltyTiers } from './loyaltySettings'
 
 export type BreedingCandidate = {
   id: string
@@ -69,7 +70,7 @@ export function breedingTargetNumber(params: {
 // deliberately removed); a real flow for picking an NPC's Pokemon is being designed separately as its
 // own Concept.
 export async function loadCampaignBreedingCandidates(supabase: SupabaseClient, campaignId: string): Promise<BreedingCandidate[]> {
-  const [{ data: pokemonRows }, { data: loyaltyRows }] = await Promise.all([
+  const [{ data: pokemonRows }, loyaltyRows] = await Promise.all([
     supabase
       .from('trainers_pokemon')
       .select(
@@ -85,7 +86,7 @@ export async function loadCampaignBreedingCandidates(supabase: SupabaseClient, c
       )
       .eq('trainers.campaign_id', campaignId)
       .eq('trainers.is_npc', false),
-    supabase.from('loyalties').select('name, sort_order, min_points'),
+    loadLoyaltyTiers(supabase, campaignId),
   ])
 
   // Reverse/forward-embed quirk documented throughout this codebase -- `pokemon` and `trainers` both
@@ -115,7 +116,7 @@ export async function loadCampaignBreedingCandidates(supabase: SupabaseClient, c
       speciesName: r.pokemon!.pokedex?.name ?? 'Unknown',
       pokedexId: r.pokemon!.pokedex_id,
       gender: r.pokemon!.gender,
-      loyaltyTier: computeLoyaltyTier(r.pokemon!.loyalty_points, loyaltyRows ?? [])?.sort_order ?? 0,
+      loyaltyTier: computeLoyaltyTier(r.pokemon!.loyalty_points, loyaltyRows)?.sort_order ?? 0,
       trainerId: r.trainers!.id,
       trainerName: r.trainers!.name,
       trainerIsNpc: r.trainers!.is_npc,
