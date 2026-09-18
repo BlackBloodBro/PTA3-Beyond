@@ -3,8 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { SellPricePercentSection } from '../SellPricePercentSection'
 import { LoyaltySettingsSection } from '../LoyaltySettingsSection'
-import { ExpGrantSettingsSection } from '../ExpGrantSettingsSection'
-import { LevelBandSettingsSection } from '../LevelBandSettingsSection'
+import { ExpSettingsSection } from '../ExpSettingsSection'
 
 // [[Improvement - Move all Customization settings into one menu]]: the single GM-only "Customization"
 // menu -- every tunable Campaign setting (Sell price, Loyalty settings) plus every "GM Custom X"
@@ -69,12 +68,11 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     supabase.from('campaign_loyalty_tier_overrides').select('loyalty_id, min_points').eq('campaign_id', id),
     supabase.from('loyalty_point_events').select('id, name, points'),
     supabase.from('campaign_loyalty_event_overrides').select('event_id, points').eq('campaign_id', id),
-    // [[Feature - Add triggers for a Pokemon to gain EXP automatically]]: same effective-value /
-    // isOverridden shape as the Loyalty event rows above, for ExpGrantSettingsSection.
+    // [[Feature - Add triggers for a Pokemon to gain EXP automatically]] +
+    // [[Feature - Let a GM customize EXP needed per level band]]: same effective-value / isOverridden
+    // shape as the Loyalty rows above, for ExpSettingsSection's two row groups.
     supabase.from('exp_grant_events').select('id, name, exp'),
     supabase.from('campaign_exp_grant_overrides').select('event_id, exp').eq('campaign_id', id),
-    // [[Feature - Let a GM customize EXP needed per level band]]: same effective-value / isOverridden
-    // shape as the rows above, for LevelBandSettingsSection.
     supabase.from('level_bands').select('band, exp_per_level').order('band'),
     supabase.from('campaign_level_band_overrides').select('band, exp_per_level').eq('campaign_id', id),
   ])
@@ -129,9 +127,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
 
       <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} />
 
-      <ExpGrantSettingsSection campaignId={id} events={expGrantRows} />
-
-      <LevelBandSettingsSection campaignId={id} bands={levelBandRows} />
+      <ExpSettingsSection campaignId={id} bands={levelBandRows} events={expGrantRows} />
 
       <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} />
 
