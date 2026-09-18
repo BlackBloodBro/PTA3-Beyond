@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { updateCampaign } from '../actions'
 
 // Same inline edit-toggle pattern as Trainer/Pokemon Info sections -- GM-only, calls the server
@@ -88,9 +89,17 @@ export function CampaignInfoSection({
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">{name}</h1>
         {isGM && (
-          <button type="button" onClick={openEdit} className="rounded border px-3 py-1 text-sm">
-            Edit
-          </button>
+          <div className="flex gap-2">
+            {/* [[Improvement - Move all Customization settings into one menu]]: single top-of-page
+                entry point for every GM-tunable setting (Sell price, Loyalty settings, and every "GM
+                Custom X" catalog) -- next to Edit, per the user's own suggested placement. */}
+            <Link href={`/campaigns/${campaignId}/custom`} className="rounded border px-3 py-1 text-sm">
+              Customization
+            </Link>
+            <button type="button" onClick={openEdit} className="rounded border px-3 py-1 text-sm">
+              Edit
+            </button>
+          </div>
         )}
       </div>
       {description && <p className="text-muted">{description}</p>}
