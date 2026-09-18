@@ -1,11 +1,15 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { SellPricePercentSection } from '../SellPricePercentSection'
+import { LoyaltySettingsSection } from '../LoyaltySettingsSection'
 
-// [[Feature - GM Custom - Pokemon]]: a hub for every "GM Custom X" category (Pokemon today; Items/
-// Moves/Passives/Afflictions/etc. as their own FRs land later, per the user) rather than routing
-// straight to Pokemon's own list -- keeps a stable top-level "Custom" landing spot on the Campaign
-// page regardless of how many customization categories eventually exist.
+// [[Improvement - Move all Customization settings into one menu]]: the single GM-only "Customization"
+// menu -- every tunable Campaign setting (Sell price, Loyalty settings) plus every "GM Custom X"
+// catalog and the Pokedex exclusion list, reached via the Campaign page's own "Customization" button
+// (next to Edit) rather than a mid-page tile. Route/URL kept as /custom (an internal path segment, not
+// user-facing) -- only the visible label changed, so no link elsewhere needed updating, just this page
+// and every sub-page's own "← Custom" back-link text.
 export default async function CampaignCustomPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()
@@ -18,7 +22,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     redirect('/login')
   }
 
-  const { data: campaign } = await supabase.from('campaigns').select('id, name, gm_user_id').eq('id', id).single()
+  const { data: campaign } = await supabase.from('campaigns').select('id, name, gm_user_id, sell_price_percent').eq('id', id).single()
 
   if (!campaign || campaign.gm_user_id !== user.id) {
     redirect(`/campaigns/${id}`)
@@ -35,6 +39,10 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     { count: customSkillCount },
     { count: customTypeCount },
     { count: excludedSpeciesCount },
+    { data: globalTiers },
+    { data: tierOverrides },
+    { data: globalEvents },
+    { data: eventOverrides },
   ] = await Promise.all([
     supabase.from('pokedex').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     supabase.from('items').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
@@ -48,7 +56,32 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     // [[Feature - GM can restrict global catalog entries from a Campaign]]: not a "custom X" addition
     // like the tiles above -- this counts species EXCLUDED from the global catalog for this Campaign.
     supabase.from('campaign_excluded_pokedex').select('pokedex_id', { count: 'exact', head: true }).eq('campaign_id', id),
+    // [[Feature - Allow a GM to change Loyalty settings]]: effective (override-merged) tiers/events
+    // plus which ones are actually overridden, for LoyaltySettingsSection's per-row "Default"/"Reset"
+    // state -- moved here from the Campaign page itself, per this FR.
+    supabase.from('loyalties').select('id, name, min_points').order('sort_order'),
+    supabase.from('campaign_loyalty_tier_overrides').select('loyalty_id, min_points').eq('campaign_id', id),
+    supabase.from('loyalty_point_events').select('id, name, points'),
+    supabase.from('campaign_loyalty_event_overrides').select('event_id, points').eq('campaign_id', id),
   ])
+
+  const tierOverrideById = new Map((tierOverrides ?? []).map((o) => [o.loyalty_id, o.min_points]))
+  const loyaltyTierRows = (globalTiers ?? []).map((t) => ({
+    id: t.id,
+    name: t.name,
+    defaultMinPoints: t.min_points,
+    minPoints: tierOverrideById.get(t.id) ?? t.min_points,
+    isOverridden: tierOverrideById.has(t.id),
+  }))
+
+  const eventOverrideById = new Map((eventOverrides ?? []).map((o) => [o.event_id, o.points]))
+  const loyaltyEventRows = (globalEvents ?? []).map((e) => ({
+    id: e.id,
+    name: e.name,
+    defaultPoints: e.points,
+    points: eventOverrideById.get(e.id) ?? e.points,
+    isOverridden: eventOverrideById.has(e.id),
+  }))
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -58,8 +91,14 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
         </Link>
       </div>
 
-      <h1 className="w-full max-w-2xl text-2xl font-bold">Custom</h1>
-      <p className="w-full max-w-2xl text-sm text-muted">Homebrew content scoped to this Campaign only, alongside the global catalogs.</p>
+      <h1 className="w-full max-w-2xl text-2xl font-bold">Customization</h1>
+      <p className="w-full max-w-2xl text-sm text-muted">
+        Every GM-tunable setting for this Campaign -- Sell price, Loyalty settings, and homebrew content alongside the global catalogs.
+      </p>
+
+      <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} />
+
+      <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} />
 
       <Link href={`/campaigns/${id}/custom/pokedex`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
         <span className="text-lg font-semibold">{customSpeciesCount ?? 0} Pokémon</span>

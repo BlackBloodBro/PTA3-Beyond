@@ -35,7 +35,7 @@ export default async function CampaignSkillsPage({
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
       <div className="w-full max-w-2xl">
         <Link href={`/campaigns/${id}/custom`} className="text-sm underline">
-          ← Custom
+          ← Customization
         </Link>
       </div>
 
