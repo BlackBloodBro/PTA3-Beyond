@@ -1,5 +1,6 @@
 import type { createClient } from '@/lib/supabase/server'
 import { loadLoyaltyTiers } from './loyaltySettings'
+import { loadEffectiveLevels } from './levelBandSettings'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -68,17 +69,15 @@ export async function computePokemonLevel(
 
   const effectiveExp = params.currentExp * loyaltyModifier * obtainModifier * growthModifier * shinyModifier
 
-  // levels.cumulative_exp is bigint (whole numbers only), but effectiveExp is a product of
-  // decimal modifiers and is almost always fractional -- floor it before comparing, both because
-  // Postgres rejects a fractional literal against a bigint column and because a Pokemon shouldn't
-  // reach the next level early just from rounding.
-  const { data: levelRow } = await supabase
-    .from('levels')
-    .select('level_number')
-    .lte('cumulative_exp', Math.floor(effectiveExp))
-    .order('level_number', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  // effectiveExp is a product of decimal modifiers and is almost always fractional -- floor it before
+  // comparing, since a Pokemon shouldn't reach the next level early just from rounding.
+  const flooredExp = Math.floor(effectiveExp)
+  // [[Feature - Let a GM customize EXP needed per level band]]: the effective (Campaign-derived) curve,
+  // not a direct `levels` table read -- same "swap the source, keep the lookup" pattern as Loyalty
+  // tiers. Scanned in memory (100 rows, cheap) rather than a targeted query, since the curve is now
+  // computed, not stored.
+  const levelRows = await loadEffectiveLevels(supabase, params.campaignId)
+  const levelRow = [...levelRows].sort((a, b) => b.level_number - a.level_number).find((lr) => lr.cumulative_exp <= flooredExp)
 
   return { level: levelRow?.level_number ?? 1, effectiveExp }
 }
@@ -103,22 +102,23 @@ export async function computePokemonLevelsBulk(
   // per-item override for a rarely-checked aggregate view. `undefined` preserves prior behavior.
   campaignId?: string | null,
 ): Promise<Map<string, { level: number; effectiveExp: number }>> {
-  const [loyaltyRows, { data: obtainMethods }, { data: growthRates }, { data: shinyModifiers }, { data: levels }] =
+  const [loyaltyRows, { data: obtainMethods }, { data: growthRates }, { data: shinyModifiers }, effectiveLevels] =
     await Promise.all([
       loadLoyaltyTiers(supabase, campaignId),
       supabase.from('obtain_methods').select('id, modifier'),
       supabase.from('growth_rates').select('id, exp_modifier'),
       supabase.from('exp_modifiers_shiny').select('name, modifier'),
-      // Ordered descending once here so each Pokemon's lookup below is a simple in-memory scan for
-      // the first row at or below its effective exp -- matches the single-row query's
-      // `.order('level_number', desc).limit(1)` semantics exactly.
-      supabase.from('levels').select('level_number, cumulative_exp').order('level_number', { ascending: false }),
+      // [[Feature - Let a GM customize EXP needed per level band]]: the effective (Campaign-derived)
+      // curve, not a direct `levels` table read -- same swap as computePokemonLevel above.
+      loadEffectiveLevels(supabase, campaignId),
     ])
 
   const obtainModifierById = new Map((obtainMethods ?? []).map((o) => [o.id, o.modifier]))
   const growthModifierById = new Map((growthRates ?? []).map((g) => [g.id, g.exp_modifier]))
   const shinyModifierByName = new Map((shinyModifiers ?? []).map((r) => [r.name, r.modifier]))
-  const levelRows = levels ?? []
+  // Ordered descending once here so each Pokemon's lookup below is a simple in-memory scan for the
+  // first row at or below its effective exp.
+  const levelRows = [...effectiveLevels].sort((a, b) => b.level_number - a.level_number)
 
   const result = new Map<string, { level: number; effectiveExp: number }>()
   for (const p of pokemonList) {

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { updatePokemonDetails } from '@/app/(authenticated)/pokemon/actions'
 import { computePokemonLevel, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
 import { loadLoyaltyTiers, loadLoyaltyEvents } from '@/lib/pta3/loyaltySettings'
+import { loadEffectiveLevels } from '@/lib/pta3/levelBandSettings'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
@@ -303,9 +304,11 @@ export default async function CampaignPokemonPage({
 
   // [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: reference data for the
   // GM-only "How does this work?" disclosures in the Experience/Loyalty sections.
-  const [lpEventRowsRaw, { data: levelRows }] = await Promise.all([
+  const [lpEventRowsRaw, levelRows] = await Promise.all([
     loadLoyaltyEvents(supabase, campaignId),
-    supabase.from('levels').select('level_number, cumulative_exp').order('level_number'),
+    // [[Feature - Let a GM customize EXP needed per level band]]: the effective (Campaign-derived)
+    // curve, not a direct `levels` table read.
+    loadEffectiveLevels(supabase, campaignId),
   ])
   const lpEventRows = [...lpEventRowsRaw].sort((a, b) => b.points - a.points)
 
