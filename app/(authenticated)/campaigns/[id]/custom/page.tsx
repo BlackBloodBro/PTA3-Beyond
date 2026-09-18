@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { SellPricePercentSection } from '../SellPricePercentSection'
+import { loadShinyRate } from '@/lib/pta3/shinyRateSettings'
 import { LoyaltySettingsSection } from '../LoyaltySettingsSection'
 import { ExpSettingsSection } from '../ExpSettingsSection'
 
@@ -48,6 +49,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     { data: expEventOverrides },
     { data: globalLevelBands },
     { data: levelBandOverrides },
+    shinyRate,
   ] = await Promise.all([
     supabase.from('pokedex').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     supabase.from('items').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
@@ -75,6 +77,9 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     supabase.from('campaign_exp_grant_overrides').select('event_id, exp').eq('campaign_id', id),
     supabase.from('level_bands').select('band, exp_per_level').order('band'),
     supabase.from('campaign_level_band_overrides').select('band, exp_per_level').eq('campaign_id', id),
+    // [[Feature - Let a GM customize their Campaign's shiny rate]]: already merged (default+override),
+    // unlike the raw rows above -- SellPricePercentSection just needs the resolved row directly.
+    loadShinyRate(supabase, id),
   ])
 
   const tierOverrideById = new Map((tierOverrides ?? []).map((o) => [o.loyalty_id, o.min_points]))
@@ -125,7 +130,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
         Every GM-tunable setting for this Campaign -- Sell price, Loyalty settings, and homebrew content alongside the global catalogs.
       </p>
 
-      <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} />
+      <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} shinyRate={shinyRate} />
 
       <ExpSettingsSection campaignId={id} bands={levelBandRows} events={expGrantRows} />
 
