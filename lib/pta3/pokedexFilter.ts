@@ -22,9 +22,16 @@ export async function fetchPokedexFilterOptions(supabase: SupabaseClient) {
 // a species matches if it has ANY of the selected types (OR across both of its own type columns AND
 // across every selected type id) and/or belongs to ANY of the selected habitats. An empty array
 // means "no filter on this dimension" (same as null did before), not "matches nothing".
+//
+// excludeIds ([[Feature - GM can restrict global catalog entries from a Campaign]]): pre-computed by
+// the caller (via loadExcludedPokedexIds) rather than taking a campaignId here directly -- whether
+// exclusion should even apply depends on caller-specific context this function shouldn't need to know
+// (e.g. /pokemon/new's GM-vs-player split), so the caller resolves that and just hands over "these ids
+// don't count," same division of responsibility as every other campaign-scoping loader in this
+// codebase (the loader filters, the page/action decides what to filter by).
 export async function fetchFilteredSpecies(
   supabase: SupabaseClient,
-  filters: { typeIds: number[]; habitatIds: number[] },
+  filters: { typeIds: number[]; habitatIds: number[]; excludeIds?: number[] },
 ): Promise<{ id: number; name: string; sprite_code: string; growth_rate_id: number | null }[]> {
   let query = supabase.from('pokedex').select('id, name, sprite_code, growth_rate_id')
 
@@ -41,6 +48,10 @@ export async function fetchFilteredSpecies(
       .select('pokedex_id')
       .in('habitat_id', filters.habitatIds)
     query = query.in('id', (habitatRows ?? []).map((r) => r.pokedex_id))
+  }
+
+  if (filters.excludeIds && filters.excludeIds.length > 0) {
+    query = query.not('id', 'in', `(${filters.excludeIds.join(',')})`)
   }
 
   const { data } = await query.order('name')
