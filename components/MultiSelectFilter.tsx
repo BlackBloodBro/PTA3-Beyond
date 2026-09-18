@@ -47,7 +47,7 @@ export function MultiSelectFilter({
         {selected.length === 0 ? 'Any' : `${selected.length} selected`}
       </button>
       {open && (
-        <div className="bg-surface absolute top-full left-0 z-10 mt-1 flex max-h-64 w-48 flex-col gap-1 overflow-y-auto rounded border border-accent p-2 shadow-md">
+        <div className="bg-surface-subtle absolute top-full left-0 z-10 mt-1 flex max-h-64 w-48 flex-col gap-1 overflow-y-auto rounded border border-accent p-2 shadow-md">
           {selected.length > 0 && (
             <button type="button" onClick={() => onChange([])} className="mb-1 self-start text-xs text-accent underline">
               Clear
