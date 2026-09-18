@@ -114,9 +114,9 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
 
       <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} />
 
-      <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} />
-
       <ExpGrantSettingsSection campaignId={id} events={expGrantRows} />
+
+      <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} />
 
       {/* Per the user (2026-09-18): the 9 "GM Custom X" catalogs specifically (Pokemon through Types)
           as a 3x3 grid under their own "Homebrew" heading -- Excluded Pokémon stays out of this grid

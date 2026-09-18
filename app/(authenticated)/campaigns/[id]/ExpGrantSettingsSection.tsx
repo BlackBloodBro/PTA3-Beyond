@@ -14,7 +14,7 @@ export function ExpGrantSettingsSection({ campaignId, events }: { campaignId: st
   return (
     <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-3">
       <details>
-        <summary className="cursor-pointer text-lg font-semibold">EXP grant settings</summary>
+        <summary className="cursor-pointer text-lg font-semibold">EXP settings</summary>
         <p className="mb-3 text-sm text-muted">
           Retune how much EXP each automated trigger grants, for this Campaign only. Set a trigger to 0 to stop it granting EXP
           entirely.
