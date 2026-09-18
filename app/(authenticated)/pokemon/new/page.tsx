@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { fetchFilteredSpecies, fetchPokedexFilterOptions } from '@/lib/pta3/pokedexFilter'
+import { loadExcludedPokedexIds } from '@/lib/pta3/pokedexExclusions'
 import { CreatePokemonForm } from './CreatePokemonForm'
 
 // Normalizes a searchParams entry that's a bare string when there's exactly one value, or an array
@@ -32,6 +33,20 @@ export default async function NewPokemonPage({
   const selectedTypeIds = toIdArray(typeIds)
   const selectedHabitatIds = toIdArray(habitatIds)
 
+  // [[Feature - GM can restrict global catalog entries from a Campaign]]: only pre-filters the
+  // initial species list when this page was reached with a specific campaignId already in mind (e.g.
+  // a player's own "add to pool" link) AND that campaign isn't one this user GMs -- a GM's own pool/
+  // NPC creation stays unrestricted. Matches this page's own pre-existing limitation of not re-
+  // fetching species if the campaign <select> is changed afterward on the client; createPokemon
+  // re-checks server-side regardless, so this is a convenience filter, not the actual enforcement.
+  let excludeIds: number[] = []
+  if (campaignId) {
+    const { data: requestedCampaign } = await supabase.from('campaigns').select('gm_user_id').eq('id', campaignId).maybeSingle()
+    if (requestedCampaign && requestedCampaign.gm_user_id !== user.id) {
+      excludeIds = await loadExcludedPokedexIds(supabase, campaignId)
+    }
+  }
+
   const [
     { types, habitats },
     species,
@@ -47,7 +62,7 @@ export default async function NewPokemonPage({
     { data: shinyModifiers },
   ] = await Promise.all([
     fetchPokedexFilterOptions(supabase),
-    fetchFilteredSpecies(supabase, { typeIds: selectedTypeIds, habitatIds: selectedHabitatIds }),
+    fetchFilteredSpecies(supabase, { typeIds: selectedTypeIds, habitatIds: selectedHabitatIds, excludeIds }),
     supabase.from('campaigns').select('id, name').eq('gm_user_id', user.id).order('name'),
     // [[Users should be able to add Pokemon to their Trainers in a Campaign]]: a player who isn't a
     // GM can still tag a new Pokemon into a campaign's pool, as long as they have a Trainer there --

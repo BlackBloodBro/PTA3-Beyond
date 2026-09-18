@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { loadExcludedPokedexIds } from './pokedexExclusions'
 
 export type PokedexBrowseRow = {
   id: number
@@ -125,6 +126,15 @@ export async function loadPokedexBrowse(supabase: SupabaseClient, campaignId?: s
     .order('name')
   if (campaignId !== undefined) {
     query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+  }
+  // [[Feature - GM can restrict global catalog entries from a Campaign]]: applied for GM and player
+  // alike -- this is a read-only browse of "what this Campaign's world contains," not an enforcement
+  // point, so there's no reason to show the GM their own exclusions still sitting in the list.
+  if (campaignId) {
+    const excludedIds = await loadExcludedPokedexIds(supabase, campaignId)
+    if (excludedIds.length > 0) {
+      query = query.not('id', 'in', `(${excludedIds.join(',')})`)
+    }
   }
   const { data } = await query
 

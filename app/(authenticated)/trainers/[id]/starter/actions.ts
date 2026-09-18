@@ -7,6 +7,7 @@ import { pickRandomGender } from '@/lib/pta3/gender'
 import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
 import { pickFlavorPreferences } from '@/lib/pta3/flavors'
 import { setOriginalTrainerIfUnset } from '@/lib/pta3/pokemonOrigin'
+import { loadExcludedPokedexIds } from '@/lib/pta3/pokedexExclusions'
 
 export async function createStarterPokemon(trainerId: string, formData: FormData) {
   const supabase = await createClient()
@@ -48,6 +49,14 @@ export async function createStarterPokemon(trainerId: string, formData: FormData
 
   if (!species) {
     redirect(`/trainers/${trainerId}/starter?error=${encodeURIComponent('Species not found')}`)
+  }
+
+  // [[Feature - GM can restrict global catalog entries from a Campaign]]: re-checked here, not just
+  // filtered out of the picker -- same "don't trust the client not to submit a stale/bypassed choice"
+  // reasoning as every other server-side re-validation in this codebase.
+  const excludedIds = await loadExcludedPokedexIds(supabase, trainer.campaign_id)
+  if (excludedIds.includes(speciesId)) {
+    redirect(`/trainers/${trainerId}/starter?error=${encodeURIComponent("This species isn't part of this Campaign's world")}`)
   }
 
   const { data: obtainMethod } = await supabase

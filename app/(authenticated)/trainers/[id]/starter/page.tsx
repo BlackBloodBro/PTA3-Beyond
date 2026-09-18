@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { fetchFilteredSpecies, fetchPokedexFilterOptions } from '@/lib/pta3/pokedexFilter'
+import { loadExcludedPokedexIds } from '@/lib/pta3/pokedexExclusions'
 import { SpeciesPicker } from '@/components/SpeciesPicker'
 import { createStarterPokemon } from './actions'
 
@@ -25,7 +26,7 @@ export default async function StarterPokemonPage({
 
   const { data: trainer } = await supabase
     .from('trainers')
-    .select('id, name')
+    .select('id, name, campaign_id')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
@@ -40,9 +41,14 @@ export default async function StarterPokemonPage({
   const parsedTypeId = typeId ? Number(typeId) : null
   const parsedHabitatId = habitatId ? Number(habitatId) : null
 
+  // [[Feature - GM can restrict global catalog entries from a Campaign]]: a starter is always chosen
+  // for one specific Trainer already tied to (at most) one Campaign, so there's no ambiguity about
+  // which Campaign's exclusions apply here, unlike /pokemon/new's dynamic campaign picker.
+  const excludeIds = await loadExcludedPokedexIds(supabase, trainer.campaign_id)
+
   const [{ types, habitats }, species] = await Promise.all([
     fetchPokedexFilterOptions(supabase),
-    fetchFilteredSpecies(supabase, { typeIds: parsedTypeId ? [parsedTypeId] : [], habitatIds: parsedHabitatId ? [parsedHabitatId] : [] }),
+    fetchFilteredSpecies(supabase, { typeIds: parsedTypeId ? [parsedTypeId] : [], habitatIds: parsedHabitatId ? [parsedHabitatId] : [], excludeIds }),
   ])
 
   const createStarterForTrainer = createStarterPokemon.bind(null, trainer.id)

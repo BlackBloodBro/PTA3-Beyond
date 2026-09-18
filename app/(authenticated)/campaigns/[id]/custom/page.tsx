@@ -34,6 +34,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     { count: customProficiencyCount },
     { count: customSkillCount },
     { count: customTypeCount },
+    { count: excludedSpeciesCount },
   ] = await Promise.all([
     supabase.from('pokedex').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     supabase.from('items').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
@@ -44,6 +45,9 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     supabase.from('proficiencies').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     supabase.from('skills').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
     supabase.from('types').select('id', { count: 'exact', head: true }).eq('campaign_id', id),
+    // [[Feature - GM can restrict global catalog entries from a Campaign]]: not a "custom X" addition
+    // like the tiles above -- this counts species EXCLUDED from the global catalog for this Campaign.
+    supabase.from('campaign_excluded_pokedex').select('pokedex_id', { count: 'exact', head: true }).eq('campaign_id', id),
   ])
 
   return (
@@ -100,6 +104,14 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
       <Link href={`/campaigns/${id}/custom/types`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
         <span className="text-lg font-semibold">{customTypeCount ?? 0} Types</span>
         <span className="block text-sm text-muted underline">View all</span>
+      </Link>
+
+      <Link
+        href={`/campaigns/${id}/custom/pokedex-exclusions`}
+        className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20"
+      >
+        <span className="text-lg font-semibold">{excludedSpeciesCount ?? 0} Excluded Pokémon</span>
+        <span className="block text-sm text-muted underline">Mark global species that don&apos;t exist in this Campaign&apos;s world</span>
       </Link>
     </main>
   )

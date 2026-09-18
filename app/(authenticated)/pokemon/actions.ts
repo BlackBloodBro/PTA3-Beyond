@@ -14,6 +14,7 @@ import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { previewPassiveLoss, shiftSizeOrWeightOverride, isMaxLoyalty } from '@/lib/pta3/evolution'
 import { setOriginalTrainerIfUnset } from '@/lib/pta3/pokemonOrigin'
+import { loadExcludedPokedexIds } from '@/lib/pta3/pokedexExclusions'
 
 export type MoveOption = {
   id: number
@@ -156,6 +157,15 @@ export async function createPokemon(input: CreatePokemonInput): Promise<{ error:
         .maybeSingle()
       if (!ownTrainer) {
         return { error: 'You need a Trainer in that campaign to add a Pokémon to its pool' }
+      }
+
+      // [[Feature - GM can restrict global catalog entries from a Campaign]]: GM-only enforcement --
+      // a player tagging their own pool Pokemon into this campaign can't pick a species the GM has
+      // excluded from it, but the GM's own pool/NPC creation (this branch never runs for them) stays
+      // unrestricted.
+      const excludedIds = await loadExcludedPokedexIds(supabase, input.campaignId)
+      if (excludedIds.includes(input.speciesId)) {
+        return { error: "This species isn't part of this Campaign's world" }
       }
     }
   }
