@@ -44,7 +44,9 @@ export function ExpSettingsSection({
           ))}
         </div>
 
-        <div className="mt-4 flex flex-col gap-2">
+        <hr className="my-4 border-accent/30" />
+
+        <div className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">Automated event EXP</h3>
           {events.map((e) => (
             <SettingRow

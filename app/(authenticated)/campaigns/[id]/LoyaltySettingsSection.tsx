@@ -35,7 +35,9 @@ export function LoyaltySettingsSection({ campaignId, tiers, events }: { campaign
           ))}
         </div>
 
-        <div className="mt-4 flex flex-col gap-2">
+        <hr className="my-4 border-accent/30" />
+
+        <div className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">Automated event LP</h3>
           {events.map((e) => (
             <SettingRow

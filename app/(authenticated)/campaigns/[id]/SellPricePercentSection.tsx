@@ -23,22 +23,31 @@ export function SellPricePercentSection({ campaignId, initialPercent }: { campai
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      <label htmlFor="sellPercent">Sell price</label>
-      <input
-        id="sellPercent"
-        type="number"
-        min={0}
-        max={100}
-        value={draft}
-        onChange={(e) => setDraft(Math.max(0, Math.min(100, Number(e.target.value))))}
-        className="bg-surface-subtle w-16 rounded border p-2 text-center"
-      />
-      <span className="text-muted">% of buy price (currently {percent}%)</span>
-      <button type="button" onClick={handleSave} className="rounded border px-3 py-1 text-sm">
-        Save
-      </button>
-      {error && <p className="w-full text-danger">{error}</p>}
+    <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-3">
+      <details>
+        <summary className="cursor-pointer text-lg font-semibold">Sell price settings</summary>
+        <p className="mb-3 text-sm text-muted">How much selling an item back gives a Trainer, for this Campaign only.</p>
+
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <label htmlFor="sellPercent" className="w-56">
+            Sell price
+          </label>
+          <input
+            id="sellPercent"
+            type="number"
+            min={0}
+            max={100}
+            value={draft}
+            onChange={(e) => setDraft(Math.max(0, Math.min(100, Number(e.target.value))))}
+            className="bg-surface-subtle w-20 rounded border p-2 text-center"
+          />
+          <button type="button" onClick={handleSave} className="rounded border px-3 py-1 text-sm">
+            Save
+          </button>
+          <span className="text-xs text-muted">% of buy price (currently {percent}%)</span>
+          {error && <p className="w-full text-danger">{error}</p>}
+        </div>
+      </details>
     </div>
   )
 }
