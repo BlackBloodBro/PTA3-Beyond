@@ -100,50 +100,56 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
 
       <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} />
 
-      <Link href={`/campaigns/${id}/custom/pokedex`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-        <span className="text-lg font-semibold">{customSpeciesCount ?? 0} Pokémon</span>
-        <span className="block text-sm text-muted underline">View all</span>
-      </Link>
+      {/* Per the user (2026-09-18): the 9 "GM Custom X" catalogs specifically (Pokemon through Types)
+          as a 3x3 grid under their own "Homebrew" heading -- Excluded Pokémon stays out of this grid
+          since it's a different concept (removing from the global catalog, not adding to it). */}
+      <h2 className="w-full max-w-2xl text-lg font-semibold">Homebrew</h2>
+      <div className="grid w-full max-w-2xl grid-cols-3 gap-3">
+        <Link href={`/campaigns/${id}/custom/pokedex`} className="rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+          <span className="font-semibold">{customSpeciesCount ?? 0} Pokémon</span>
+          <span className="block text-sm text-muted underline">View all</span>
+        </Link>
 
-      <Link href={`/campaigns/${id}/custom/items`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-        <span className="text-lg font-semibold">{customItemCount ?? 0} Items</span>
-        <span className="block text-sm text-muted underline">View all</span>
-      </Link>
+        <Link href={`/campaigns/${id}/custom/items`} className="rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+          <span className="font-semibold">{customItemCount ?? 0} Items</span>
+          <span className="block text-sm text-muted underline">View all</span>
+        </Link>
 
-      <Link href={`/campaigns/${id}/custom/afflictions`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-        <span className="text-lg font-semibold">{customAfflictionCount ?? 0} Afflictions</span>
-        <span className="block text-sm text-muted underline">View all</span>
-      </Link>
+        <Link href={`/campaigns/${id}/custom/afflictions`} className="rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+          <span className="font-semibold">{customAfflictionCount ?? 0} Afflictions</span>
+          <span className="block text-sm text-muted underline">View all</span>
+        </Link>
 
-      <Link href={`/campaigns/${id}/custom/moves`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-        <span className="text-lg font-semibold">{customMoveCount ?? 0} Moves</span>
-        <span className="block text-sm text-muted underline">View all</span>
-      </Link>
+        <Link href={`/campaigns/${id}/custom/moves`} className="rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+          <span className="font-semibold">{customMoveCount ?? 0} Moves</span>
+          <span className="block text-sm text-muted underline">View all</span>
+        </Link>
 
-      <Link href={`/campaigns/${id}/custom/passives`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-        <span className="text-lg font-semibold">{customPassiveCount ?? 0} Passives</span>
-        <span className="block text-sm text-muted underline">View all</span>
-      </Link>
+        <Link href={`/campaigns/${id}/custom/passives`} className="rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+          <span className="font-semibold">{customPassiveCount ?? 0} Passives</span>
+          <span className="block text-sm text-muted underline">View all</span>
+        </Link>
 
-      <Link href={`/campaigns/${id}/custom/item-categories`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-        <span className="text-lg font-semibold">{customItemCategoryCount ?? 0} Item Categories</span>
-        <span className="block text-sm text-muted underline">View all</span>
-      </Link>
+        <Link href={`/campaigns/${id}/custom/item-categories`} className="rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+          <span className="font-semibold">{customItemCategoryCount ?? 0} Item Categories</span>
+          <span className="block text-sm text-muted underline">View all</span>
+        </Link>
 
-      <Link href={`/campaigns/${id}/custom/proficiencies`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-        <span className="text-lg font-semibold">{customProficiencyCount ?? 0} Proficiencies</span>
-        <span className="block text-sm text-muted underline">View all</span>
-      </Link>
+        <Link href={`/campaigns/${id}/custom/proficiencies`} className="rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+          <span className="font-semibold">{customProficiencyCount ?? 0} Proficiencies</span>
+          <span className="block text-sm text-muted underline">View all</span>
+        </Link>
 
-      <Link href={`/campaigns/${id}/custom/skills`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-        <span className="text-lg font-semibold">{customSkillCount ?? 0} Skills</span>
-        <span className="block text-sm text-muted underline">View all</span>
-      </Link>
+        <Link href={`/campaigns/${id}/custom/skills`} className="rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+          <span className="font-semibold">{customSkillCount ?? 0} Skills</span>
+          <span className="block text-sm text-muted underline">View all</span>
+        </Link>
 
-      <Link href={`/campaigns/${id}/custom/types`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
-        <span className="text-lg font-semibold">{customTypeCount ?? 0} Types</span>
-        <span className="block text-sm text-muted underline">View all</span>
-      </Link>
+        <Link href={`/campaigns/${id}/custom/types`} className="rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+          <span className="font-semibold">{customTypeCount ?? 0} Types</span>
+          <span className="block text-sm text-muted underline">View all</span>
+        </Link>
+      </div>
 
       <Link
         href={`/campaigns/${id}/custom/pokedex-exclusions`}
