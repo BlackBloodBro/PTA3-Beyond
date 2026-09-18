@@ -82,7 +82,7 @@ async function isPokemonIdentifiedForViewer(
   return false
 }
 
-async function loadPokemonDetail(supabase: SupabaseClient, pokemonId: string): Promise<CombatantDetail> {
+async function loadPokemonDetail(supabase: SupabaseClient, pokemonId: string, campaignId?: string | null): Promise<CombatantDetail> {
   const { data: pokemonRaw } = await supabase
     .from('pokemon')
     .select(
@@ -114,6 +114,7 @@ async function loadPokemonDetail(supabase: SupabaseClient, pokemonId: string): P
     loyaltyPoints: pokemon.loyalty_points,
     obtainMethodId: pokemon.original_obtain_method_id,
     growthRateId: pokemon.pokedex.growth_rate_id,
+    campaignId,
   })
 
   const [statRows, effectiveType, abilityRowsRaw, moveRowsRaw, afflictionIdsRaw] = await Promise.all([
@@ -235,9 +236,13 @@ export async function getCombatantDetail(combatantId: string): Promise<Combatant
 
   if (!combatant.pokemon_id) return { error: 'Combatant has neither a Trainer nor a Pokemon.' }
 
+  // [[Feature - Allow a GM to change Loyalty settings]]: fetched unconditionally now (previously only
+  // for the enemy-identification branch below) so Level/Loyalty math also respects this Campaign's
+  // own overrides for an ally combatant.
+  const { data: encounter } = await supabase.from('encounters').select('campaign_id').eq('id', combatant.encounter_id).maybeSingle()
+  if (!encounter) return { error: "Couldn't load this encounter." }
+
   if (combatant.side === 'enemy') {
-    const { data: encounter } = await supabase.from('encounters').select('campaign_id').eq('id', combatant.encounter_id).maybeSingle()
-    if (!encounter) return { error: "Couldn't load this encounter." }
     const { data: campaign } = await supabase.from('campaigns').select('gm_user_id').eq('id', encounter.campaign_id).maybeSingle()
     const isGM = campaign?.gm_user_id === user.id
 
@@ -248,5 +253,5 @@ export async function getCombatantDetail(combatantId: string): Promise<Combatant
     if (!identified) return { kind: 'pokemon', identified: false }
   }
 
-  return loadPokemonDetail(supabase, combatant.pokemon_id)
+  return loadPokemonDetail(supabase, combatant.pokemon_id, encounter.campaign_id)
 }

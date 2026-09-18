@@ -10,6 +10,7 @@ import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { CampaignInfoSection } from './CampaignInfoSection'
 import { SellPricePercentSection } from './SellPricePercentSection'
+import { LoyaltySettingsSection } from './LoyaltySettingsSection'
 
 export default async function CampaignPage({
   params,
@@ -71,13 +72,41 @@ export default async function CampaignPage({
   // the actual rows live on their own dedicated (searchable/filterable) pages.
   let npcCount = 0
   let wildPokemonCount = 0
+  // [[Feature - Allow a GM to change Loyalty settings]]: effective (override-merged) tiers/events
+  // plus which ones are actually overridden, for LoyaltySettingsSection's per-row "Default"/"Reset"
+  // state -- GM-only, same gate as the counts above.
+  let loyaltyTierRows: { id: number; name: string; minPoints: number; defaultMinPoints: number; isOverridden: boolean }[] = []
+  let loyaltyEventRows: { id: number; name: string; points: number; defaultPoints: number; isOverridden: boolean }[] = []
   if (isGM) {
-    const [{ count: npcCountRaw }, { data: poolForCount }] = await Promise.all([
-      supabase.from('trainers').select('id', { count: 'exact', head: true }).eq('campaign_id', id).eq('is_npc', true),
-      supabase.from('pokemon').select('id, trainers_pokemon(trainer_id)').eq('campaign_id', id).eq('created_by_user_id', user.id),
-    ])
+    const [{ count: npcCountRaw }, { data: poolForCount }, { data: globalTiers }, { data: tierOverrides }, { data: globalEvents }, { data: eventOverrides }] =
+      await Promise.all([
+        supabase.from('trainers').select('id', { count: 'exact', head: true }).eq('campaign_id', id).eq('is_npc', true),
+        supabase.from('pokemon').select('id, trainers_pokemon(trainer_id)').eq('campaign_id', id).eq('created_by_user_id', user.id),
+        supabase.from('loyalties').select('id, name, min_points').order('sort_order'),
+        supabase.from('campaign_loyalty_tier_overrides').select('loyalty_id, min_points').eq('campaign_id', id),
+        supabase.from('loyalty_point_events').select('id, name, points'),
+        supabase.from('campaign_loyalty_event_overrides').select('event_id, points').eq('campaign_id', id),
+      ])
     npcCount = npcCountRaw ?? 0
     wildPokemonCount = (poolForCount ?? []).filter((p) => !p.trainers_pokemon).length
+
+    const tierOverrideById = new Map((tierOverrides ?? []).map((o) => [o.loyalty_id, o.min_points]))
+    loyaltyTierRows = (globalTiers ?? []).map((t) => ({
+      id: t.id,
+      name: t.name,
+      defaultMinPoints: t.min_points,
+      minPoints: tierOverrideById.get(t.id) ?? t.min_points,
+      isOverridden: tierOverrideById.has(t.id),
+    }))
+
+    const eventOverrideById = new Map((eventOverrides ?? []).map((o) => [o.event_id, o.points]))
+    loyaltyEventRows = (globalEvents ?? []).map((e) => ({
+      id: e.id,
+      name: e.name,
+      defaultPoints: e.points,
+      points: eventOverrideById.get(e.id) ?? e.points,
+      isOverridden: eventOverrideById.has(e.id),
+    }))
   }
 
   // [[Feature - Add a combat encounter tracker]]: RLS already scopes this to what each role can
@@ -127,6 +156,8 @@ export default async function CampaignPage({
           <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} />
         </div>
       )}
+
+      {isGM && <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} />}
 
       {isGM && (
         <div className="flex w-full max-w-2xl gap-3">

@@ -28,6 +28,7 @@ import {
   loadTrainerSkillTalents,
   replaceBaseSkillTalents,
 } from '@/lib/pta3/skillTalents'
+import { loadLoyaltyEventPoints } from '@/lib/pta3/loyaltySettings'
 
 export async function createTrainer(formData: FormData) {
   const supabase = await createClient()
@@ -1150,8 +1151,7 @@ export async function restSleep(trainerId: string, formData: FormData) {
   // [[Add a Loyalty editor]]: Sleep awards LP to every Team Pokemon (party_slot not null),
   // unconditionally -- resting together builds loyalty regardless of HP state. PC-parked Pokemon
   // don't get it (they weren't part of the rest). Amount is tunable data, not a hardcoded constant.
-  const { data: sleepEvent } = await supabase.from('loyalty_point_events').select('points').eq('name', 'Sleep').maybeSingle()
-  const sleepLoyaltyPoints = sleepEvent?.points ?? 0
+  const sleepLoyaltyPoints = await loadLoyaltyEventPoints(supabase, 'Sleep', trainer.campaign_id)
 
   await Promise.all(
     (trainersPokemon ?? []).map((tp) => {
@@ -1267,12 +1267,7 @@ export async function restPokemonCenter(trainerId: string) {
   // damaged before the heal -- checked against current_hp BEFORE it's overwritten below, since
   // afterward everyone reads as full HP. Not a blanket award -- only Pokemon that were hurt and got
   // looked after.
-  const { data: centerEvent } = await supabase
-    .from('loyalty_point_events')
-    .select('points')
-    .eq('name', 'Pokemon Center (damaged)')
-    .maybeSingle()
-  const centerLoyaltyPoints = centerEvent?.points ?? 0
+  const centerLoyaltyPoints = await loadLoyaltyEventPoints(supabase, 'Pokemon Center (damaged)', trainer.campaign_id)
 
   await Promise.all(
     (trainersPokemon ?? []).map((tp) => {

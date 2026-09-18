@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { updatePokemonDetails } from '@/app/(authenticated)/pokemon/actions'
 import { computePokemonLevel, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
+import { loadLoyaltyTiers, loadLoyaltyEvents } from '@/lib/pta3/loyaltySettings'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
@@ -291,19 +292,22 @@ export default async function CampaignPokemonPage({
     loyaltyPoints: pokemon.loyalty_points,
     obtainMethodId: ownerLink?.obtain_method_id ?? null,
     growthRateId: species.growth_rate_id,
+    campaignId,
   })
 
   // Loyalty tier is likewise never stored -- always derived from loyalty_points, per
-  // [[Add a Loyalty editor]]. Small reference table (6 rows), cheap to fetch unconditionally.
-  const { data: loyaltyRows } = await supabase.from('loyalties').select('name, modifier, sort_order, min_points')
-  const loyaltyTier = computeLoyaltyTier(pokemon.loyalty_points, loyaltyRows ?? [])
+  // [[Add a Loyalty editor]]. Small reference table (6 rows), cheap to fetch unconditionally. Merged
+  // with this Campaign's own overrides, per [[Feature - Allow a GM to change Loyalty settings]].
+  const loyaltyRows = await loadLoyaltyTiers(supabase, campaignId)
+  const loyaltyTier = computeLoyaltyTier(pokemon.loyalty_points, loyaltyRows)
 
   // [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: reference data for the
   // GM-only "How does this work?" disclosures in the Experience/Loyalty sections.
-  const [{ data: lpEventRows }, { data: levelRows }] = await Promise.all([
-    supabase.from('loyalty_point_events').select('name, points').order('points', { ascending: false }),
+  const [lpEventRowsRaw, { data: levelRows }] = await Promise.all([
+    loadLoyaltyEvents(supabase, campaignId),
     supabase.from('levels').select('level_number, cumulative_exp').order('level_number'),
   ])
+  const lpEventRows = [...lpEventRowsRaw].sort((a, b) => b.points - a.points)
 
   // [[Add Evolution functionality]]: every outgoing evolution edge from this species, every other
   // species in its chain (for the GM-override picker), whether this Pokemon is at max Loyalty, and
@@ -311,7 +315,7 @@ export default async function CampaignPokemonPage({
   const [evolutionTargets, chainMembers, isMaxLoyaltyPokemon, bagStoneItems] = await Promise.all([
     loadEvolutionTargets(supabase, pokemon.pokedex_id),
     loadEvolutionChainMembers(supabase, species.evolution_chain_id, pokemon.pokedex_id),
-    isMaxLoyalty(supabase, pokemon.loyalty_points),
+    isMaxLoyalty(supabase, pokemon.loyalty_points, campaignId),
     trainerId ? loadEvolutionStoneBagItems(supabase, trainerId) : Promise.resolve([]),
   ])
 

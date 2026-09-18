@@ -1,4 +1,5 @@
 import type { createClient } from '@/lib/supabase/server'
+import { loadLoyaltyTiers } from './loyaltySettings'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -42,10 +43,14 @@ export async function computePokemonLevel(
     loyaltyPoints: number
     obtainMethodId: number | null
     growthRateId: number | null
+    // [[Feature - Allow a GM to change Loyalty settings]]: optional, `undefined` (every call site not
+    // yet updated) preserves today's pure-global behavior -- only a caller that knows this Pokemon's
+    // effective Campaign passes it, matching every other Campaign-scoping param in this codebase.
+    campaignId?: string | null
   },
 ): Promise<{ level: number; effectiveExp: number }> {
-  const [{ data: loyaltyRows }, { data: obtainMethod }, { data: growthRate }, { data: shinyModifiers }] = await Promise.all([
-    supabase.from('loyalties').select('modifier, sort_order, min_points'),
+  const [loyaltyRows, { data: obtainMethod }, { data: growthRate }, { data: shinyModifiers }] = await Promise.all([
+    loadLoyaltyTiers(supabase, params.campaignId),
     params.obtainMethodId
       ? supabase.from('obtain_methods').select('modifier').eq('id', params.obtainMethodId).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -92,10 +97,15 @@ export async function computePokemonLevelsBulk(
     obtainMethodId: number | null
     growthRateId: number | null
   }[],
+  // [[Feature - Allow a GM to change Loyalty settings]]: one Campaign for the whole batch -- every
+  // real caller renders a single Trainer's roster (one Campaign), except the cross-Campaign "all my
+  // Pokemon" overview, which deliberately keeps using pure global tiers rather than resolving a
+  // per-item override for a rarely-checked aggregate view. `undefined` preserves prior behavior.
+  campaignId?: string | null,
 ): Promise<Map<string, { level: number; effectiveExp: number }>> {
-  const [{ data: loyaltyRows }, { data: obtainMethods }, { data: growthRates }, { data: shinyModifiers }, { data: levels }] =
+  const [loyaltyRows, { data: obtainMethods }, { data: growthRates }, { data: shinyModifiers }, { data: levels }] =
     await Promise.all([
-      supabase.from('loyalties').select('modifier, sort_order, min_points'),
+      loadLoyaltyTiers(supabase, campaignId),
       supabase.from('obtain_methods').select('id, modifier'),
       supabase.from('growth_rates').select('id, exp_modifier'),
       supabase.from('exp_modifiers_shiny').select('name, modifier'),

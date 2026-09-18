@@ -15,6 +15,7 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { previewPassiveLoss, shiftSizeOrWeightOverride, isMaxLoyalty } from '@/lib/pta3/evolution'
 import { setOriginalTrainerIfUnset } from '@/lib/pta3/pokemonOrigin'
 import { loadExcludedPokedexIds } from '@/lib/pta3/pokedexExclusions'
+import { loadLoyaltyEventPoints, loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
 
 export type MoveOption = {
   id: number
@@ -645,7 +646,7 @@ async function loadPokemonEvContext(supabase: Awaited<ReturnType<typeof createCl
       current_exp, current_hp, is_shiny, loyalty_points, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id),
       ev_hp, ev_attack, ev_defense, ev_special_attack, ev_special_defense, ev_speed, bonus_base_hp,
       pokedex(growth_rate_id, base_hp),
-      trainers_pokemon(obtain_method_id, trainers(user_id, campaigns(gm_user_id)))
+      trainers_pokemon(obtain_method_id, trainers(user_id, campaign_id, campaigns(gm_user_id)))
     `,
     )
     .eq('id', pokemonId)
@@ -656,10 +657,13 @@ async function loadPokemonEvContext(supabase: Awaited<ReturnType<typeof createCl
   // Same trainers_pokemon-is-a-primary-key quirk as elsewhere -- single object at runtime.
   const ownerLink = pokemon.trainers_pokemon as unknown as {
     obtain_method_id: number | null
-    trainers: { user_id: string; campaigns: { gm_user_id: string } | null } | null
+    trainers: { user_id: string; campaign_id: string | null; campaigns: { gm_user_id: string } | null } | null
   } | null
   // Same quirk for the forward campaign_id embed -- a single object (or null), not the array TS infers.
   const campaign = pokemon.campaign as unknown as { gm_user_id: string } | null
+  // [[Feature - Allow a GM to change Loyalty settings]]: effective Campaign for Loyalty-tier/Level
+  // math below -- an owned Pokemon's is its Trainer's, a pool/wild Pokemon's is its own tag.
+  const effectiveCampaignId = ownerLink ? (ownerLink.trainers?.campaign_id ?? null) : pokemon.campaign_id
 
   const currentEvs: Record<EvStatKey, number> = {
     hp: pokemon.ev_hp,
@@ -682,6 +686,7 @@ async function loadPokemonEvContext(supabase: Awaited<ReturnType<typeof createCl
     pokemon,
     ownerLink,
     currentEvs,
+    effectiveCampaignId,
     isOwner: ownerLink ? ownerLink.trainers?.user_id === userId : poolAuthority,
     // No campaign -> no GM to defer to -- falls back to the Trainer's own owner, same rule as
     // updatePokemonDetails/addPokemonExp/the Pokemon page's read side.
@@ -733,6 +738,7 @@ export async function assignPokemonEv(
     loyaltyPoints: ctx.pokemon.loyalty_points,
     obtainMethodId: ctx.ownerLink?.obtain_method_id ?? null,
     growthRateId: ctx.pokemon.pokedex?.growth_rate_id ?? null,
+    campaignId: ctx.effectiveCampaignId,
   })
   const evsAvailable = Math.floor(level / 8)
   const evsSpent = Object.values(ctx.currentEvs).reduce((a, b) => a + b, 0)
@@ -796,6 +802,7 @@ export async function setPokemonEvs(
     loyaltyPoints: ctx.pokemon.loyalty_points,
     obtainMethodId: ctx.ownerLink?.obtain_method_id ?? null,
     growthRateId: ctx.pokemon.pokedex?.growth_rate_id ?? null,
+    campaignId: ctx.effectiveCampaignId,
   })
   const evsAvailable = Math.floor(level / 8)
 
@@ -860,7 +867,7 @@ export async function adjustPokemonHp(
   // viewing an active encounter's combatants, same as the trainer HP control.
   const { data: pokemon, error: pokemonError } = await supabase
     .from('pokemon')
-    .select('current_hp, temporary_hp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp)')
+    .select('current_hp, temporary_hp, ev_hp, bonus_base_hp, loyalty_points, campaign_id, pokedex(base_hp), trainers_pokemon(trainers(campaign_id))')
     .eq('id', pokemonId)
     .single()
 
@@ -876,6 +883,14 @@ export async function adjustPokemonHp(
   if (!pokemon || !pokemon.pokedex) {
     return { error: 'Pokemon not found' }
   }
+
+  // Same reverse-embed quirk documented throughout this codebase -- trainers_pokemon.pokemon_id is a
+  // primary key, so this comes back as a single object (or null) at runtime, not the array TS infers.
+  const ownerLinkForCampaign = pokemon.trainers_pokemon as unknown as { trainers: { campaign_id: string | null } | null } | null
+  // [[Feature - Allow a GM to change Loyalty settings]]: effective Campaign for the Fainted LP
+  // penalty below -- an owned Pokemon's is its Trainer's, a pool/wild Pokemon's is its own tag, same
+  // "wherever it actually lives" rule documented elsewhere in this file.
+  const effectiveCampaignIdForLoyalty = ownerLinkForCampaign ? (ownerLinkForCampaign.trainers?.campaign_id ?? null) : pokemon.campaign_id
 
   const maxHp = pokemon.pokedex.base_hp + pokemon.bonus_base_hp + pokemon.ev_hp * 6
 
@@ -900,8 +915,8 @@ export async function adjustPokemonHp(
   // transition rather than a one-time flag, so repeated fainting across a session removes LP each
   // time. Healing back above 0 and fainting again later is a fresh transition, not a repeat.
   if (pokemon.current_hp > 0 && newHp === 0) {
-    const { data: faintEvent } = await supabase.from('loyalty_point_events').select('points').eq('name', 'Fainted').maybeSingle()
-    updates.loyalty_points = Math.max(0, pokemon.loyalty_points + (faintEvent?.points ?? 0))
+    const faintPoints = await loadLoyaltyEventPoints(supabase, 'Fainted', effectiveCampaignIdForLoyalty)
+    updates.loyalty_points = Math.max(0, pokemon.loyalty_points + faintPoints)
   }
 
   // Bug fix (2026-09-14): the plain update above only ever actually writes when the caller is this
@@ -1165,7 +1180,7 @@ export async function learnMove(
   const { data: pokemon } = await supabase
     .from('pokemon')
     .select(
-      'current_exp, is_shiny, loyalty_points, pokedex_id, pokedex(growth_rate_id), trainers_pokemon(obtain_method_id)',
+      'current_exp, is_shiny, loyalty_points, pokedex_id, campaign_id, pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(campaign_id))',
     )
     .eq('id', pokemonId)
     .single()
@@ -1176,7 +1191,10 @@ export async function learnMove(
 
   // trainers_pokemon.pokemon_id is a primary key, so this reverse embed comes back as a single
   // object at runtime (same quirk documented on the Pokemon page), not the array TS infers.
-  const ownerLink = pokemon.trainers_pokemon as unknown as { obtain_method_id: number | null } | null
+  const ownerLink = pokemon.trainers_pokemon as unknown as { obtain_method_id: number | null; trainers: { campaign_id: string | null } | null } | null
+  // [[Feature - Allow a GM to change Loyalty settings]]: effective Campaign, same "wherever it
+  // actually lives" rule as elsewhere in this file.
+  const effectiveCampaignId = ownerLink ? (ownerLink.trainers?.campaign_id ?? null) : pokemon.campaign_id
 
   const { level } = await computePokemonLevel(supabase, {
     currentExp: pokemon.current_exp,
@@ -1187,6 +1205,7 @@ export async function learnMove(
     // pokedex(growth_rate_id) alongside other scalar columns in the same select() infers as an
     // array here even though it's a single row at runtime.
     growthRateId: (pokemon.pokedex as unknown as { growth_rate_id: number | null } | null)?.growth_rate_id ?? null,
+    campaignId: effectiveCampaignId,
   })
 
   const { data: known } = await supabase.from('pokemon_moves').select('move_id').eq('pokemon_id', pokemonId)
@@ -1365,7 +1384,7 @@ export async function addPokemonExp(
   const { data: pokemon } = await supabase
     .from('pokemon')
     .select(
-      'current_exp, is_shiny, loyalty_points, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(user_id, campaigns(gm_user_id)))',
+      'current_exp, is_shiny, loyalty_points, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(user_id, campaign_id, campaigns(gm_user_id)))',
     )
     .eq('id', pokemonId)
     .single()
@@ -1378,7 +1397,7 @@ export async function addPokemonExp(
   // forward trainers -> campaigns embed nested inside it) both come back as single objects.
   const ownerLink = pokemon.trainers_pokemon as unknown as {
     obtain_method_id: number | null
-    trainers: { user_id: string; campaigns: { gm_user_id: string } | null } | null
+    trainers: { user_id: string; campaign_id: string | null; campaigns: { gm_user_id: string } | null } | null
   } | null
   const campaign = pokemon.campaign as unknown as { gm_user_id: string } | null
   // A Wild/pool Pokemon has no trainers_pokemon row -- its GM-tier authority is the campaign's real
@@ -1399,6 +1418,10 @@ export async function addPokemonExp(
     return { error: 'Only the campaign GM can change experience' }
   }
 
+  // [[Feature - Allow a GM to change Loyalty settings]]: effective Campaign, same "wherever it
+  // actually lives" rule as elsewhere in this file.
+  const effectiveCampaignId = ownerLink ? (ownerLink.trainers?.campaign_id ?? null) : pokemon.campaign_id
+
   const newExp = Math.max(0, pokemon.current_exp + sign * amount)
 
   const { error } = await supabase.from('pokemon').update({ current_exp: newExp }).eq('id', pokemonId)
@@ -1418,6 +1441,7 @@ export async function addPokemonExp(
     // pokedex(growth_rate_id) alongside other scalar columns in the same select() infers as an
     // array here even though it's a single row at runtime.
     growthRateId: (pokemon.pokedex as unknown as { growth_rate_id: number | null } | null)?.growth_rate_id ?? null,
+    campaignId: effectiveCampaignId,
   })
 
   return { currentExp: newExp, effectiveExp, level }
@@ -1452,7 +1476,7 @@ export async function addPokemonLoyaltyPoints(
   const { data: pokemon } = await supabase
     .from('pokemon')
     .select(
-      'current_exp, is_shiny, loyalty_points, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(user_id, campaigns(gm_user_id)))',
+      'current_exp, is_shiny, loyalty_points, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(user_id, campaign_id, campaigns(gm_user_id)))',
     )
     .eq('id', pokemonId)
     .single()
@@ -1465,7 +1489,7 @@ export async function addPokemonLoyaltyPoints(
   // forward trainers -> campaigns embed nested inside it) both come back as single objects.
   const ownerLink = pokemon.trainers_pokemon as unknown as {
     obtain_method_id: number | null
-    trainers: { user_id: string; campaigns: { gm_user_id: string } | null } | null
+    trainers: { user_id: string; campaign_id: string | null; campaigns: { gm_user_id: string } | null } | null
   } | null
   const campaign = pokemon.campaign as unknown as { gm_user_id: string } | null
   const isGM = ownerLink
@@ -1481,6 +1505,10 @@ export async function addPokemonLoyaltyPoints(
     return { error: 'Only the campaign GM can change Loyalty' }
   }
 
+  // [[Feature - Allow a GM to change Loyalty settings]]: effective Campaign, same "wherever it
+  // actually lives" rule as elsewhere in this file.
+  const effectiveCampaignId = ownerLink ? (ownerLink.trainers?.campaign_id ?? null) : pokemon.campaign_id
+
   const newLoyaltyPoints = Math.max(0, pokemon.loyalty_points + sign * amount)
 
   const { error } = await supabase.from('pokemon').update({ loyalty_points: newLoyaltyPoints }).eq('id', pokemonId)
@@ -1489,8 +1517,8 @@ export async function addPokemonLoyaltyPoints(
     return { error: error.message }
   }
 
-  const { data: loyaltyRows } = await supabase.from('loyalties').select('name, modifier, sort_order, min_points')
-  const tier = computeLoyaltyTier(newLoyaltyPoints, loyaltyRows ?? [])
+  const loyaltyRows = await loadLoyaltyTiers(supabase, effectiveCampaignId)
+  const tier = computeLoyaltyTier(newLoyaltyPoints, loyaltyRows)
 
   const { level, effectiveExp } = await computePokemonLevel(supabase, {
     currentExp: pokemon.current_exp,
@@ -1501,6 +1529,7 @@ export async function addPokemonLoyaltyPoints(
     // pokedex(growth_rate_id) alongside other scalar columns in the same select() infers as an
     // array here even though it's a single row at runtime.
     growthRateId: (pokemon.pokedex as unknown as { growth_rate_id: number | null } | null)?.growth_rate_id ?? null,
+    campaignId: effectiveCampaignId,
   })
 
   return { loyaltyPoints: newLoyaltyPoints, loyaltyName: tier?.name ?? null, loyaltyModifier: tier?.modifier ?? 1, level, effectiveExp }
@@ -1552,7 +1581,7 @@ export async function learnPassive(
   const { data: pokemon } = await supabase
     .from('pokemon')
     .select(
-      'current_exp, is_shiny, loyalty_points, pokedex_id, pokedex(growth_rate_id), trainers_pokemon(obtain_method_id)',
+      'current_exp, is_shiny, loyalty_points, pokedex_id, campaign_id, pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(campaign_id))',
     )
     .eq('id', pokemonId)
     .single()
@@ -1569,13 +1598,17 @@ export async function learnPassive(
 
   // trainers_pokemon.pokemon_id is a primary key, so this reverse embed comes back as a single
   // object at runtime (same quirk documented on the Pokemon page), not the array TS infers.
-  const ownerLink = pokemon.trainers_pokemon as unknown as { obtain_method_id: number | null } | null
+  const ownerLink = pokemon.trainers_pokemon as unknown as { obtain_method_id: number | null; trainers: { campaign_id: string | null } | null } | null
+  // [[Feature - Allow a GM to change Loyalty settings]]: effective Campaign, same "wherever it
+  // actually lives" rule as elsewhere in this file.
+  const effectiveCampaignId = ownerLink ? (ownerLink.trainers?.campaign_id ?? null) : pokemon.campaign_id
 
   const { level } = await computePokemonLevel(supabase, {
     currentExp: pokemon.current_exp,
     isShiny: pokemon.is_shiny,
     loyaltyPoints: pokemon.loyalty_points,
     obtainMethodId: ownerLink?.obtain_method_id ?? null,
+    campaignId: effectiveCampaignId,
     // Same reverse-embed quirk documented throughout this codebase -- a single-field embed like
     // pokedex(growth_rate_id) alongside other scalar columns in the same select() infers as an
     // array here even though it's a single row at runtime.
@@ -1832,6 +1865,10 @@ export async function evolvePokemon(
     return { error: 'Not authorized to evolve this Pokemon' }
   }
 
+  // [[Feature - Allow a GM to change Loyalty settings]]: effective Campaign, same "wherever it
+  // actually lives" rule as elsewhere in this file.
+  const effectiveCampaignId = ownerLink ? (ownerLink.trainers?.campaign_id ?? null) : pokemon.campaign_id
+
   const { data: toSpecies } = await supabase
     .from('pokedex')
     .select('id, size_id, weight_id, evolution_chain_id')
@@ -1881,6 +1918,7 @@ export async function evolvePokemon(
       loyaltyPoints: pokemon.loyalty_points,
       obtainMethodId: ownerLink?.obtain_method_id ?? null,
       growthRateId: fromSpecies?.growth_rate_id ?? null,
+      campaignId: effectiveCampaignId,
     })
 
     const { data: edges } = await supabase
@@ -1891,7 +1929,8 @@ export async function evolvePokemon(
       .in('trigger_type', ['level', 'loyalty'])
 
     const levelSatisfied = (edges ?? []).some((e) => e.trigger_type === 'level' && e.level_requirement !== null && level >= e.level_requirement)
-    const loyaltySatisfied = (edges ?? []).some((e) => e.trigger_type === 'loyalty') && (await isMaxLoyalty(supabase, pokemon.loyalty_points))
+    const loyaltySatisfied =
+      (edges ?? []).some((e) => e.trigger_type === 'loyalty') && (await isMaxLoyalty(supabase, pokemon.loyalty_points, effectiveCampaignId))
 
     if (!levelSatisfied && !loyaltySatisfied) {
       // Not a currently-satisfied automatic edge -- only a GM override can do this (skip-ahead,
