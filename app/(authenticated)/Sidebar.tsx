@@ -15,13 +15,14 @@ const SECTIONS = [
 // Text-only, no icons -- explicitly decided against adding an icon dependency for this. No
 // collapse/hamburger behavior for small viewports, matching this app's existing desktop-first
 // convention (confirmed only one file anywhere uses a responsive breakpoint class).
-// The two campaign-scoped list pages that actually exist as their own routes
-// (app/(authenticated)/campaigns/[id]/npcs and .../wild-pokemon) -- player Trainers have no
+// The campaign-scoped list pages that actually exist as their own routes
+// (app/(authenticated)/campaigns/[id]/{npcs,wild-pokemon,encounters}) -- player Trainers have no
 // equivalent list route of their own (the roster lives on the Campaign page itself, which the
-// bookmark's own Link already goes to), so there's no third shortcut to add here.
+// bookmark's own Link already goes to), so there's no fourth shortcut to add here.
 const CAMPAIGN_SHORTCUTS = [
   { path: 'npcs', label: 'NPCs' },
   { path: 'wild-pokemon', label: 'Wild Pokémon' },
+  { path: 'encounters', label: 'Encounters' },
 ]
 
 export function Sidebar({ bookmarks }: { bookmarks: SidebarBookmark[] }) {
