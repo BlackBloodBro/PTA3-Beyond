@@ -24,6 +24,7 @@ import {
   clearPokemonTemporaryHp,
   addPokemonExp,
   addPokemonLoyaltyPoints,
+  setManualLoyaltyTier,
   assignPokemonEv,
   setPokemonEvs,
   setMoveUsesRemaining,
@@ -224,7 +225,7 @@ type StatRows = ReturnType<typeof computeStatRows>
 // [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: static reference data
 // backing the two "How does this work?" disclosures -- rendered as-is from the seed tables so the
 // explanation can't silently drift from what the app actually computes.
-export type LoyaltyTierRow = { name: string; minPoints: number; modifier: number }
+export type LoyaltyTierRow = { id: number; name: string; minPoints: number; modifier: number }
 export type LpEventRow = { name: string; points: number }
 export type LevelThresholdRow = { levelNumber: number; cumulativeExp: number }
 
@@ -268,6 +269,7 @@ type PokemonStateValue = {
   loyaltyPoints: number
   loyaltyName: string | null
   loyaltyModifier: number
+  lpDisabled: boolean
   isShiny: boolean
   evolutionTargets: EvolutionTarget[]
   chainMembers: ChainMember[]
@@ -351,6 +353,7 @@ export function PokemonStateProvider(props: {
   initialLoyaltyPoints: number
   initialLoyaltyName: string | null
   initialLoyaltyModifier: number
+  lpDisabled: boolean
   isShiny: boolean
   evolutionTargets: EvolutionTarget[]
   chainMembers: ChainMember[]
@@ -450,6 +453,7 @@ export function PokemonStateProvider(props: {
     loyaltyPoints,
     loyaltyName,
     loyaltyModifier,
+    lpDisabled: props.lpDisabled,
     isShiny: props.isShiny,
     evolutionTargets: props.evolutionTargets,
     chainMembers: props.chainMembers,
@@ -621,8 +625,11 @@ export function ExperienceSection() {
 // Loyalty <select>. A change here can also shift Level (LP feeds the exp-to-level formula via
 // loyaltyModifier), so setLoyalty updates both in one go.
 export function LoyaltySection() {
-  const { isGM, pokemonId, loyaltyPoints, loyaltyName, loyaltyModifier, loyaltyTiers, loyaltyPointEvents, setLoyalty } = usePokemonState()
+  const { isGM, pokemonId, loyaltyPoints, loyaltyName, loyaltyModifier, loyaltyTiers, loyaltyPointEvents, lpDisabled, setLoyalty } = usePokemonState()
   const [amount, setAmount] = useState(0)
+  // [[Feature - Fully turn off LP]]: defaults to this Pokemon's current tier so "Set tier" is a no-op
+  // until the GM actually picks something else, rather than forcing a re-pick of the tier it's already at.
+  const [selectedTierId, setSelectedTierId] = useState<number | ''>(() => loyaltyTiers.find((t) => t.name === loyaltyName)?.id ?? '')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -641,78 +648,125 @@ export function LoyaltySection() {
     setAmount(0)
   }
 
+  async function handleSetTier() {
+    if (selectedTierId === '') return
+    setPending(true)
+    setError(null)
+    const result = await setManualLoyaltyTier(pokemonId, selectedTierId)
+    setPending(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setLoyalty(result)
+  }
+
   return (
     <section className="rounded border border-accent bg-accent/10 p-4">
       <h2 className="mb-2 font-semibold">Loyalty</h2>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-        <p>Loyalty points: {loyaltyPoints}</p>
+        {!lpDisabled && <p>Loyalty points: {loyaltyPoints}</p>}
         <p>
           Tier: {loyaltyName ?? '—'} (×{loyaltyModifier})
         </p>
       </div>
 
-      {/* [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: tier table and LP
-          events rendered straight from the seed tables so they can't drift from the real values. */}
-      <details className="mt-2 text-xs text-muted">
-        <summary className="cursor-pointer">How does this work?</summary>
-        <div className="mt-2 flex flex-col gap-2">
-          <p>
-            Loyalty points (LP) place a Pokémon in the highest loyalty tier whose threshold its LP total
-            has reached. That tier&apos;s modifier feeds back into the exp-to-level formula (see the
-            Experience section), so raising loyalty can also raise level.
-          </p>
-          <div>
-            <p className="font-semibold">Tiers</p>
-            <ul className="mt-1 flex flex-col gap-0.5">
-              {[...loyaltyTiers]
-                .sort((a, b) => a.minPoints - b.minPoints)
-                .map((t) => (
-                  <li key={t.name}>
-                    {t.name} -- {t.minPoints}+ LP (×{t.modifier} exp)
+      {lpDisabled ? (
+        <p className="mt-2 text-xs text-muted">
+          LP is turned off for this Campaign -- the GM sets this Pokémon&apos;s Loyalty tier directly below. Its
+          modifier still feeds into the exp-to-level formula as normal.
+        </p>
+      ) : (
+        // [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: tier table and LP
+        // events rendered straight from the seed tables so they can't drift from the real values.
+        <details className="mt-2 text-xs text-muted">
+          <summary className="cursor-pointer">How does this work?</summary>
+          <div className="mt-2 flex flex-col gap-2">
+            <p>
+              Loyalty points (LP) place a Pokémon in the highest loyalty tier whose threshold its LP total
+              has reached. That tier&apos;s modifier feeds back into the exp-to-level formula (see the
+              Experience section), so raising loyalty can also raise level.
+            </p>
+            <div>
+              <p className="font-semibold">Tiers</p>
+              <ul className="mt-1 flex flex-col gap-0.5">
+                {[...loyaltyTiers]
+                  .sort((a, b) => a.minPoints - b.minPoints)
+                  .map((t) => (
+                    <li key={t.name}>
+                      {t.name} -- {t.minPoints}+ LP (×{t.modifier} exp)
+                    </li>
+                  ))}
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold">What changes LP automatically</p>
+              <ul className="mt-1 flex flex-col gap-0.5">
+                {loyaltyPointEvents.map((e) => (
+                  <li key={e.name}>
+                    {e.name}: {e.points > 0 ? '+' : ''}
+                    {e.points} LP
                   </li>
                 ))}
-            </ul>
+              </ul>
+              <p className="mt-1">The GM can also add or remove LP directly below.</p>
+            </div>
           </div>
-          <div>
-            <p className="font-semibold">What changes LP automatically</p>
-            <ul className="mt-1 flex flex-col gap-0.5">
-              {loyaltyPointEvents.map((e) => (
-                <li key={e.name}>
-                  {e.name}: {e.points > 0 ? '+' : ''}
-                  {e.points} LP
-                </li>
-              ))}
-            </ul>
-            <p className="mt-1">The GM can also add or remove LP directly below.</p>
-          </div>
-        </div>
-      </details>
+        </details>
+      )}
 
-      <div className="mt-3 flex items-center gap-2 border-t pt-3">
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => handleAdjust(1)}
-          className="rounded border border-success px-3 py-2 text-sm font-semibold text-success disabled:opacity-30"
-        >
-          Add LP
-        </button>
-        <input
-          type="number"
-          min={0}
-          value={amount}
-          onChange={(e) => setAmount(Number(e.target.value))}
-          className="bg-surface-subtle w-24 rounded border p-2 text-center"
-        />
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => handleAdjust(-1)}
-          className="rounded border border-danger px-3 py-2 text-sm font-semibold text-danger disabled:opacity-30"
-        >
-          Remove LP
-        </button>
-      </div>
+      {lpDisabled ? (
+        <div className="mt-3 flex items-center gap-2 border-t pt-3">
+          <select
+            value={selectedTierId}
+            onChange={(e) => setSelectedTierId(Number(e.target.value))}
+            className="bg-surface-subtle rounded border p-2 text-sm"
+          >
+            <option value="">Choose a tier...</option>
+            {[...loyaltyTiers]
+              .sort((a, b) => a.minPoints - b.minPoints)
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+          </select>
+          <button
+            type="button"
+            disabled={pending || selectedTierId === ''}
+            onClick={handleSetTier}
+            className="rounded border px-3 py-2 text-sm font-semibold disabled:opacity-30"
+          >
+            Set tier
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 flex items-center gap-2 border-t pt-3">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => handleAdjust(1)}
+            className="rounded border border-success px-3 py-2 text-sm font-semibold text-success disabled:opacity-30"
+          >
+            Add LP
+          </button>
+          <input
+            type="number"
+            min={0}
+            value={amount}
+            onChange={(e) => setAmount(Number(e.target.value))}
+            className="bg-surface-subtle w-24 rounded border p-2 text-center"
+          />
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => handleAdjust(-1)}
+            className="rounded border border-danger px-3 py-2 text-sm font-semibold text-danger disabled:opacity-30"
+          >
+            Remove LP
+          </button>
+        </div>
+      )}
       {error && <p className="mt-1 text-xs text-danger">{error}</p>}
     </section>
   )

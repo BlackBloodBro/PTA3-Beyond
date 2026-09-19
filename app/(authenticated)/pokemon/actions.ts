@@ -15,7 +15,7 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { previewPassiveLoss, shiftSizeOrWeightOverride, isMaxLoyalty } from '@/lib/pta3/evolution'
 import { setOriginalTrainerIfUnset } from '@/lib/pta3/pokemonOrigin'
 import { loadExcludedPokedexIds } from '@/lib/pta3/pokedexExclusions'
-import { loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
+import { loadLoyaltyTiers, loadCampaignLpDisabled } from '@/lib/pta3/loyaltySettings'
 import { loadGrantEventAmounts } from '@/lib/pta3/grantEvents'
 import { loadShinyRateDenominator } from '@/lib/pta3/shinyRateSettings'
 
@@ -1546,6 +1546,93 @@ export async function addPokemonLoyaltyPoints(
   })
 
   return { loyaltyPoints: newLoyaltyPoints, loyaltyName: tier?.name ?? null, loyaltyModifier: tier?.modifier ?? 1, level, effectiveExp }
+}
+
+// [[Feature - Fully turn off LP]]: the GM-manual equivalent of addPokemonLoyaltyPoints above, only
+// usable while LP is off for this Pokemon's effective Campaign. Rather than a separate "manual tier"
+// column, this directly sets loyalty_points to the chosen tier's own effective min_points threshold --
+// computeLoyaltyTier then naturally re-derives that exact tier every time, both while LP stays off (the
+// value just sits there, satisfying "LP that was there should stay" for the common untouched case) and
+// after LP is turned back on (satisfying "the tier should stay the same," since nothing needs to change
+// at the moment of re-enabling -- loyalty_points already encodes the GM's last manual choice).
+export async function setManualLoyaltyTier(
+  pokemonId: string,
+  loyaltyId: number,
+): Promise<
+  | { error: string }
+  | { loyaltyPoints: number; loyaltyName: string | null; loyaltyModifier: number; level: number; effectiveExp: number }
+> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: pokemon } = await supabase
+    .from('pokemon')
+    .select(
+      'current_exp, is_shiny, created_by_user_id, campaign_id, campaign:campaign_id(gm_user_id), pokedex(growth_rate_id), trainers_pokemon(obtain_method_id, trainers(user_id, campaign_id, campaigns(gm_user_id)))',
+    )
+    .eq('id', pokemonId)
+    .single()
+
+  if (!pokemon) {
+    return { error: 'Pokemon not found' }
+  }
+
+  // Same reverse-embed quirk as addPokemonLoyaltyPoints above.
+  const ownerLink = pokemon.trainers_pokemon as unknown as {
+    obtain_method_id: number | null
+    trainers: { user_id: string; campaign_id: string | null; campaigns: { gm_user_id: string } | null } | null
+  } | null
+  const campaign = pokemon.campaign as unknown as { gm_user_id: string } | null
+  const isGM = ownerLink
+    ? ownerLink.trainers?.campaigns
+      ? ownerLink.trainers.campaigns.gm_user_id === user.id
+      : ownerLink.trainers?.user_id === user.id
+    : resolveWildPokemonAuthority(
+        { campaignId: pokemon.campaign_id, campaignGmUserId: campaign?.gm_user_id ?? null, createdByUserId: pokemon.created_by_user_id },
+        user.id,
+      )
+
+  if (!isGM) {
+    return { error: 'Only the campaign GM can change Loyalty' }
+  }
+
+  const effectiveCampaignId = ownerLink ? (ownerLink.trainers?.campaign_id ?? null) : pokemon.campaign_id
+
+  const isLpDisabled = await loadCampaignLpDisabled(supabase, effectiveCampaignId)
+  if (!isLpDisabled) {
+    return { error: 'LP is not turned off for this Campaign' }
+  }
+
+  const loyaltyRows = await loadLoyaltyTiers(supabase, effectiveCampaignId)
+  const tier = loyaltyRows.find((t) => t.id === loyaltyId)
+  if (!tier) {
+    return { error: 'Invalid Loyalty tier' }
+  }
+
+  const newLoyaltyPoints = tier.min_points
+
+  const { error } = await supabase.from('pokemon').update({ loyalty_points: newLoyaltyPoints }).eq('id', pokemonId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  const { level, effectiveExp } = await computePokemonLevel(supabase, {
+    currentExp: pokemon.current_exp,
+    isShiny: pokemon.is_shiny,
+    loyaltyPoints: newLoyaltyPoints,
+    obtainMethodId: ownerLink?.obtain_method_id ?? null,
+    growthRateId: (pokemon.pokedex as unknown as { growth_rate_id: number | null } | null)?.growth_rate_id ?? null,
+    campaignId: effectiveCampaignId,
+  })
+
+  return { loyaltyPoints: newLoyaltyPoints, loyaltyName: tier.name, loyaltyModifier: tier.modifier, level, effectiveExp }
 }
 
 export async function forgetMove(pokemonId: string, moveId: number): Promise<{ error?: string }> {

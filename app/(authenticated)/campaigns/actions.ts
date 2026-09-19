@@ -217,6 +217,33 @@ export async function updateCampaignSellPricePercent(campaignId: string, percent
   return { sellPricePercent: clamped }
 }
 
+// [[Feature - Fully turn off LP]]: GM-only, same tier/shape as updateCampaignSellPricePercent above --
+// a plain column on `campaigns`, not an override table (see loadCampaignLpDisabled's own reasoning).
+export async function updateCampaignLpDisabled(campaignId: string, disabled: boolean): Promise<{ error: string } | { lpDisabled: boolean }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: campaign } = await supabase.from('campaigns').select('gm_user_id').eq('id', campaignId).maybeSingle()
+
+  if (!campaign || campaign.gm_user_id !== user.id) {
+    return { error: 'Only this campaign\'s GM can change LP settings' }
+  }
+
+  const { error } = await supabase.from('campaigns').update({ lp_disabled: disabled }).eq('id', campaignId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { lpDisabled: disabled }
+}
+
 export async function removePlayer(campaignId: string, targetUserId: string) {
   const supabase = await createClient()
   const {

@@ -25,7 +25,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     redirect('/login')
   }
 
-  const { data: campaign } = await supabase.from('campaigns').select('id, name, gm_user_id, sell_price_percent').eq('id', id).single()
+  const { data: campaign } = await supabase.from('campaigns').select('id, name, gm_user_id, sell_price_percent, lp_disabled').eq('id', id).single()
 
   if (!campaign || campaign.gm_user_id !== user.id) {
     redirect(`/campaigns/${id}`)
@@ -127,7 +127,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
 
       <ExpSettingsSection campaignId={id} bands={levelBandRows} events={expGrantRows} />
 
-      <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} />
+      <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} initialLpDisabled={campaign.lp_disabled} />
 
       {/* Per the user (2026-09-18): the 9 "GM Custom X" catalogs specifically (Pokemon through Types)
           as a 3x3 grid under their own "Homebrew" heading -- Excluded Pokémon stays out of this grid
