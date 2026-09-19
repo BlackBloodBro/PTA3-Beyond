@@ -868,7 +868,8 @@ export function HpSection() {
             label={String(maxHp)}
             tooltip={[
               `Base: ${species.base_hp}`,
-              ...(evs.hp > 0 ? [`EV: +${evs.hp * 6} (${evs.hp} EV × 6)`] : []),
+              // [[Feature - Fully turn off EV's]]: hidden while off, same as the Stats table's EV line.
+              ...(!evsDisabled && evs.hp > 0 ? [`EV: +${evs.hp * 6} (${evs.hp} EV × 6)`] : []),
               `Total: ${maxHp}`,
             ].join('\n')}
           />
@@ -1026,7 +1027,10 @@ export function StatsSection() {
               <th className="pr-2">Stat</th>
               <th className="pr-2">Value</th>
               <th className="pr-2">Modifier</th>
-              <th>EV</th>
+              {/* [[Feature - Fully turn off EV's]]: the EV column (and its tooltip line below) hides
+                  entirely while off, per the user -- seeing the stored count next to a Value that
+                  doesn't include it read as "EVs are still applying" even though the math was correct. */}
+              {!evsDisabled && <th>EV</th>}
             </tr>
           </thead>
           <tbody>
@@ -1039,7 +1043,7 @@ export function StatsSection() {
                     tooltip={[
                       `Base: ${s.base}`,
                       ...(s.statBonus !== 0 ? [`Hatch bonus: ${formatSigned(s.statBonus)}`] : []),
-                      ...(s.ev !== 0 ? [`EV: ${formatSigned(s.ev)}`] : []),
+                      ...(!evsDisabled && s.ev !== 0 ? [`EV: ${formatSigned(s.ev)}`] : []),
                       ...(s.natureAdjust !== 0 ? [`Nature: ${formatSigned(s.natureAdjust)}`] : []),
                       ...(s.passiveBonus !== 0 ? [`Passive: ${formatSigned(s.passiveBonus)}`] : []),
                       ...(s.afflictionBonus !== 0 ? [`Affliction: ${formatSigned(s.afflictionBonus)}`] : []),
@@ -1053,9 +1057,11 @@ export function StatsSection() {
                   {s.modifier}
                   {s.key === 'speed' && ` (${movementFeet} ft.)`}
                 </td>
-                <td className="text-xs text-muted">
-                  {s.ev}/{MAX_EV_PER_STAT}
-                </td>
+                {!evsDisabled && (
+                  <td className="text-xs text-muted">
+                    {s.ev}/{MAX_EV_PER_STAT}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
