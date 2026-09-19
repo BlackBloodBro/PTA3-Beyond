@@ -5,7 +5,7 @@ import { updatePokemonDetails } from '@/app/(authenticated)/pokemon/actions'
 import { computePokemonLevel, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
 import { loadLoyaltyTiers, loadCampaignLpDisabled } from '@/lib/pta3/loyaltySettings'
 import { loadGrantEvents } from '@/lib/pta3/grantEvents'
-import { loadEffectiveLevels } from '@/lib/pta3/levelBandSettings'
+import { loadEffectiveLevels, loadCampaignExpDisabled } from '@/lib/pta3/levelBandSettings'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
@@ -292,13 +292,15 @@ export default async function WildPokemonPage({
 
   // [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: reference data for the
   // GM-only "How does this work?" disclosures in the Experience/Loyalty sections.
-  const [grantEventRows, levelRows, lpDisabled] = await Promise.all([
+  const [grantEventRows, levelRows, lpDisabled, expDisabled] = await Promise.all([
     loadGrantEvents(supabase, campaignId),
     // [[Feature - Let a GM customize EXP needed per level band]]: the effective (Campaign-derived)
     // curve, not a direct `levels` table read.
     loadEffectiveLevels(supabase, campaignId),
     // [[Feature - Fully turn off LP]]
     loadCampaignLpDisabled(supabase, campaignId),
+    // [[Feature - Fully turn off EXP]]
+    loadCampaignExpDisabled(supabase, campaignId),
   ])
   const lpEventRows = [...grantEventRows].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints)
 
@@ -367,7 +369,7 @@ export default async function WildPokemonPage({
   // Add Exp can reveal newly-learnable moves without a fresh request.
   const { data: learnableRowsRaw } = await supabase
     .from('pokedex_moves')
-    .select('level_learned, move:moves(id, name, range, damage_stat, frequency, damage_dice, description, types(name))')
+    .select('level_learned, learnable_without_exp, move:moves(id, name, range, damage_stat, frequency, damage_dice, description, types(name))')
     .eq('pokedex_id', pokemon.pokedex_id)
     .order('level_learned', { nullsFirst: true })
 
@@ -512,6 +514,7 @@ export default async function WildPokemonPage({
         initialLevel={level}
         initialEffectiveExp={effectiveExp}
         initialCurrentExp={pokemon.current_exp}
+        expDisabled={expDisabled}
         initialCurrentHp={pokemon.current_hp}
         initialTemporaryHp={pokemon.temporary_hp}
         initialEvs={{

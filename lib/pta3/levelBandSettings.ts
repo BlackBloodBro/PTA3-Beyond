@@ -55,3 +55,13 @@ export async function loadEffectiveLevels(supabase: SupabaseClient, campaignId?:
   const bands = await loadLevelBands(supabase, campaignId)
   return deriveLevelsFromBands(bands.map((b) => ({ band: b.band, expPerLevel: b.expPerLevel })))
 }
+
+// [[Feature - Fully turn off EXP]]: a plain per-Campaign column (like `campaigns.lp_disabled`), not the
+// global-default-plus-override pattern above -- same reasoning as `loadCampaignLpDisabled`
+// (lib/pta3/loyaltySettings.ts). `campaignId` null/undefined (a personal Trainer's Pokemon) means EXP
+// can never be disabled -- there's no Campaign to disable it for.
+export async function loadCampaignExpDisabled(supabase: SupabaseClient, campaignId?: string | null): Promise<boolean> {
+  if (!campaignId) return false
+  const { data } = await supabase.from('campaigns').select('exp_disabled').eq('id', campaignId).maybeSingle()
+  return data?.exp_disabled ?? false
+}

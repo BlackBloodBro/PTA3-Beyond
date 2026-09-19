@@ -180,6 +180,12 @@ export type LearnsetEntry = {
   // "(always known)" and so a grant merged onto an existing too-high-level natural entry still
   // reads as GM-granted rather than silently losing that context.
   granted?: boolean
+  // [[Feature - Fully turn off EXP]]: distinct from level_learned === null (TM-eligible) -- this move
+  // is specifically curated as learnable when its species' effective Campaign has EXP off, regardless
+  // of its own level_learned value. Always false/absent for a grant entry (grants bypass the gate
+  // entirely anyway). Snake_case to match level_learned's own DB-shape convention on this type (both
+  // are cast straight off the Supabase row elsewhere, not remapped field-by-field).
+  learnable_without_exp?: boolean
 }
 
 export type AfflictionInfo = {
@@ -246,6 +252,7 @@ type PokemonStateValue = {
   level: number
   effectiveExp: number
   currentExp: number
+  expDisabled: boolean
   currentHp: number
   temporaryHp: number
   evs: Record<EvStatKey, number>
@@ -328,6 +335,7 @@ export function PokemonStateProvider(props: {
   initialLevel: number
   initialEffectiveExp: number
   initialCurrentExp: number
+  expDisabled: boolean
   initialCurrentHp: number
   initialTemporaryHp: number
   initialEvs: Record<EvStatKey, number>
@@ -430,6 +438,7 @@ export function PokemonStateProvider(props: {
     level,
     effectiveExp,
     currentExp,
+    expDisabled: props.expDisabled,
     currentHp,
     temporaryHp,
     evs,
@@ -499,14 +508,15 @@ export function PokemonStateProvider(props: {
 // under the Nickname (Species) heading -- was a single combined "Level {n} {type}" line with no Loyalty
 // at all. Shared by all 3 near-duplicate Pokemon detail pages that render this header.
 export function LevelLine() {
-  const { level, effectiveType1, effectiveType2, loyaltyName } = usePokemonState()
+  const { level, expDisabled, effectiveType1, effectiveType2, loyaltyName } = usePokemonState()
   return (
     <div className="text-sm text-muted">
       <p>
         {effectiveType1}
         {effectiveType2 ? ` / ${effectiveType2}` : ''}
       </p>
-      <p>Level {level}</p>
+      {/* [[Feature - Fully turn off EXP]]: Level is off along with EXP for this Campaign -- nothing to show. */}
+      {!expDisabled && <p>Level {level}</p>}
       <p>Loyalty {loyaltyName ?? '—'}</p>
     </div>
   )
@@ -519,6 +529,7 @@ export function ExperienceSection() {
     level,
     currentExp,
     effectiveExp,
+    expDisabled,
     growthRateName,
     growthRateModifier,
     obtainMethodName,
@@ -544,6 +555,20 @@ export function ExperienceSection() {
     }
     setExp(result)
     setAmount(0)
+  }
+
+  // [[Feature - Fully turn off EXP]]: EXP off means Level is off too -- nothing here to show or adjust.
+  // Moves this Pokemon can learn without a Level live in the Moves section's own curated list instead.
+  if (expDisabled) {
+    return (
+      <section className="rounded border border-accent bg-accent/10 p-4">
+        <h2 className="mb-2 font-semibold">Experience</h2>
+        <p className="text-xs text-muted">
+          EXP is turned off for this Campaign -- Pokémon don&apos;t have a Level here. Which Moves they can learn
+          instead is curated per species in the Moves section below.
+        </p>
+      </section>
+    )
   }
 
   return (
@@ -1158,6 +1183,7 @@ export function MovesSection() {
     speciesList,
     allTypeNames,
     level,
+    expDisabled,
     addKnownMove,
     removeKnownMove,
     updateMoveUses,
@@ -1198,8 +1224,14 @@ export function MovesSection() {
     learnsetById.set(g.move.id, { ...(learnsetById.get(g.move.id) ?? g), granted: true })
   }
   const mergedLearnset = [...learnsetById.values()]
+  // [[Feature - Fully turn off EXP]]: with EXP (and therefore Level) off for this Pokemon's Campaign,
+  // a normal level-gated move can never be satisfied -- only TM-eligible/always-known moves
+  // (level_learned === null, unrelated to level) and moves specifically curated as learnable without
+  // EXP stay eligible.
   const learnableMoves = mergedLearnset.filter(
-    (r) => (r.granted || r.level_learned === null || r.level_learned <= level) && !knownMoveIds.includes(r.move.id),
+    (r) =>
+      (r.granted || r.level_learned === null || (expDisabled ? r.learnable_without_exp === true : r.level_learned <= level)) &&
+      !knownMoveIds.includes(r.move.id),
   )
 
   async function handleUse(moveId: number, target: number) {

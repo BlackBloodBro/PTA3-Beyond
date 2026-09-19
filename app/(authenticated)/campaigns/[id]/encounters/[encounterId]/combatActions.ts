@@ -9,6 +9,7 @@ import { resolveAccuracyStat, stabBonus, effectivenessFor, adjustDiceCount, type
 import { grantPokemonTemporaryHp } from '@/app/(authenticated)/pokemon/actions'
 import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
 import { loadGrantEventAmounts } from '@/lib/pta3/grantEvents'
+import { loadCampaignExpDisabled } from '@/lib/pta3/levelBandSettings'
 
 export type AccuracyResult =
   | { error: string }
@@ -295,7 +296,10 @@ export async function grantMoveUseRewards(attackerCombatantId: string): Promise<
     return { error: 'Attacking Pokemon not found' }
   }
 
-  const { exp: expAmount, loyaltyPoints: lpAmount } = await loadGrantEventAmounts(supabase, 'Move used', encounter.campaign_id)
+  const { exp: rawExpAmount, loyaltyPoints: lpAmount } = await loadGrantEventAmounts(supabase, 'Move used', encounter.campaign_id)
+  // [[Feature - Fully turn off EXP]]: EXP being off means EXP itself stops moving entirely, including
+  // from automated triggers -- LP keeps granting per its own independent settings regardless.
+  const expAmount = (await loadCampaignExpDisabled(supabase, encounter.campaign_id)) ? 0 : rawExpAmount
   if (expAmount === 0 && lpAmount === 0) {
     // Both set to 0 by the GM -- explicitly disabled, per this FR's own "remove the trigger" behavior
     // (mirrors every other Customization setting's identical convention). Still marks the turn as
