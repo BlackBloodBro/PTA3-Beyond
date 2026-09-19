@@ -1,7 +1,8 @@
 'use client'
 
 import { SettingRow } from './SettingRow'
-import { setLoyaltyTierOverride, resetLoyaltyTierOverride, setLoyaltyEventOverride, resetLoyaltyEventOverride } from './loyaltySettingsActions'
+import { setLoyaltyTierOverride, resetLoyaltyTierOverride } from './loyaltySettingsActions'
+import { setGrantEventLoyaltyOverride, resetGrantEventLoyaltyOverride } from './grantEventSettingsActions'
 
 type TierRow = { id: number; name: string; minPoints: number; defaultMinPoints: number; isOverridden: boolean }
 type EventRow = { id: number; name: string; points: number; defaultPoints: number; isOverridden: boolean }
@@ -46,8 +47,8 @@ export function LoyaltySettingsSection({ campaignId, tiers, events }: { campaign
               value={e.points}
               defaultValue={e.defaultPoints}
               isOverridden={e.isOverridden}
-              onSave={(v) => setLoyaltyEventOverride(campaignId, e.id, v)}
-              onReset={() => resetLoyaltyEventOverride(campaignId, e.id)}
+              onSave={(v) => setGrantEventLoyaltyOverride(campaignId, e.id, v)}
+              onReset={() => resetGrantEventLoyaltyOverride(campaignId, e.id)}
             />
           ))}
         </div>

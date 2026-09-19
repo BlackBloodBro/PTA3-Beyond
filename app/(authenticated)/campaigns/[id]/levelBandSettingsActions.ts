@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
-// Same reasoning as loyaltySettingsActions.ts/expGrantSettingsActions.ts: RLS backs this up too (the
+// Same reasoning as loyaltySettingsActions.ts/grantEventSettingsActions.ts: RLS backs this up too (the
 // migration's "GM manages their campaign's level band overrides" policy), but checking here first
 // turns a bad request into a clean error instead of a raw RLS-denial message.
 async function requireGm(supabase: SupabaseClient, campaignId: string, userId: string): Promise<boolean> {

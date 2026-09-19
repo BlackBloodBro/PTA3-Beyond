@@ -28,7 +28,7 @@ import {
   loadTrainerSkillTalents,
   replaceBaseSkillTalents,
 } from '@/lib/pta3/skillTalents'
-import { loadLoyaltyEventPoints } from '@/lib/pta3/loyaltySettings'
+import { loadGrantEventAmounts } from '@/lib/pta3/grantEvents'
 
 export async function createTrainer(formData: FormData) {
   const supabase = await createClient()
@@ -1145,13 +1145,14 @@ export async function restSleep(trainerId: string, formData: FormData) {
   // for fractional game-math (e.g. stat modifier = floor(value / 2)).
   const { data: trainersPokemon } = await supabase
     .from('trainers_pokemon')
-    .select('party_slot, pokemon(id, current_hp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp))')
+    .select('party_slot, pokemon(id, current_hp, current_exp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp))')
     .eq('trainer_id', trainerId)
 
-  // [[Add a Loyalty editor]]: Sleep awards LP to every Team Pokemon (party_slot not null),
-  // unconditionally -- resting together builds loyalty regardless of HP state. PC-parked Pokemon
-  // don't get it (they weren't part of the rest). Amount is tunable data, not a hardcoded constant.
-  const sleepLoyaltyPoints = await loadLoyaltyEventPoints(supabase, 'Sleep', trainer.campaign_id)
+  // [[Add a Loyalty editor]] + [[Feature - Add more automated EXP and Loyalty Point triggers]]: Sleep
+  // awards EXP and LP to every Team Pokemon (party_slot not null), unconditionally -- resting together
+  // builds loyalty/experience regardless of HP state. PC-parked Pokemon don't get it (they weren't part
+  // of the rest). Amounts are tunable data, not hardcoded constants.
+  const { exp: sleepExp, loyaltyPoints: sleepLoyaltyPoints } = await loadGrantEventAmounts(supabase, 'Sleep', trainer.campaign_id)
 
   await Promise.all(
     (trainersPokemon ?? []).map((tp) => {
@@ -1160,6 +1161,7 @@ export async function restSleep(trainerId: string, formData: FormData) {
       const pokemon = tp.pokemon as unknown as {
         id: string
         current_hp: number
+        current_exp: number
         ev_hp: number
         bonus_base_hp: number
         loyalty_points: number
@@ -1172,9 +1174,13 @@ export async function restSleep(trainerId: string, formData: FormData) {
       // [[Let Temporary HP actually be set]]: same automatic clear trigger as the Trainer's own HP
       // above -- applies to every linked Pokemon (Team or PC), matching this loop's existing
       // healing scope.
-      const updates: { current_hp: number; temporary_hp: number; loyalty_points?: number } = { current_hp: newHp, temporary_hp: 0 }
+      const updates: { current_hp: number; temporary_hp: number; loyalty_points?: number; current_exp?: number } = {
+        current_hp: newHp,
+        temporary_hp: 0,
+      }
       if (tp.party_slot !== null) {
         updates.loyalty_points = Math.max(0, pokemon.loyalty_points + sleepLoyaltyPoints)
+        updates.current_exp = Math.max(0, pokemon.current_exp + sleepExp)
       }
       return supabase.from('pokemon').update(updates).eq('id', pokemon.id)
     }),
@@ -1260,14 +1266,14 @@ export async function restPokemonCenter(trainerId: string) {
   // trainer's own HP or activatable features (that's what Sleep is for).
   const { data: trainersPokemon } = await supabase
     .from('trainers_pokemon')
-    .select('pokemon(id, current_hp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp))')
+    .select('pokemon(id, current_hp, current_exp, ev_hp, bonus_base_hp, loyalty_points, pokedex(base_hp))')
     .eq('trainer_id', trainerId)
 
-  // [[Add a Loyalty editor]]: awards LP to every linked Pokemon (Team or PC) that was actually
-  // damaged before the heal -- checked against current_hp BEFORE it's overwritten below, since
-  // afterward everyone reads as full HP. Not a blanket award -- only Pokemon that were hurt and got
-  // looked after.
-  const centerLoyaltyPoints = await loadLoyaltyEventPoints(supabase, 'Pokemon Center (damaged)', trainer.campaign_id)
+  // [[Add a Loyalty editor]] + [[Feature - Add more automated EXP and Loyalty Point triggers]]: awards
+  // EXP and LP to every linked Pokemon (Team or PC) that was actually damaged before the heal --
+  // checked against current_hp BEFORE it's overwritten below, since afterward everyone reads as full
+  // HP. Not a blanket award -- only Pokemon that were hurt and got looked after.
+  const { exp: centerExp, loyaltyPoints: centerLoyaltyPoints } = await loadGrantEventAmounts(supabase, 'Pokemon Center (damaged)', trainer.campaign_id)
 
   await Promise.all(
     (trainersPokemon ?? []).map((tp) => {
@@ -1275,6 +1281,7 @@ export async function restPokemonCenter(trainerId: string) {
       const pokemon = tp.pokemon as unknown as {
         id: string
         current_hp: number
+        current_exp: number
         ev_hp: number
         bonus_base_hp: number
         loyalty_points: number
@@ -1286,9 +1293,13 @@ export async function restPokemonCenter(trainerId: string) {
       // [[Let Temporary HP actually be set]]: the other automatic clear trigger. Trainer-level Temp
       // HP is untouched here -- this action never touches the Trainer's own HP either, that's
       // Sleep's job (see restSleep).
-      const updates: { current_hp: number; temporary_hp: number; loyalty_points?: number } = { current_hp: maxHp, temporary_hp: 0 }
+      const updates: { current_hp: number; temporary_hp: number; loyalty_points?: number; current_exp?: number } = {
+        current_hp: maxHp,
+        temporary_hp: 0,
+      }
       if (wasDamaged) {
         updates.loyalty_points = Math.max(0, pokemon.loyalty_points + centerLoyaltyPoints)
+        updates.current_exp = Math.max(0, pokemon.current_exp + centerExp)
       }
       return supabase.from('pokemon').update(updates).eq('id', pokemon.id)
     }),

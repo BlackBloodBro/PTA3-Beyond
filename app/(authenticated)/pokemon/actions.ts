@@ -15,7 +15,8 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { previewPassiveLoss, shiftSizeOrWeightOverride, isMaxLoyalty } from '@/lib/pta3/evolution'
 import { setOriginalTrainerIfUnset } from '@/lib/pta3/pokemonOrigin'
 import { loadExcludedPokedexIds } from '@/lib/pta3/pokedexExclusions'
-import { loadLoyaltyEventPoints, loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
+import { loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
+import { loadGrantEventAmounts } from '@/lib/pta3/grantEvents'
 import { loadShinyRateDenominator } from '@/lib/pta3/shinyRateSettings'
 
 export type MoveOption = {
@@ -873,7 +874,7 @@ export async function adjustPokemonHp(
   // viewing an active encounter's combatants, same as the trainer HP control.
   const { data: pokemon, error: pokemonError } = await supabase
     .from('pokemon')
-    .select('current_hp, temporary_hp, ev_hp, bonus_base_hp, loyalty_points, campaign_id, pokedex(base_hp), trainers_pokemon(trainers(campaign_id))')
+    .select('current_hp, temporary_hp, current_exp, ev_hp, bonus_base_hp, loyalty_points, campaign_id, pokedex(base_hp), trainers_pokemon(trainers(campaign_id))')
     .eq('id', pokemonId)
     .single()
 
@@ -915,14 +916,19 @@ export async function adjustPokemonHp(
     newHp = Math.max(0, pokemon.current_hp - (amount - absorbed))
   }
 
-  const updates: { current_hp: number; temporary_hp: number; loyalty_points?: number } = { current_hp: newHp, temporary_hp: newTempHp }
+  const updates: { current_hp: number; temporary_hp: number; loyalty_points?: number; current_exp?: number } = {
+    current_hp: newHp,
+    temporary_hp: newTempHp,
+  }
 
-  // [[Add a Loyalty editor]]: fainting (a >0 -> 0 HP crossing) costs LP -- checked as a state
-  // transition rather than a one-time flag, so repeated fainting across a session removes LP each
-  // time. Healing back above 0 and fainting again later is a fresh transition, not a repeat.
+  // [[Add a Loyalty editor]] + [[Feature - Add more automated EXP and Loyalty Point triggers]]: fainting
+  // (a >0 -> 0 HP crossing) can grant/cost both EXP and LP -- checked as a state transition rather than
+  // a one-time flag, so repeated fainting across a session applies each time. Healing back above 0 and
+  // fainting again later is a fresh transition, not a repeat.
   if (pokemon.current_hp > 0 && newHp === 0) {
-    const faintPoints = await loadLoyaltyEventPoints(supabase, 'Fainted', effectiveCampaignIdForLoyalty)
+    const { exp: faintExp, loyaltyPoints: faintPoints } = await loadGrantEventAmounts(supabase, 'Fainted', effectiveCampaignIdForLoyalty)
     updates.loyalty_points = Math.max(0, pokemon.loyalty_points + faintPoints)
+    updates.current_exp = Math.max(0, pokemon.current_exp + faintExp)
   }
 
   // Bug fix (2026-09-14): the plain update above only ever actually writes when the caller is this
@@ -948,6 +954,7 @@ export async function adjustPokemonHp(
       new_current_hp: newHp,
       new_temporary_hp: newTempHp,
       new_loyalty_points: updates.loyalty_points ?? pokemon.loyalty_points,
+      new_current_exp: updates.current_exp ?? pokemon.current_exp,
     })
     if (combatError) {
       return { error: `Couldn't update this Pokemon's HP -- it's not yours, and not currently a combatant you have access to (${combatError.message}).` }
@@ -1955,9 +1962,16 @@ export async function evolvePokemon(
   const newSizeId = await shiftSizeOrWeightOverride(supabase, 'sizes', pokemon.size_id, fromSpecies?.size_id ?? null, toSpecies.size_id)
   const newWeightId = await shiftSizeOrWeightOverride(supabase, 'weights', pokemon.weight_id, fromSpecies?.weight_id ?? null, toSpecies.weight_id)
 
+  // [[Feature - Add more automated EXP and Loyalty Point triggers]]: a new "Evolved" trigger, granting
+  // both EXP and LP (default 0, GM opts in) directly to the evolving Pokemon -- a single, always
+  // owner-or-GM-initiated action, so no combat-RPC fallback concern like adjustPokemonHp's Fainted case.
+  const { exp: evolveExp, loyaltyPoints: evolveLoyaltyPoints } = await loadGrantEventAmounts(supabase, 'Evolved', effectiveCampaignId)
+  const newExp = Math.max(0, pokemon.current_exp + evolveExp)
+  const newLoyaltyPoints = Math.max(0, pokemon.loyalty_points + evolveLoyaltyPoints)
+
   const { error: updateError } = await supabase
     .from('pokemon')
-    .update({ pokedex_id: toPokedexId, size_id: newSizeId, weight_id: newWeightId })
+    .update({ pokedex_id: toPokedexId, size_id: newSizeId, weight_id: newWeightId, current_exp: newExp, loyalty_points: newLoyaltyPoints })
     .eq('id', pokemonId)
 
   if (updateError) {

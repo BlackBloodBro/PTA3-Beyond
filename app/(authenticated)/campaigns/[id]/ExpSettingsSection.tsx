@@ -2,7 +2,7 @@
 
 import { SettingRow } from './SettingRow'
 import { setLevelBandOverride, resetLevelBandOverride } from './levelBandSettingsActions'
-import { setExpGrantOverride, resetExpGrantOverride } from './expGrantSettingsActions'
+import { setGrantEventExpOverride, resetGrantEventExpOverride } from './grantEventSettingsActions'
 
 type LevelBandRow = { band: number; expPerLevel: number; defaultExpPerLevel: number; isOverridden: boolean }
 type ExpGrantRow = { id: number; name: string; exp: number; defaultExp: number; isOverridden: boolean }
@@ -55,8 +55,8 @@ export function ExpSettingsSection({
               value={e.exp}
               defaultValue={e.defaultExp}
               isOverridden={e.isOverridden}
-              onSave={(v) => setExpGrantOverride(campaignId, e.id, v)}
-              onReset={() => resetExpGrantOverride(campaignId, e.id)}
+              onSave={(v) => setGrantEventExpOverride(campaignId, e.id, v)}
+              onReset={() => resetGrantEventExpOverride(campaignId, e.id)}
             />
           ))}
         </div>
