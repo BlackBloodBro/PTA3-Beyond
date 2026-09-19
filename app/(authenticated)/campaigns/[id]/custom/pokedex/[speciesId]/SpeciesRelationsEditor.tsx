@@ -5,7 +5,7 @@ import { addSpeciesMove, removeSpeciesMove, addSpeciesPassive, removeSpeciesPass
 
 type MoveRow = { id: number; name: string; range: string; damage_stat: string; types: { name: string } | null }
 type PassiveRow = { id: number; name: string; passive_type: string; category: string | null }
-type AttachedMove = { level_learned: number | null; move: MoveRow }
+type AttachedMove = { level_learned: number | null; learnable_without_exp: boolean; move: MoveRow }
 type AttachedPassive = { level_learned: number | null; passive: PassiveRow }
 
 // [[Feature - GM Custom - Pokemon]]: Moves (632 rows) and Passives (327 rows) are too large for a
@@ -37,6 +37,7 @@ export function SpeciesRelationsEditor({
   const [moveSearch, setMoveSearch] = useState('')
   const [passiveSearch, setPassiveSearch] = useState('')
   const [moveLevel, setMoveLevel] = useState('')
+  const [moveLearnableWithoutExp, setMoveLearnableWithoutExp] = useState(false)
   const [passiveLevel, setPassiveLevel] = useState('')
   const [pendingId, setPendingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -61,13 +62,13 @@ export function SpeciesRelationsEditor({
     setError(null)
     setPendingId(move.id)
     const levelLearned = parseLevel(moveLevel)
-    const result = await addSpeciesMove(campaignId, pokedexId, move.id, levelLearned)
+    const result = await addSpeciesMove(campaignId, pokedexId, move.id, levelLearned, moveLearnableWithoutExp)
     setPendingId(null)
     if ('error' in result) {
       setError(result.error)
       return
     }
-    setMoves((prev) => [...prev, { level_learned: levelLearned, move }])
+    setMoves((prev) => [...prev, { level_learned: levelLearned, learnable_without_exp: moveLearnableWithoutExp, move }])
     setMoveSearch('')
   }
 
@@ -123,6 +124,7 @@ export function SpeciesRelationsEditor({
               <li key={m.move.id} className="flex items-center justify-between gap-2 rounded border p-2">
                 <span>
                   {m.move.name} <span className="text-xs text-muted">{m.level_learned === null ? '(TM-eligible)' : `(level ${m.level_learned})`}</span>
+                  {m.learnable_without_exp && <span className="text-xs text-muted"> · learnable without EXP</span>}
                 </span>
                 <button type="button" disabled={pendingId === m.move.id} onClick={() => handleRemoveMove(m.move.id)} className="shrink-0 rounded border px-2 py-1 text-xs disabled:opacity-30">
                   Remove
@@ -136,6 +138,12 @@ export function SpeciesRelationsEditor({
           <input type="text" value={moveSearch} onChange={(e) => setMoveSearch(e.target.value)} placeholder="Search the Move catalog…" className="bg-surface-subtle flex-1 rounded border px-2 py-1" />
           <input type="number" min={0} value={moveLevel} onChange={(e) => setMoveLevel(e.target.value)} placeholder="Level" className="bg-surface-subtle w-20 rounded border px-2 py-1" />
         </div>
+        {/* [[Feature - Fully turn off EXP]]: applies to whichever row gets clicked next, same convention
+            as the Level field above it. */}
+        <label className="flex items-center gap-2 text-xs text-muted">
+          <input type="checkbox" checked={moveLearnableWithoutExp} onChange={(e) => setMoveLearnableWithoutExp(e.target.checked)} />
+          Learnable without EXP (for Campaigns with EXP turned off)
+        </label>
         {moveNeedle && (
           <ul className="flex flex-col gap-1">
             {moveMatches.length === 0 ? (

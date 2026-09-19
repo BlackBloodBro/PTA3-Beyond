@@ -29,6 +29,7 @@ import {
   replaceBaseSkillTalents,
 } from '@/lib/pta3/skillTalents'
 import { loadGrantEventAmounts } from '@/lib/pta3/grantEvents'
+import { loadCampaignExpDisabled } from '@/lib/pta3/levelBandSettings'
 
 export async function createTrainer(formData: FormData) {
   const supabase = await createClient()
@@ -1152,7 +1153,10 @@ export async function restSleep(trainerId: string, formData: FormData) {
   // awards EXP and LP to every Team Pokemon (party_slot not null), unconditionally -- resting together
   // builds loyalty/experience regardless of HP state. PC-parked Pokemon don't get it (they weren't part
   // of the rest). Amounts are tunable data, not hardcoded constants.
-  const { exp: sleepExp, loyaltyPoints: sleepLoyaltyPoints } = await loadGrantEventAmounts(supabase, 'Sleep', trainer.campaign_id)
+  const { exp: rawSleepExp, loyaltyPoints: sleepLoyaltyPoints } = await loadGrantEventAmounts(supabase, 'Sleep', trainer.campaign_id)
+  // [[Feature - Fully turn off EXP]]: EXP off means EXP itself stops moving entirely, including from
+  // automated triggers -- LP keeps granting per its own independent settings regardless.
+  const sleepExp = (await loadCampaignExpDisabled(supabase, trainer.campaign_id)) ? 0 : rawSleepExp
 
   await Promise.all(
     (trainersPokemon ?? []).map((tp) => {
@@ -1273,7 +1277,9 @@ export async function restPokemonCenter(trainerId: string) {
   // EXP and LP to every linked Pokemon (Team or PC) that was actually damaged before the heal --
   // checked against current_hp BEFORE it's overwritten below, since afterward everyone reads as full
   // HP. Not a blanket award -- only Pokemon that were hurt and got looked after.
-  const { exp: centerExp, loyaltyPoints: centerLoyaltyPoints } = await loadGrantEventAmounts(supabase, 'Pokemon Center (damaged)', trainer.campaign_id)
+  const { exp: rawCenterExp, loyaltyPoints: centerLoyaltyPoints } = await loadGrantEventAmounts(supabase, 'Pokemon Center (damaged)', trainer.campaign_id)
+  // [[Feature - Fully turn off EXP]]
+  const centerExp = (await loadCampaignExpDisabled(supabase, trainer.campaign_id)) ? 0 : rawCenterExp
 
   await Promise.all(
     (trainersPokemon ?? []).map((tp) => {

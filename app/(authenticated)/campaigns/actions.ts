@@ -244,6 +244,32 @@ export async function updateCampaignLpDisabled(campaignId: string, disabled: boo
   return { lpDisabled: disabled }
 }
 
+// [[Feature - Fully turn off EXP]]: GM-only, same tier/shape as updateCampaignLpDisabled above.
+export async function updateCampaignExpDisabled(campaignId: string, disabled: boolean): Promise<{ error: string } | { expDisabled: boolean }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: campaign } = await supabase.from('campaigns').select('gm_user_id').eq('id', campaignId).maybeSingle()
+
+  if (!campaign || campaign.gm_user_id !== user.id) {
+    return { error: 'Only this campaign\'s GM can change EXP settings' }
+  }
+
+  const { error } = await supabase.from('campaigns').update({ exp_disabled: disabled }).eq('id', campaignId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { expDisabled: disabled }
+}
+
 export async function removePlayer(campaignId: string, targetUserId: string) {
   const supabase = await createClient()
   const {

@@ -16,6 +16,7 @@ import { previewPassiveLoss, shiftSizeOrWeightOverride, isMaxLoyalty } from '@/l
 import { setOriginalTrainerIfUnset } from '@/lib/pta3/pokemonOrigin'
 import { loadExcludedPokedexIds } from '@/lib/pta3/pokedexExclusions'
 import { loadLoyaltyTiers, loadCampaignLpDisabled } from '@/lib/pta3/loyaltySettings'
+import { loadCampaignExpDisabled } from '@/lib/pta3/levelBandSettings'
 import { loadGrantEventAmounts } from '@/lib/pta3/grantEvents'
 import { loadShinyRateDenominator } from '@/lib/pta3/shinyRateSettings'
 
@@ -926,7 +927,10 @@ export async function adjustPokemonHp(
   // a one-time flag, so repeated fainting across a session applies each time. Healing back above 0 and
   // fainting again later is a fresh transition, not a repeat.
   if (pokemon.current_hp > 0 && newHp === 0) {
-    const { exp: faintExp, loyaltyPoints: faintPoints } = await loadGrantEventAmounts(supabase, 'Fainted', effectiveCampaignIdForLoyalty)
+    const { exp: rawFaintExp, loyaltyPoints: faintPoints } = await loadGrantEventAmounts(supabase, 'Fainted', effectiveCampaignIdForLoyalty)
+    // [[Feature - Fully turn off EXP]]: EXP off means EXP itself stops moving entirely, including from
+    // automated triggers -- LP keeps granting per its own independent settings regardless.
+    const faintExp = (await loadCampaignExpDisabled(supabase, effectiveCampaignIdForLoyalty)) ? 0 : rawFaintExp
     updates.loyalty_points = Math.max(0, pokemon.loyalty_points + faintPoints)
     updates.current_exp = Math.max(0, pokemon.current_exp + faintExp)
   }
@@ -2052,7 +2056,9 @@ export async function evolvePokemon(
   // [[Feature - Add more automated EXP and Loyalty Point triggers]]: a new "Evolved" trigger, granting
   // both EXP and LP (default 0, GM opts in) directly to the evolving Pokemon -- a single, always
   // owner-or-GM-initiated action, so no combat-RPC fallback concern like adjustPokemonHp's Fainted case.
-  const { exp: evolveExp, loyaltyPoints: evolveLoyaltyPoints } = await loadGrantEventAmounts(supabase, 'Evolved', effectiveCampaignId)
+  const { exp: rawEvolveExp, loyaltyPoints: evolveLoyaltyPoints } = await loadGrantEventAmounts(supabase, 'Evolved', effectiveCampaignId)
+  // [[Feature - Fully turn off EXP]]
+  const evolveExp = (await loadCampaignExpDisabled(supabase, effectiveCampaignId)) ? 0 : rawEvolveExp
   const newExp = Math.max(0, pokemon.current_exp + evolveExp)
   const newLoyaltyPoints = Math.max(0, pokemon.loyalty_points + evolveLoyaltyPoints)
 

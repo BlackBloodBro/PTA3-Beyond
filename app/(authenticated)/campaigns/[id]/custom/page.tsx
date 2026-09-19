@@ -25,7 +25,11 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     redirect('/login')
   }
 
-  const { data: campaign } = await supabase.from('campaigns').select('id, name, gm_user_id, sell_price_percent, lp_disabled').eq('id', id).single()
+  const { data: campaign } = await supabase
+    .from('campaigns')
+    .select('id, name, gm_user_id, sell_price_percent, lp_disabled, exp_disabled')
+    .eq('id', id)
+    .single()
 
   if (!campaign || campaign.gm_user_id !== user.id) {
     redirect(`/campaigns/${id}`)
@@ -125,7 +129,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
 
       <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} shinyRate={shinyRate} />
 
-      <ExpSettingsSection campaignId={id} bands={levelBandRows} events={expGrantRows} />
+      <ExpSettingsSection campaignId={id} bands={levelBandRows} events={expGrantRows} initialExpDisabled={campaign.exp_disabled} />
 
       <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} initialLpDisabled={campaign.lp_disabled} />
 

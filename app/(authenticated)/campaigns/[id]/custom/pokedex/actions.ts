@@ -230,7 +230,16 @@ export async function deleteCustomSpecies(campaignId: string, pokedexId: number)
 // naturally build up a homebrew learnset at the table anyway) -- called directly from that client
 // component, same "plain function, not a <form action>" shape as TrainerActionsPanel's own
 // setFeatureUsesRemaining/useItem calls.
-export async function addSpeciesMove(campaignId: string, pokedexId: number, moveId: number, levelLearned: number | null): Promise<{ error: string } | { success: true }> {
+// [[Feature - Fully turn off EXP]]: learnableWithoutExp is a second, independent flag alongside
+// levelLearned -- distinct from levelLearned === null (TM-eligible), it marks this Move as learnable
+// specifically when the species' effective Campaign has EXP off.
+export async function addSpeciesMove(
+  campaignId: string,
+  pokedexId: number,
+  moveId: number,
+  levelLearned: number | null,
+  learnableWithoutExp: boolean = false,
+): Promise<{ error: string } | { success: true }> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -238,7 +247,9 @@ export async function addSpeciesMove(campaignId: string, pokedexId: number, move
   if (!user) return { error: 'Not signed in' }
   if (!(await requireGm(supabase, campaignId, user.id))) return { error: 'Only the GM can edit this species' }
 
-  const { error } = await supabase.from('pokedex_moves').insert({ pokedex_id: pokedexId, move_id: moveId, level_learned: levelLearned })
+  const { error } = await supabase
+    .from('pokedex_moves')
+    .insert({ pokedex_id: pokedexId, move_id: moveId, level_learned: levelLearned, learnable_without_exp: learnableWithoutExp })
   if (error) return { error: error.code === '23505' ? 'This species already knows that Move' : error.message }
   return { success: true }
 }

@@ -77,7 +77,7 @@ export default async function EditCustomSpeciesPage({
     supabase.from('pokedex_egg_groups').select('egg_group_id').eq('pokedex_id', speciesId),
     supabase.from('moves').select('id, name, range, damage_stat, types(name)').order('name'),
     supabase.from('passives').select('id, name, passive_type, category').order('name'),
-    supabase.from('pokedex_moves').select('level_learned, move:moves(id, name, range, damage_stat, types(name))').eq('pokedex_id', speciesId),
+    supabase.from('pokedex_moves').select('level_learned, learnable_without_exp, move:moves(id, name, range, damage_stat, types(name))').eq('pokedex_id', speciesId),
     supabase.from('pokedex_passives').select('level_learned, passive:passives(id, name, passive_type, category)').eq('pokedex_id', speciesId),
   ])
 
@@ -143,7 +143,11 @@ export default async function EditCustomSpeciesPage({
         allMoves={(allMoves ?? []) as unknown as { id: number; name: string; range: string; damage_stat: string; types: { name: string } | null }[]}
         allPassives={(allPassives ?? []) as unknown as { id: number; name: string; passive_type: string; category: string | null }[]}
         initialMoves={
-          (moveRows ?? []) as unknown as { level_learned: number | null; move: { id: number; name: string; range: string; damage_stat: string; types: { name: string } | null } }[]
+          (moveRows ?? []) as unknown as {
+            level_learned: number | null
+            learnable_without_exp: boolean
+            move: { id: number; name: string; range: string; damage_stat: string; types: { name: string } | null }
+          }[]
         }
         initialPassives={
           (passiveRows ?? []) as unknown as { level_learned: number | null; passive: { id: number; name: string; passive_type: string; category: string | null } }[]

@@ -358,7 +358,7 @@ export default async function PokemonPage({
   // Add Exp can reveal newly-learnable moves without a fresh request.
   const { data: learnableRowsRaw } = await supabase
     .from('pokedex_moves')
-    .select('level_learned, move:moves(id, name, range, damage_stat, frequency, damage_dice, description, types(name))')
+    .select('level_learned, learnable_without_exp, move:moves(id, name, range, damage_stat, frequency, damage_dice, description, types(name))')
     .eq('pokedex_id', pokemon.pokedex_id)
     .order('level_learned', { nullsFirst: true })
 
@@ -503,6 +503,7 @@ export default async function PokemonPage({
         initialLevel={level}
         initialEffectiveExp={effectiveExp}
         initialCurrentExp={pokemon.current_exp}
+        expDisabled={false}
         initialCurrentHp={pokemon.current_hp}
         initialTemporaryHp={pokemon.temporary_hp}
         initialEvs={{
