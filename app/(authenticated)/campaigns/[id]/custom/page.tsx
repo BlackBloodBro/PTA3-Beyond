@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { SellPricePercentSection } from '../SellPricePercentSection'
 import { loadShinyRate } from '@/lib/pta3/shinyRateSettings'
+import { loadGrantEvents } from '@/lib/pta3/grantEvents'
 import { LoyaltySettingsSection } from '../LoyaltySettingsSection'
 import { ExpSettingsSection } from '../ExpSettingsSection'
 
@@ -43,10 +44,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     { count: excludedSpeciesCount },
     { data: globalTiers },
     { data: tierOverrides },
-    { data: globalEvents },
-    { data: eventOverrides },
-    { data: globalExpEvents },
-    { data: expEventOverrides },
+    grantEvents,
     { data: globalLevelBands },
     { data: levelBandOverrides },
     shinyRate,
@@ -68,13 +66,10 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     // state -- moved here from the Campaign page itself, per this FR.
     supabase.from('loyalties').select('id, name, min_points').order('sort_order'),
     supabase.from('campaign_loyalty_tier_overrides').select('loyalty_id, min_points').eq('campaign_id', id),
-    supabase.from('loyalty_point_events').select('id, name, points'),
-    supabase.from('campaign_loyalty_event_overrides').select('event_id, points').eq('campaign_id', id),
-    // [[Feature - Add triggers for a Pokemon to gain EXP automatically]] +
-    // [[Feature - Let a GM customize EXP needed per level band]]: same effective-value / isOverridden
-    // shape as the Loyalty rows above, for ExpSettingsSection's two row groups.
-    supabase.from('exp_grant_events').select('id, name, exp'),
-    supabase.from('campaign_exp_grant_overrides').select('event_id, exp').eq('campaign_id', id),
+    // [[Feature - Add more automated EXP and Loyalty Point triggers]]: already merged (default+override)
+    // for both EXP and LP -- ExpSettingsSection reads the exp side, LoyaltySettingsSection the LP side,
+    // of this same unified event list.
+    loadGrantEvents(supabase, id),
     supabase.from('level_bands').select('band, exp_per_level').order('band'),
     supabase.from('campaign_level_band_overrides').select('band, exp_per_level').eq('campaign_id', id),
     // [[Feature - Let a GM customize their Campaign's shiny rate]]: already merged (default+override),
@@ -91,22 +86,20 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
     isOverridden: tierOverrideById.has(t.id),
   }))
 
-  const eventOverrideById = new Map((eventOverrides ?? []).map((o) => [o.event_id, o.points]))
-  const loyaltyEventRows = (globalEvents ?? []).map((e) => ({
+  const loyaltyEventRows = grantEvents.map((e) => ({
     id: e.id,
     name: e.name,
-    defaultPoints: e.points,
-    points: eventOverrideById.get(e.id) ?? e.points,
-    isOverridden: eventOverrideById.has(e.id),
+    defaultPoints: e.defaultLoyaltyPoints,
+    points: e.loyaltyPoints,
+    isOverridden: e.isLoyaltyOverridden,
   }))
 
-  const expEventOverrideById = new Map((expEventOverrides ?? []).map((o) => [o.event_id, o.exp]))
-  const expGrantRows = (globalExpEvents ?? []).map((e) => ({
+  const expGrantRows = grantEvents.map((e) => ({
     id: e.id,
     name: e.name,
-    defaultExp: e.exp,
-    exp: expEventOverrideById.get(e.id) ?? e.exp,
-    isOverridden: expEventOverrideById.has(e.id),
+    defaultExp: e.defaultExp,
+    exp: e.exp,
+    isOverridden: e.isExpOverridden,
   }))
 
   const levelBandOverrideByBand = new Map((levelBandOverrides ?? []).map((o) => [o.band, o.exp_per_level]))

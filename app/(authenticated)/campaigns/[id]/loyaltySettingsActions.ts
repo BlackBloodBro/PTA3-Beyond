@@ -43,34 +43,3 @@ export async function resetLoyaltyTierOverride(campaignId: string, loyaltyId: nu
   if (error) return { error: error.message }
   return { success: true }
 }
-
-// "Remove the automated action" (per this FR's Problem statement) is just setting points to 0 --
-// no separate disabled flag, same override mechanism as the tiers above.
-export async function setLoyaltyEventOverride(campaignId: string, eventId: number, points: number): Promise<{ error: string } | { success: true }> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not signed in' }
-  if (!(await requireGm(supabase, campaignId, user.id))) return { error: 'Only the GM can change Loyalty settings' }
-  if (!Number.isInteger(points)) return { error: 'Enter a whole number' }
-
-  const { error } = await supabase
-    .from('campaign_loyalty_event_overrides')
-    .upsert({ campaign_id: campaignId, event_id: eventId, points })
-  if (error) return { error: error.message }
-  return { success: true }
-}
-
-export async function resetLoyaltyEventOverride(campaignId: string, eventId: number): Promise<{ error: string } | { success: true }> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not signed in' }
-  if (!(await requireGm(supabase, campaignId, user.id))) return { error: 'Only the GM can change Loyalty settings' }
-
-  const { error } = await supabase.from('campaign_loyalty_event_overrides').delete().eq('campaign_id', campaignId).eq('event_id', eventId)
-  if (error) return { error: error.message }
-  return { success: true }
-}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { resolveAccuracy, maybeGrantAffirmationBonus, grantMoveUseExp, type AccuracyResult } from './combatActions'
+import { resolveAccuracy, maybeGrantAffirmationBonus, grantMoveUseRewards, type AccuracyResult } from './combatActions'
 import { adjustPokemonHp } from '@/app/(authenticated)/pokemon/actions'
 import { adjustTrainerHp } from '@/app/(authenticated)/trainers/actions'
 import { advanceTurn, skipMyTurn } from '../actions'
@@ -120,9 +120,13 @@ export function AttackResolver({
     // on every resolved move use (hit or miss both count, per the user) -- deliberately not tucked
     // inside the hit/damage branches below, which only cover a subset of "the move was used."
     if (!('error' in res)) {
-      const expResult = await grantMoveUseExp(attackerId)
-      if (!('error' in expResult) && expResult.granted > 0) {
-        setExpMessage(`${attacker?.name ?? 'Attacker'} gained ${expResult.granted} EXP for using a Move.`)
+      const rewardsResult = await grantMoveUseRewards(attackerId)
+      if (!('error' in rewardsResult) && (rewardsResult.grantedExp > 0 || rewardsResult.grantedLoyaltyPoints > 0)) {
+        const parts = [
+          rewardsResult.grantedExp > 0 ? `${rewardsResult.grantedExp} EXP` : null,
+          rewardsResult.grantedLoyaltyPoints > 0 ? `${rewardsResult.grantedLoyaltyPoints} LP` : null,
+        ].filter((p): p is string => p !== null)
+        setExpMessage(`${attacker?.name ?? 'Attacker'} gained ${parts.join(' and ')} for using a Move.`)
       }
     }
 
