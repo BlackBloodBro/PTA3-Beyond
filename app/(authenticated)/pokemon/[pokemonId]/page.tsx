@@ -281,7 +281,7 @@ export default async function PokemonPage({
 
   // Loyalty tier is likewise never stored -- always derived from loyalty_points, per
   // [[Add a Loyalty editor]]. Small reference table (6 rows), cheap to fetch unconditionally.
-  const { data: loyaltyRows } = await supabase.from('loyalties').select('name, modifier, sort_order, min_points')
+  const { data: loyaltyRows } = await supabase.from('loyalties').select('id, name, modifier, sort_order, min_points')
   const loyaltyTier = computeLoyaltyTier(pokemon.loyalty_points, loyaltyRows ?? [])
 
   // [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: reference data for the
@@ -491,7 +491,7 @@ export default async function PokemonPage({
         basePath={basePath}
         isOwner={isOwner}
         isGM={isGM}
-        loyaltyTiers={(loyaltyRows ?? []).map((r) => ({ name: r.name, minPoints: r.min_points, modifier: r.modifier }))}
+        loyaltyTiers={(loyaltyRows ?? []).map((r) => ({ id: r.id, name: r.name, minPoints: r.min_points, modifier: r.modifier }))}
         loyaltyPointEvents={(lpEventRows ?? []).map((r) => ({ name: r.name, points: r.points }))}
         levelThresholds={(levelRows ?? []).map((r) => ({ levelNumber: r.level_number, cumulativeExp: r.cumulative_exp }))}
         effectiveType1={effectiveType1}
@@ -553,6 +553,7 @@ export default async function PokemonPage({
         initialLoyaltyPoints={pokemon.loyalty_points}
         initialLoyaltyName={loyaltyTier?.name ?? null}
         initialLoyaltyModifier={loyaltyTier?.modifier ?? 1}
+        lpDisabled={false}
         isShiny={pokemon.is_shiny}
         evolutionTargets={evolutionTargets}
         chainMembers={chainMembers}

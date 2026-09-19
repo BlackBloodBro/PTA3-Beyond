@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { updatePokemonDetails } from '@/app/(authenticated)/pokemon/actions'
 import { computePokemonLevel, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
-import { loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
+import { loadLoyaltyTiers, loadCampaignLpDisabled } from '@/lib/pta3/loyaltySettings'
 import { loadGrantEvents } from '@/lib/pta3/grantEvents'
 import { loadEffectiveLevels } from '@/lib/pta3/levelBandSettings'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
@@ -292,11 +292,13 @@ export default async function WildPokemonPage({
 
   // [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: reference data for the
   // GM-only "How does this work?" disclosures in the Experience/Loyalty sections.
-  const [grantEventRows, levelRows] = await Promise.all([
+  const [grantEventRows, levelRows, lpDisabled] = await Promise.all([
     loadGrantEvents(supabase, campaignId),
     // [[Feature - Let a GM customize EXP needed per level band]]: the effective (Campaign-derived)
     // curve, not a direct `levels` table read.
     loadEffectiveLevels(supabase, campaignId),
+    // [[Feature - Fully turn off LP]]
+    loadCampaignLpDisabled(supabase, campaignId),
   ])
   const lpEventRows = [...grantEventRows].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints)
 
@@ -498,7 +500,7 @@ export default async function WildPokemonPage({
         basePath={basePath}
         isOwner={isOwner}
         isGM={isGM}
-        loyaltyTiers={(loyaltyRows ?? []).map((r) => ({ name: r.name, minPoints: r.min_points, modifier: r.modifier }))}
+        loyaltyTiers={(loyaltyRows ?? []).map((r) => ({ id: r.id, name: r.name, minPoints: r.min_points, modifier: r.modifier }))}
         loyaltyPointEvents={(lpEventRows ?? []).map((r) => ({ name: r.name, points: r.loyaltyPoints }))}
         levelThresholds={(levelRows ?? []).map((r) => ({ levelNumber: r.level_number, cumulativeExp: r.cumulative_exp }))}
         effectiveType1={effectiveType1}
@@ -560,6 +562,7 @@ export default async function WildPokemonPage({
         initialLoyaltyPoints={pokemon.loyalty_points}
         initialLoyaltyName={loyaltyTier?.name ?? null}
         initialLoyaltyModifier={loyaltyTier?.modifier ?? 1}
+        lpDisabled={lpDisabled}
         isShiny={pokemon.is_shiny}
         evolutionTargets={evolutionTargets}
         chainMembers={chainMembers}

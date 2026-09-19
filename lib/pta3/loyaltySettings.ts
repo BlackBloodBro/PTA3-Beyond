@@ -25,3 +25,14 @@ export async function loadLoyaltyTiers(supabase: SupabaseClient, campaignId?: st
   const overrideByLoyaltyId = new Map((overrides ?? []).map((o) => [o.loyalty_id, o.min_points]))
   return (tiers ?? []).map((t) => ({ ...t, min_points: overrideByLoyaltyId.get(t.id) ?? t.min_points }))
 }
+
+// [[Feature - Fully turn off LP]]: a plain per-Campaign column (like `campaigns.sell_price_percent`),
+// not the global-default-plus-override pattern above -- there's no shared "default" to merge here,
+// every Campaign has its own concrete value from the moment it's created (see the migration's own
+// backfill-then-default-flip reasoning). `campaignId` null/undefined (a personal Trainer's Pokemon) means
+// LP can never be disabled -- there's no Campaign to disable it for.
+export async function loadCampaignLpDisabled(supabase: SupabaseClient, campaignId?: string | null): Promise<boolean> {
+  if (!campaignId) return false
+  const { data } = await supabase.from('campaigns').select('lp_disabled').eq('id', campaignId).maybeSingle()
+  return data?.lp_disabled ?? false
+}
