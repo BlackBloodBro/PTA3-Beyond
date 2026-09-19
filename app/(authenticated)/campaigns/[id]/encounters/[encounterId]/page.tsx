@@ -8,6 +8,7 @@ import { PokemonSprite } from '@/components/PokemonSprite'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { RollInputButton } from '@/components/RollInputButton'
 import { loadQualifyingMilestones, computeMaxHp, loadTrainerDerived } from '@/lib/pta3/trainerFeatures'
+import { loadCampaignEvDisabled, computePokemonMaxHp } from '@/lib/pta3/pokemonEv'
 import { loadPokemonEffectiveType } from '@/lib/pta3/pokemonStats'
 import { loadBagSnapshot } from '@/lib/pta3/bag'
 import {
@@ -76,6 +77,9 @@ export default async function EncounterDetailPage({
   if (!campaign) {
     redirect('/dashboard')
   }
+
+  // [[Feature - Fully turn off EV's]]: combatantMaxHp below needs this for the Pokemon branch.
+  const evsDisabled = await loadCampaignEvDisabled(supabase, campaignId)
   const isGM = campaign.gm_user_id === user.id
 
   const { data: encounterRaw, error: encounterError } = await singleWithRetry(() =>
@@ -413,7 +417,7 @@ export default async function EncounterDetailPage({
 
   function combatantMaxHp(c: CombatantRow): number {
     if (c.trainers) return trainerMaxHpById.get(c.trainers.id) ?? c.trainers.current_hp
-    if (c.pokemon) return (c.pokemon.pokedex?.base_hp ?? 0) + c.pokemon.bonus_base_hp + c.pokemon.ev_hp * 6
+    if (c.pokemon) return computePokemonMaxHp(c.pokemon.pokedex?.base_hp ?? 0, c.pokemon.bonus_base_hp, c.pokemon.ev_hp, evsDisabled)
     return 0
   }
 

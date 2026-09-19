@@ -25,3 +25,11 @@ export async function loadCampaignEvDisabled(supabase: SupabaseClient, campaignI
   const { data } = await supabase.from('campaigns').select('ev_disabled').eq('id', campaignId).maybeSingle()
   return data?.ev_disabled ?? false
 }
+
+// [[Feature - Fully turn off EV's]]: max HP isn't one of computeStatRows' 5 stat rows (it has its own
+// formula, base + bonus + ev_hp*6, duplicated across every roster/PC/encounter listing plus the Pokemon
+// page and the HP-clamping server actions) -- centralized here so every one of those call sites excludes
+// EVs the same way, without touching the stored `ev_hp` value itself.
+export function computePokemonMaxHp(baseHp: number, bonusBaseHp: number, evHp: number, evsDisabled: boolean): number {
+  return baseHp + bonusBaseHp + (evsDisabled ? 0 : evHp * 6)
+}

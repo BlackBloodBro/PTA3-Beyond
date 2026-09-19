@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { statModifier } from '@/lib/pta3/pointBuy'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
-import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
+import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, computePokemonMaxHp, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { computeStatRows, type SpeciesStats, type StatBonusMap } from '@/lib/pta3/pokemonStats'
 import {
   stabBonus,
@@ -809,11 +809,15 @@ export function LoyaltySection() {
 // values so a single click updates both without a refetch. Clear is the manual "fight's over"
 // button; Temp HP also clears automatically on the next Sleep/Pokemon Center rest as a backstop.
 export function HpSection() {
-  const { pokemonId, currentHp, temporaryHp, species, evs, setCurrentHp, setTemporaryHp } = usePokemonState()
+  const { pokemonId, currentHp, temporaryHp, species, evs, evsDisabled, setCurrentHp, setTemporaryHp } = usePokemonState()
   const [amount, setAmount] = useState(0)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const maxHp = species.base_hp + evs.hp * 6
+  // [[Feature - Fully turn off EV's]]: HP has its own max-HP formula, separate from computeStatRows'
+  // 5 stat rows -- missed in the original pass, same exclude-without-touching-the-stored-value rule.
+  // species.base_hp already has bonus_base_hp baked in (see the species prop construction below), so 0
+  // here for the bonus argument, not a second addition of it.
+  const maxHp = computePokemonMaxHp(species.base_hp, 0, evs.hp, evsDisabled)
 
   async function handleAdjust(sign: 1 | -1) {
     setPending(true)

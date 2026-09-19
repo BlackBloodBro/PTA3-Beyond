@@ -30,6 +30,7 @@ import {
 } from '@/lib/pta3/skillTalents'
 import { loadGrantEventAmounts } from '@/lib/pta3/grantEvents'
 import { loadCampaignExpDisabled } from '@/lib/pta3/levelBandSettings'
+import { loadCampaignEvDisabled, computePokemonMaxHp } from '@/lib/pta3/pokemonEv'
 
 export async function createTrainer(formData: FormData) {
   const supabase = await createClient()
@@ -1157,6 +1158,9 @@ export async function restSleep(trainerId: string, formData: FormData) {
   // [[Feature - Fully turn off EXP]]: EXP off means EXP itself stops moving entirely, including from
   // automated triggers -- LP keeps granting per its own independent settings regardless.
   const sleepExp = (await loadCampaignExpDisabled(supabase, trainer.campaign_id)) ? 0 : rawSleepExp
+  // [[Feature - Fully turn off EV's]]: the Sleep heal (and its cap) is based on max HP, which excludes
+  // the EV bonus while off, same as every other max-HP display/clamp.
+  const evsDisabled = await loadCampaignEvDisabled(supabase, trainer.campaign_id)
 
   await Promise.all(
     (trainersPokemon ?? []).map((tp) => {
@@ -1172,7 +1176,7 @@ export async function restSleep(trainerId: string, formData: FormData) {
         pokedex: { base_hp: number } | null
       } | null
       if (!pokemon || !pokemon.pokedex) return Promise.resolve()
-      const maxHp = pokemon.pokedex.base_hp + pokemon.bonus_base_hp + pokemon.ev_hp * 6
+      const maxHp = computePokemonMaxHp(pokemon.pokedex.base_hp, pokemon.bonus_base_hp, pokemon.ev_hp, evsDisabled)
       const healAmount = Math.floor(maxHp / 6)
       const newHp = Math.min(maxHp, pokemon.current_hp + healAmount)
       // [[Let Temporary HP actually be set]]: same automatic clear trigger as the Trainer's own HP
@@ -1280,6 +1284,8 @@ export async function restPokemonCenter(trainerId: string) {
   const { exp: rawCenterExp, loyaltyPoints: centerLoyaltyPoints } = await loadGrantEventAmounts(supabase, 'Pokemon Center (damaged)', trainer.campaign_id)
   // [[Feature - Fully turn off EXP]]
   const centerExp = (await loadCampaignExpDisabled(supabase, trainer.campaign_id)) ? 0 : rawCenterExp
+  // [[Feature - Fully turn off EV's]]: full-heal target excludes the EV bonus while off, same as Sleep.
+  const centerEvsDisabled = await loadCampaignEvDisabled(supabase, trainer.campaign_id)
 
   await Promise.all(
     (trainersPokemon ?? []).map((tp) => {
@@ -1294,7 +1300,7 @@ export async function restPokemonCenter(trainerId: string) {
         pokedex: { base_hp: number } | null
       } | null
       if (!pokemon || !pokemon.pokedex) return Promise.resolve()
-      const maxHp = pokemon.pokedex.base_hp + pokemon.bonus_base_hp + pokemon.ev_hp * 6
+      const maxHp = computePokemonMaxHp(pokemon.pokedex.base_hp, pokemon.bonus_base_hp, pokemon.ev_hp, centerEvsDisabled)
       const wasDamaged = pokemon.current_hp < maxHp
       // [[Let Temporary HP actually be set]]: the other automatic clear trigger. Trainer-level Temp
       // HP is untouched here -- this action never touches the Trainer's own HP either, that's
