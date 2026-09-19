@@ -13,6 +13,7 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { loadTrainerDerived, loadPendingMilestone, loadQualifyingMilestones, computeEffectiveStats, computeMaxHp } from '@/lib/pta3/trainerFeatures'
+import { loadCampaignEvDisabled, computePokemonMaxHp } from '@/lib/pta3/pokemonEv'
 import { loadTrainerSkillTalents } from '@/lib/pta3/skillTalents'
 import { loadEggSnapshot } from '@/lib/pta3/eggs'
 import { EggSection } from '@/app/(authenticated)/eggs/EggSection'
@@ -172,6 +173,8 @@ export default async function CampaignTrainerPage({
       .order('party_slot'),
     loadLoyaltyTiers(supabase, campaignId),
   ])
+  // [[Feature - Fully turn off EV's]]
+  const evsDisabled = await loadCampaignEvDisabled(supabase, campaignId)
 
   // Same derivation as the Pokemon detail page -- level is never stored, so the Team list needs to
   // compute it per Pokemon exactly the same way. Loyalty tier is likewise always derived from LP,
@@ -201,7 +204,7 @@ export default async function CampaignTrainerPage({
         campaignId,
       })
       const loyaltyName = computeLoyaltyTier(p.loyalty_points, loyaltyRows)?.name ?? null
-      return { ...p, level, loyaltyName, maxHp: p.pokedex!.base_hp + p.bonus_base_hp + p.ev_hp * 6 }
+      return { ...p, level, loyaltyName, maxHp: computePokemonMaxHp(p.pokedex!.base_hp, p.bonus_base_hp, p.ev_hp, evsDisabled) }
     }),
   )
 

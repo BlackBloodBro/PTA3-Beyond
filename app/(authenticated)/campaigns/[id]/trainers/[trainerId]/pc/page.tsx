@@ -6,6 +6,7 @@ import { loadLoyaltyTiers } from '@/lib/pta3/loyaltySettings'
 import { fetchPokedexFilterOptions } from '@/lib/pta3/pokedexFilter'
 import { computeLevelEligibleEvolutionSet } from '@/lib/pta3/evolution'
 import { PcBoard, type PcPokemon } from '@/app/(authenticated)/trainers/[id]/pc/PcBoard'
+import { loadCampaignEvDisabled, computePokemonMaxHp } from '@/lib/pta3/pokemonEv'
 
 export default async function CampaignTrainerPcPage({ params }: { params: Promise<{ id: string; trainerId: string }> }) {
   const { id: campaignId, trainerId: id } = await params
@@ -60,6 +61,8 @@ export default async function CampaignTrainerPcPage({ params }: { params: Promis
     fetchPokedexFilterOptions(supabase),
     loadLoyaltyTiers(supabase, campaignId),
   ])
+  // [[Feature - Fully turn off EV's]]
+  const evsDisabled = await loadCampaignEvDisabled(supabase, campaignId)
 
   // Cast reflects the real runtime shape (pokemon/pokedex/held_item come back as single objects, not
   // the arrays TS infers for these embeds) -- same reverse-embed quirk documented throughout this
@@ -111,7 +114,7 @@ export default async function CampaignTrainerPcPage({ params }: { params: Promis
       id: p.id,
       nickname: p.nickname,
       currentHp: p.current_hp,
-      maxHp: p.pokedex!.base_hp + p.bonus_base_hp + p.ev_hp * 6,
+      maxHp: computePokemonMaxHp(p.pokedex!.base_hp, p.bonus_base_hp, p.ev_hp, evsDisabled),
       isShiny: p.is_shiny,
       spriteCode: p.pokedex!.sprite_code,
       speciesName: p.pokedex!.name,

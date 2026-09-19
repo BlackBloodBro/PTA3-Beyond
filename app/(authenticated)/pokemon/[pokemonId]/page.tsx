@@ -555,6 +555,7 @@ export default async function PokemonPage({
         initialLoyaltyName={loyaltyTier?.name ?? null}
         initialLoyaltyModifier={loyaltyTier?.modifier ?? 1}
         lpDisabled={false}
+        evsDisabled={false}
         isShiny={pokemon.is_shiny}
         evolutionTargets={evolutionTargets}
         chainMembers={chainMembers}

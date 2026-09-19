@@ -8,7 +8,7 @@ import { pickRandomShiny } from '@/lib/pta3/shiny'
 import { pickFlavorPreferences } from '@/lib/pta3/flavors'
 import { computePokemonLevel, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
-import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
+import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, loadCampaignEvDisabled, computePokemonMaxHp, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { findNextOpenSlot } from '@/lib/pta3/pokemonTeam'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
@@ -900,7 +900,10 @@ export async function adjustPokemonHp(
   // "wherever it actually lives" rule documented elsewhere in this file.
   const effectiveCampaignIdForLoyalty = ownerLinkForCampaign ? (ownerLinkForCampaign.trainers?.campaign_id ?? null) : pokemon.campaign_id
 
-  const maxHp = pokemon.pokedex.base_hp + pokemon.bonus_base_hp + pokemon.ev_hp * 6
+  // [[Feature - Fully turn off EV's]]: the same effective Campaign as the Loyalty penalty above --
+  // Healing should cap at the EV-less max HP while EVs are off, same as every other display of it.
+  const evsDisabled = await loadCampaignEvDisabled(supabase, effectiveCampaignIdForLoyalty)
+  const maxHp = computePokemonMaxHp(pokemon.pokedex.base_hp, pokemon.bonus_base_hp, pokemon.ev_hp, evsDisabled)
 
   let newHp: number
   let newTempHp = pokemon.temporary_hp
@@ -1150,7 +1153,9 @@ export async function updatePokemonDetails(pokemonId: string, formData: FormData
       // pokedex(base_hp) alongside other scalar columns in the same select() infers as an array
       // here even though it's a single row at runtime.
       const pokedexRow = pokemon.pokedex as unknown as { base_hp: number } | null
-      const newMaxHp = (pokedexRow?.base_hp ?? 0) + bonusBaseHp + pokemon.ev_hp * 6
+      // [[Feature - Fully turn off EV's]]: same effective-Campaign rule as isGM/effectiveCampaignId above.
+      const evsDisabledForHp = await loadCampaignEvDisabled(supabase, effectiveCampaignId)
+      const newMaxHp = computePokemonMaxHp(pokedexRow?.base_hp ?? 0, bonusBaseHp, pokemon.ev_hp, evsDisabledForHp)
       updates.current_hp = Math.max(0, Math.min(newMaxHp, pokemon.current_hp + hpDelta))
     }
   }

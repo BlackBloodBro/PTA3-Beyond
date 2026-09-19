@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { statModifier } from '@/lib/pta3/pointBuy'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
-import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, type EvStatKey } from '@/lib/pta3/pokemonEv'
+import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, computePokemonMaxHp, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { computeStatRows, type SpeciesStats, type StatBonusMap } from '@/lib/pta3/pokemonStats'
 import {
   stabBonus,
@@ -286,6 +286,7 @@ type PokemonStateValue = {
   originalTrainerId: string | null
   originalObtainMethodName: string | null
   statRows: StatRows
+  evsDisabled: boolean
   evsAvailable: number
   evsSpent: number
   setCurrentHp: (v: number) => void
@@ -362,6 +363,7 @@ export function PokemonStateProvider(props: {
   initialLoyaltyName: string | null
   initialLoyaltyModifier: number
   lpDisabled: boolean
+  evsDisabled: boolean
   isShiny: boolean
   evolutionTargets: EvolutionTarget[]
   chainMembers: ChainMember[]
@@ -417,8 +419,11 @@ export function PokemonStateProvider(props: {
     passiveBonusByStat,
     afflictionBonusByStat,
     props.statBonuses,
+    props.evsDisabled,
   )
-  const evsAvailable = Math.floor(level / 8)
+  // [[Feature - Fully turn off EV's]]: no new EVs to assign while off -- already-spent EVs (evsSpent,
+  // from the untouched `evs` state) stay visible/known, they just can't grow further.
+  const evsAvailable = props.evsDisabled ? 0 : Math.floor(level / 8)
   const evsSpent = Object.values(evs).reduce((a, b) => a + b, 0)
 
   const value: PokemonStateValue = {
@@ -472,6 +477,7 @@ export function PokemonStateProvider(props: {
     originalTrainerId: props.originalTrainerId,
     originalObtainMethodName: props.originalObtainMethodName,
     statRows,
+    evsDisabled: props.evsDisabled,
     evsAvailable,
     evsSpent,
     setCurrentHp: setCurrentHpState,
@@ -803,11 +809,15 @@ export function LoyaltySection() {
 // values so a single click updates both without a refetch. Clear is the manual "fight's over"
 // button; Temp HP also clears automatically on the next Sleep/Pokemon Center rest as a backstop.
 export function HpSection() {
-  const { pokemonId, currentHp, temporaryHp, species, evs, setCurrentHp, setTemporaryHp } = usePokemonState()
+  const { pokemonId, currentHp, temporaryHp, species, evs, evsDisabled, setCurrentHp, setTemporaryHp } = usePokemonState()
   const [amount, setAmount] = useState(0)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const maxHp = species.base_hp + evs.hp * 6
+  // [[Feature - Fully turn off EV's]]: HP has its own max-HP formula, separate from computeStatRows'
+  // 5 stat rows -- missed in the original pass, same exclude-without-touching-the-stored-value rule.
+  // species.base_hp already has bonus_base_hp baked in (see the species prop construction below), so 0
+  // here for the bonus argument, not a second addition of it.
+  const maxHp = computePokemonMaxHp(species.base_hp, 0, evs.hp, evsDisabled)
 
   async function handleAdjust(sign: 1 | -1) {
     setPending(true)
@@ -858,7 +868,8 @@ export function HpSection() {
             label={String(maxHp)}
             tooltip={[
               `Base: ${species.base_hp}`,
-              ...(evs.hp > 0 ? [`EV: +${evs.hp * 6} (${evs.hp} EV × 6)`] : []),
+              // [[Feature - Fully turn off EV's]]: hidden while off, same as the Stats table's EV line.
+              ...(!evsDisabled && evs.hp > 0 ? [`EV: +${evs.hp * 6} (${evs.hp} EV × 6)`] : []),
               `Total: ${maxHp}`,
             ].join('\n')}
           />
@@ -919,7 +930,7 @@ export function HpSection() {
 }
 
 export function StatsSection() {
-  const { pokemonId, isOwner, isGM, statRows, evs, evsAvailable, evsSpent, setEv, setEvs, setCurrentHp } = usePokemonState()
+  const { pokemonId, isOwner, isGM, statRows, evs, evsDisabled, evsAvailable, evsSpent, setEv, setEvs, setCurrentHp } = usePokemonState()
 
   const [assignOpen, setAssignOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
@@ -1001,9 +1012,13 @@ export function StatsSection() {
     <section className="rounded border border-accent bg-accent/10 p-4">
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="font-semibold">Stats</h2>
-        <p className="text-xs text-muted">
-          EVs: {evsSpent} / {evsAvailable} available (1 per 8 levels, max {MAX_EV_PER_STAT}/stat)
-        </p>
+        {/* [[Feature - Fully turn off EV's]]: EVs already assigned still count toward evsSpent, but with
+            evsAvailable forced to 0 while off, this line would misleadingly imply nothing was ever spent. */}
+        {!evsDisabled && (
+          <p className="text-xs text-muted">
+            EVs: {evsSpent} / {evsAvailable} available (1 per 8 levels, max {MAX_EV_PER_STAT}/stat)
+          </p>
+        )}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
@@ -1012,7 +1027,10 @@ export function StatsSection() {
               <th className="pr-2">Stat</th>
               <th className="pr-2">Value</th>
               <th className="pr-2">Modifier</th>
-              <th>EV</th>
+              {/* [[Feature - Fully turn off EV's]]: the EV column (and its tooltip line below) hides
+                  entirely while off, per the user -- seeing the stored count next to a Value that
+                  doesn't include it read as "EVs are still applying" even though the math was correct. */}
+              {!evsDisabled && <th>EV</th>}
             </tr>
           </thead>
           <tbody>
@@ -1025,7 +1043,7 @@ export function StatsSection() {
                     tooltip={[
                       `Base: ${s.base}`,
                       ...(s.statBonus !== 0 ? [`Hatch bonus: ${formatSigned(s.statBonus)}`] : []),
-                      ...(s.ev !== 0 ? [`EV: ${formatSigned(s.ev)}`] : []),
+                      ...(!evsDisabled && s.ev !== 0 ? [`EV: ${formatSigned(s.ev)}`] : []),
                       ...(s.natureAdjust !== 0 ? [`Nature: ${formatSigned(s.natureAdjust)}`] : []),
                       ...(s.passiveBonus !== 0 ? [`Passive: ${formatSigned(s.passiveBonus)}`] : []),
                       ...(s.afflictionBonus !== 0 ? [`Affliction: ${formatSigned(s.afflictionBonus)}`] : []),
@@ -1039,44 +1057,52 @@ export function StatsSection() {
                   {s.modifier}
                   {s.key === 'speed' && ` (${movementFeet} ft.)`}
                 </td>
-                <td className="text-xs text-muted">
-                  {s.ev}/{MAX_EV_PER_STAT}
-                </td>
+                {!evsDisabled && (
+                  <td className="text-xs text-muted">
+                    {s.ev}/{MAX_EV_PER_STAT}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {(isOwner && (evsSpent < evsAvailable || assignOpen)) || (isGM && !editOpen) ? (
-        <div className="mt-3 flex gap-2 border-t pt-3">
-          {isOwner &&
-            (evsSpent < evsAvailable || assignOpen) &&
-            (assignOpen ? (
-              <button type="button" onClick={() => setAssignOpen(false)} className="rounded border px-3 py-1 text-sm">
-                Done
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setAssignError(null)
-                  setAssignOpen(true)
-                }}
-                className="rounded border px-3 py-1 text-sm"
-              >
-                Assign EV&apos;s
-              </button>
-            ))}
-          {isGM && !editOpen && (
-            <button type="button" onClick={openEditPanel} className="rounded border px-3 py-1 text-sm">
-              Edit EV&apos;s
-            </button>
-          )}
-        </div>
-      ) : null}
+      {/* [[Feature - Fully turn off EV's]]: nothing already spent is lost (still shown in the table
+          above), but the Assign/Edit controls hide entirely while EVs are off for this Campaign. */}
+      {evsDisabled ? (
+        <p className="mt-3 border-t pt-3 text-xs text-muted">EVs are turned off for this Campaign.</p>
+      ) : (
+        <>
+          {(isOwner && (evsSpent < evsAvailable || assignOpen)) || (isGM && !editOpen) ? (
+            <div className="mt-3 flex gap-2 border-t pt-3">
+              {isOwner &&
+                (evsSpent < evsAvailable || assignOpen) &&
+                (assignOpen ? (
+                  <button type="button" onClick={() => setAssignOpen(false)} className="rounded border px-3 py-1 text-sm">
+                    Done
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAssignError(null)
+                      setAssignOpen(true)
+                    }}
+                    className="rounded border px-3 py-1 text-sm"
+                  >
+                    Assign EV&apos;s
+                  </button>
+                ))}
+              {isGM && !editOpen && (
+                <button type="button" onClick={openEditPanel} className="rounded border px-3 py-1 text-sm">
+                  Edit EV&apos;s
+                </button>
+              )}
+            </div>
+          ) : null}
 
-      {assignOpen && (
+          {assignOpen && (
         <div className="mt-3 border-t pt-3">
           <p className="mb-2 text-xs text-muted">
             {Math.max(0, evsAvailable - evsSpent)} of {evsAvailable} EVs available to assign
@@ -1160,6 +1186,8 @@ export function StatsSection() {
           )}
           {editError && <p className="text-xs text-danger">{editError}</p>}
         </div>
+      )}
+        </>
       )}
     </section>
   )
