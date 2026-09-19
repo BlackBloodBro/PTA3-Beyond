@@ -51,10 +51,13 @@ export function LoyaltySettingsSection({
 
         {/* [[Feature - Fully turn off LP]]: turning LP off for a Campaign hides the point-based settings
             below (there's nothing left to retune -- LP itself no longer derives anything), and switches
-            every Pokemon's Loyalty section over to a GM-manual tier picker instead of Add/Remove LP. */}
+            every Pokemon's Loyalty section over to a GM-manual tier picker instead of Add/Remove LP.
+            [[Improvement - Switch EXP, LP and EV toggle]]: checkbox shows/sets the *enabled* sense (was
+            the *disabled* sense) -- a new Campaign has LP off by default, so this checkbox should render
+            unchecked for it, not checked. Still writes to the same `lp_disabled` column/action. */}
         <label className="mb-3 flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={lpDisabled} disabled={isPending} onChange={(e) => handleToggle(e.target.checked)} />
-          Turn LP off for this Campaign (GM sets each Pokémon&apos;s Loyalty tier manually instead)
+          <input type="checkbox" checked={!lpDisabled} disabled={isPending} onChange={(e) => handleToggle(!e.target.checked)} />
+          Turn LP on for this Campaign (while off, the GM sets each Pokémon&apos;s Loyalty tier manually instead)
         </label>
         {error && <p className="mb-3 text-danger">{error}</p>}
 

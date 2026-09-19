@@ -104,11 +104,14 @@ export function SellPricePercentSection({
         <hr className="my-4 border-accent/30" />
 
         {/* [[Feature - Fully turn off EV's]]: EVs already assigned stay stored (nothing lost), but stop
-            contributing to stat totals while off, and the Assign/Edit EV controls hide on the Pokemon page. */}
+            contributing to stat totals while off, and the Assign/Edit EV controls hide on the Pokemon page.
+            [[Improvement - Switch EXP, LP and EV toggle]]: checkbox shows/sets the *enabled* sense (was
+            the *disabled* sense) -- a new Campaign has EVs off by default, so this checkbox should render
+            unchecked for it, not checked. Still writes to the same `ev_disabled` column/action. */}
         <div className="flex flex-col gap-2">
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={evDisabled} disabled={isPending} onChange={(e) => handleEvToggle(e.target.checked)} />
-            Turn EVs off for this Campaign
+            <input type="checkbox" checked={!evDisabled} disabled={isPending} onChange={(e) => handleEvToggle(!e.target.checked)} />
+            Turn EVs on for this Campaign
           </label>
           {evError && <p className="text-danger">{evError}</p>}
         </div>
