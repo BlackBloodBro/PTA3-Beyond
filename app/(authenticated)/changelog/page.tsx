@@ -24,6 +24,17 @@ const CATEGORY_CLASSES: Record<string, string> = {
   fix: 'text-danger',
 }
 
+// Entry summaries are plain strings in the JSON, but a `**word**` span (e.g. calling out which catalogs
+// a "GM Custom" entry covers) needs to actually render bold rather than show its literal asterisks --
+// the only markdown this page supports, added on request rather than pulling in a full markdown renderer
+// for one formatting case.
+function renderSummary(summary: string) {
+  const parts = summary.split(/(\*\*[^*]+\*\*)/g)
+  return parts.map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : <span key={i}>{part}</span>,
+  )
+}
+
 // `title` is optional -- most releases won't have one and just show "vX.Y.Z — date" as before. Cast
 // needed because plain JSON-module imports infer each entry's type from whichever shape is literally
 // present, so a release without `title` wouldn't otherwise type-check against one that has it.
@@ -72,7 +83,7 @@ export default async function ChangelogPage() {
                   <span className={`w-16 shrink-0 font-semibold ${CATEGORY_CLASSES[entry.category] ?? ''}`}>
                     {CATEGORY_LABELS[entry.category] ?? entry.category}
                   </span>
-                  <span>{entry.summary}</span>
+                  <span>{renderSummary(entry.summary)}</span>
                 </li>
               ))}
             </ul>

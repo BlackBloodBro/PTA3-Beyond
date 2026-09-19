@@ -1,5 +1,24 @@
 [
   {
+    "version": "1.3.0",
+    "date": "2026-09-19",
+    "title": "Customization update",
+    "entries": [
+      { "category": "feature", "summary": "GMs can now add custom **Pokémon** species (with a Custom hub, reusable species templates, and creation-time Move/Passive picks), **Items** (including duplicating an existing item as a template), **Afflictions**, **Moves**, **Passives**, **Item Categories**, **Proficiencies**, **Trainer Skills**, and **Types** — all scoped to their own Campaign" },
+      { "category": "feature", "summary": "GMs can now exclude specific global Pokédex entries from their Campaign's world" },
+      { "category": "feature", "summary": "GMs can now customize EXP and LP leveling." },
+      { "category": "feature", "summary": "GMs can set automatic EXP and LP gains (or losses) with certain triggers." },
+      { "category": "feature", "summary": "GMs can now customize their Campaign's Shiny rate" },
+      { "category": "feature", "summary": "EXP, LP and EV's are homebrew systems from the creator of this tool. They are now turned 'Off' by default on new campaigns. They can be turned on by the GM." },
+      { "category": "feature", "summary": "The reference data for the Pokedex is now moved to a Campaign scope and will include homebrew data." },
+      { "category": "improve", "summary": "Consolidated every Campaign setting into one Customization menu, with a consistent layout across sections" },
+      { "category": "improve", "summary": "Added an Encounters shortcut to the Sidebar for bookmarked Campaigns" },
+      { "category": "fix", "summary": "Fixed applying an Affliction to an unassigned pool Pokémon failing" },
+      { "category": "fix", "summary": "Fixed several Moves and Passives having an incorrect level-learned value from a data-import quirk (some usable far earlier than intended, e.g. Tropius's Leaf Storm at level 1 instead of 61)" },
+      { "category": "fix", "summary": "Removed a few duplicate/erroneous global Pokédex entries" }
+    ]
+  },
+  {
     "version": "1.2.0",
     "date": "2026-09-15",
     "title": "Combat update",
