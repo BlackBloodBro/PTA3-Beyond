@@ -270,6 +270,33 @@ export async function updateCampaignExpDisabled(campaignId: string, disabled: bo
   return { expDisabled: disabled }
 }
 
+// [[Feature - Fully turn off EV's]]: GM-only, same tier/shape as updateCampaignLpDisabled/
+// updateCampaignExpDisabled above.
+export async function updateCampaignEvDisabled(campaignId: string, disabled: boolean): Promise<{ error: string } | { evDisabled: boolean }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: campaign } = await supabase.from('campaigns').select('gm_user_id').eq('id', campaignId).maybeSingle()
+
+  if (!campaign || campaign.gm_user_id !== user.id) {
+    return { error: 'Only this campaign\'s GM can change EV settings' }
+  }
+
+  const { error } = await supabase.from('campaigns').update({ ev_disabled: disabled }).eq('id', campaignId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { evDisabled: disabled }
+}
+
 export async function removePlayer(campaignId: string, targetUserId: string) {
   const supabase = await createClient()
   const {

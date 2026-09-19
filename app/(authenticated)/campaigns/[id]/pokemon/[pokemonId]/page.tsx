@@ -5,6 +5,7 @@ import { updatePokemonDetails } from '@/app/(authenticated)/pokemon/actions'
 import { computePokemonLevel, computeLoyaltyTier } from '@/lib/pta3/pokemonLevel'
 import { loadLoyaltyTiers, loadCampaignLpDisabled } from '@/lib/pta3/loyaltySettings'
 import { loadEffectiveLevels, loadCampaignExpDisabled } from '@/lib/pta3/levelBandSettings'
+import { loadCampaignEvDisabled } from '@/lib/pta3/pokemonEv'
 import { loadGrantEvents } from '@/lib/pta3/grantEvents'
 import { resolveWildPokemonAuthority } from '@/lib/pta3/pokemonAuthority'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
@@ -305,7 +306,7 @@ export default async function CampaignPokemonPage({
 
   // [[Improvement - Add explanation for LP and Loyalty and EXP and Leveling]]: reference data for the
   // GM-only "How does this work?" disclosures in the Experience/Loyalty sections.
-  const [grantEventRows, levelRows, lpDisabled, expDisabled] = await Promise.all([
+  const [grantEventRows, levelRows, lpDisabled, expDisabled, evsDisabled] = await Promise.all([
     loadGrantEvents(supabase, campaignId),
     // [[Feature - Let a GM customize EXP needed per level band]]: the effective (Campaign-derived)
     // curve, not a direct `levels` table read.
@@ -314,6 +315,8 @@ export default async function CampaignPokemonPage({
     loadCampaignLpDisabled(supabase, campaignId),
     // [[Feature - Fully turn off EXP]]
     loadCampaignExpDisabled(supabase, campaignId),
+    // [[Feature - Fully turn off EV's]]
+    loadCampaignEvDisabled(supabase, campaignId),
   ])
   const lpEventRows = [...grantEventRows].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints)
 
@@ -579,6 +582,7 @@ export default async function CampaignPokemonPage({
         initialLoyaltyName={loyaltyTier?.name ?? null}
         initialLoyaltyModifier={loyaltyTier?.modifier ?? 1}
         lpDisabled={lpDisabled}
+        evsDisabled={evsDisabled}
         isShiny={pokemon.is_shiny}
         evolutionTargets={evolutionTargets}
         chainMembers={chainMembers}

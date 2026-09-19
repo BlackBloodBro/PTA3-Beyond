@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { updateCampaignSellPricePercent } from '../actions'
+import { useState, useTransition } from 'react'
+import { updateCampaignSellPricePercent, updateCampaignEvDisabled } from '../actions'
 import { SettingRow } from './SettingRow'
 import { setShinyRateOverride, resetShinyRateOverride } from './shinyRateSettingsActions'
 
@@ -12,19 +12,26 @@ type ShinyRate = { denominator: number; defaultDenominator: number; isOverridden
 // just misleadingly placed on an individual Trainer's page. Renamed from "Sell price settings" to
 // "Other settings" once Shiny rate ([[Feature - Let a GM customize their Campaign's shiny rate]]) joined
 // it -- both are single, unrelated-to-EXP/Loyalty GM knobs, so one small card covers both rather than
-// each getting its own section.
+// each getting its own section. [[Feature - Fully turn off EV's]] added a third, divider-separated row --
+// EVs had no existing "settings" section at all (they were never previously customizable), so a whole new
+// section for one checkbox wasn't worth it.
 export function SellPricePercentSection({
   campaignId,
   initialPercent,
   shinyRate,
+  initialEvDisabled,
 }: {
   campaignId: string
   initialPercent: number
   shinyRate: ShinyRate
+  initialEvDisabled: boolean
 }) {
   const [percent, setPercent] = useState(initialPercent)
   const [draft, setDraft] = useState(initialPercent)
   const [error, setError] = useState<string | null>(null)
+  const [evDisabled, setEvDisabled] = useState(initialEvDisabled)
+  const [isPending, startTransition] = useTransition()
+  const [evError, setEvError] = useState<string | null>(null)
 
   async function handleSave() {
     setError(null)
@@ -35,6 +42,18 @@ export function SellPricePercentSection({
     }
     setPercent(result.sellPricePercent)
     setDraft(result.sellPricePercent)
+  }
+
+  function handleEvToggle(next: boolean) {
+    setEvError(null)
+    startTransition(async () => {
+      const result = await updateCampaignEvDisabled(campaignId, next)
+      if ('error' in result) {
+        setEvError(result.error)
+        return
+      }
+      setEvDisabled(result.evDisabled)
+    })
   }
 
   return (
@@ -80,6 +99,18 @@ export function SellPricePercentSection({
             onSave={(v) => setShinyRateOverride(campaignId, v)}
             onReset={() => resetShinyRateOverride(campaignId)}
           />
+        </div>
+
+        <hr className="my-4 border-accent/30" />
+
+        {/* [[Feature - Fully turn off EV's]]: EVs already assigned stay stored (nothing lost), but stop
+            contributing to stat totals while off, and the Assign/Edit EV controls hide on the Pokemon page. */}
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={evDisabled} disabled={isPending} onChange={(e) => handleEvToggle(e.target.checked)} />
+            Turn EVs off for this Campaign
+          </label>
+          {evError && <p className="text-danger">{evError}</p>}
         </div>
       </details>
     </div>

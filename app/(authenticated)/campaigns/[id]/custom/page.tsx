@@ -27,7 +27,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
 
   const { data: campaign } = await supabase
     .from('campaigns')
-    .select('id, name, gm_user_id, sell_price_percent, lp_disabled, exp_disabled')
+    .select('id, name, gm_user_id, sell_price_percent, lp_disabled, exp_disabled, ev_disabled')
     .eq('id', id)
     .single()
 
@@ -127,7 +127,12 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
         Every GM-tunable setting for this Campaign -- Sell price, Loyalty settings, and homebrew content alongside the global catalogs.
       </p>
 
-      <SellPricePercentSection campaignId={id} initialPercent={campaign.sell_price_percent} shinyRate={shinyRate} />
+      <SellPricePercentSection
+        campaignId={id}
+        initialPercent={campaign.sell_price_percent}
+        shinyRate={shinyRate}
+        initialEvDisabled={campaign.ev_disabled}
+      />
 
       <ExpSettingsSection campaignId={id} bands={levelBandRows} events={expGrantRows} initialExpDisabled={campaign.exp_disabled} />
 

@@ -1,5 +1,6 @@
 import type { createClient } from '@/lib/supabase/server'
 import { statModifier } from '@/lib/pta3/pointBuy'
+import { loadCampaignEvDisabled } from '@/lib/pta3/pokemonEv'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -32,6 +33,10 @@ export function computeStatRows(
   passiveBonusByStat: Record<string, number>,
   afflictionBonusByStat: Record<string, number>,
   statBonuses: StatBonusMap,
+  // [[Feature - Fully turn off EV's]]: excludes EVs from `value`/`modifier` when true, without
+  // touching the `ev` field itself in the returned row -- already-assigned EVs stay visible/known,
+  // they just stop contributing to the stat total while the Campaign has EVs off.
+  evsDisabled = false,
 ) {
   return (
     [
@@ -58,7 +63,8 @@ export function computeStatRows(
     const passiveBonus = passiveBonusByStat[s.label] ?? 0
     const afflictionBonus = afflictionBonusByStat[s.label] ?? 0
     const inBattle = 0 // No in-combat temporary-modifier tracking exists yet; always displayed as 0.
-    const value = s.base + s.statBonus + s.ev + natureAdjust + passiveBonus + afflictionBonus + inBattle
+    const effectiveEv = evsDisabled ? 0 : s.ev
+    const value = s.base + s.statBonus + effectiveEv + natureAdjust + passiveBonus + afflictionBonus + inBattle
     return { ...s, natureAdjust, passiveBonus, afflictionBonus, inBattle, value, modifier: statModifier(value) }
   })
 }
@@ -78,18 +84,20 @@ export async function loadPokemonEffectiveStats(supabase: SupabaseClient, pokemo
       `
       ev_attack, ev_defense, ev_special_attack, ev_special_defense, ev_speed,
       bonus_base_atk, bonus_base_def, bonus_base_sp_atk, bonus_base_sp_def, bonus_base_speed,
+      campaign_id,
       pokedex:pokedex_id (base_atk, base_def, base_sp_atk, base_sp_def, base_speed),
       nature:natures!nature_id (
         increased:stats!increased_stat_id(name),
         decreased:stats!decreased_stat_id(name)
-      )
+      ),
+      trainers_pokemon(trainers(campaign_id))
     `,
     )
     .eq('id', pokemonId)
     .maybeSingle()
 
-  // Same reverse/forward-embed quirk documented throughout this codebase -- pokedex/nature come back
-  // as single objects at runtime, not the arrays TS infers.
+  // Same reverse/forward-embed quirk documented throughout this codebase -- pokedex/nature/
+  // trainers_pokemon come back as single objects at runtime, not the arrays TS infers.
   const pokemon = pokemonRaw as unknown as {
     ev_attack: number
     ev_defense: number
@@ -101,11 +109,19 @@ export async function loadPokemonEffectiveStats(supabase: SupabaseClient, pokemo
     bonus_base_sp_atk: number
     bonus_base_sp_def: number
     bonus_base_speed: number
+    campaign_id: string | null
     pokedex: { base_atk: number; base_def: number; base_sp_atk: number; base_sp_def: number; base_speed: number } | null
     nature: { increased: { name: string } | null; decreased: { name: string } | null } | null
+    trainers_pokemon: { trainers: { campaign_id: string | null } | null } | null
   } | null
 
   if (!pokemon || !pokemon.pokedex) return null
+
+  // [[Feature - Fully turn off EV's]]: effective Campaign, same "wherever it actually lives" rule as
+  // pokemon/actions.ts's other effectiveCampaignId resolutions -- an owned Pokemon's is its Trainer's,
+  // a pool/wild Pokemon's is its own tag.
+  const effectiveCampaignId = pokemon.trainers_pokemon ? (pokemon.trainers_pokemon.trainers?.campaign_id ?? null) : pokemon.campaign_id
+  const evsDisabled = await loadCampaignEvDisabled(supabase, effectiveCampaignId)
 
   const [{ data: activeAfflictionRows }, { data: statPassiveRows }] = await Promise.all([
     supabase
@@ -164,6 +180,7 @@ export async function loadPokemonEffectiveStats(supabase: SupabaseClient, pokemo
       special_defense: pokemon.bonus_base_sp_def,
       speed: pokemon.bonus_base_speed,
     },
+    evsDisabled,
   )
 }
 
