@@ -52,10 +52,13 @@ export function ExpSettingsSection({
         {/* [[Feature - Fully turn off EXP]]: turning EXP off also turns off Level as a concept -- there's
             nothing left to retune below, and Pokemon instead learn from a per-species list of Moves
             curated as learnable without a Level (set on each species' own Homebrew/GM Custom page, or
-            the global catalog's own curated list). */}
+            the global catalog's own curated list).
+            [[Improvement - Switch EXP, LP and EV toggle]]: checkbox shows/sets the *enabled* sense (was
+            the *disabled* sense) -- a new Campaign has EXP off by default, so this checkbox should render
+            unchecked for it, not checked. Still writes to the same `exp_disabled` column/action. */}
         <label className="mb-3 flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={expDisabled} disabled={isPending} onChange={(e) => handleToggle(e.target.checked)} />
-          Turn EXP off for this Campaign (Pokémon learn from a curated Move list instead of by Level)
+          <input type="checkbox" checked={!expDisabled} disabled={isPending} onChange={(e) => handleToggle(!e.target.checked)} />
+          Turn EXP on for this Campaign (while off, Pokémon learn from a curated Move list instead of by Level)
         </label>
         {error && <p className="mb-3 text-danger">{error}</p>}
 
