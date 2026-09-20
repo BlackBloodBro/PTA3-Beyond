@@ -94,14 +94,6 @@ export async function createStarterPokemon(trainerId: string, formData: FormData
     )
   }
 
-  // Same reasoning as nature/gender -- always rolled, no picker exposed to the player.
-  const flavorPrefs = await pickFlavorPreferences(supabase)
-  if (flavorPrefs.length > 0) {
-    await supabase
-      .from('pokemon_flavor_preferences')
-      .insert(flavorPrefs.map((p) => ({ pokemon_id: pokemonId, flavor_id: p.flavorId, liked: p.liked })))
-  }
-
   // A brand-new trainer's starter always lands on the Team, not the PC -- findNextOpenSlot still
   // goes through the actual current state (rather than hardcoding slot 1) so this stays correct
   // even if this action is ever reused for a trainer that already has Pokemon.
@@ -117,6 +109,21 @@ export async function createStarterPokemon(trainerId: string, formData: FormData
 
   if (linkError) {
     redirect(`/trainers/${trainerId}/starter?error=${encodeURIComponent(linkError.message)}`)
+  }
+
+  // [[Bug - Starter Pokemon has no Likes or Dislikes]]: must run after the trainers_pokemon link above,
+  // not before -- pokemon_flavor_preferences' RLS only allows the owner (via that link), the campaign GM,
+  // or the creator of a still-unassigned Pokemon (this one is neither, since created_by_user_id is never
+  // set here) to write it. Inserting before the link existed made every one of those policies fail,
+  // silently dropping the whole insert since the error was never checked either.
+  const flavorPrefs = await pickFlavorPreferences(supabase)
+  if (flavorPrefs.length > 0) {
+    const { error: flavorError } = await supabase
+      .from('pokemon_flavor_preferences')
+      .insert(flavorPrefs.map((p) => ({ pokemon_id: pokemonId, flavor_id: p.flavorId, liked: p.liked })))
+    if (flavorError) {
+      redirect(`/trainers/${trainerId}/starter?error=${encodeURIComponent(flavorError.message)}`)
+    }
   }
 
   await setOriginalTrainerIfUnset(supabase, pokemonId, trainerId, obtainMethod?.id ?? null)
