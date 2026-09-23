@@ -13,6 +13,7 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { formatFlavorPreferences } from '@/lib/pta3/flavors'
 import { loadEvolutionTargets, loadEvolutionChainMembers, isMaxLoyalty, loadEvolutionStoneBagItems } from '@/lib/pta3/evolution'
+import { loadTrainerAttackBonuses } from '@/lib/pta3/trainerFeatures'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { ClickTooltip } from '@/components/ClickTooltip'
 import { PokemonSprite } from '@/components/PokemonSprite'
@@ -206,6 +207,8 @@ export default async function CampaignPokemonPage({
   } | null
   const trainer = ownerLink?.trainers
   const trainerId = ownerLink?.trainer_id ?? null
+  // [[Feature - Apply unconditional Class Feature stat bonuses]]
+  const trainerAttackBonuses = trainerId ? await loadTrainerAttackBonuses(supabase, trainerId) : { attack: [], special_attack: [] }
   const trainerLinkHref =
     trainerId && trainer ? trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaigns?.id ?? null }) : null
   // Read-only/system-managed -- shown only when it differs from the current Trainer, to avoid noise
@@ -561,6 +564,8 @@ export default async function CampaignPokemonPage({
           special_defense: pokemon.bonus_base_sp_def,
           speed: pokemon.bonus_base_speed,
         }}
+        trainerAttackBonuses={trainerAttackBonuses.attack}
+        trainerSpecialAttackBonuses={trainerAttackBonuses.special_attack}
         natureIncreasedName={pokemon.nature?.increased?.name ?? null}
         natureDecreasedName={pokemon.nature?.decreased?.name ?? null}
         initialKnownMoves={initialKnownMoves}
