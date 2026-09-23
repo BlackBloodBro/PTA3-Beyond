@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.3",
+    "date": "2026-09-23",
+    "entries": [
+      { "category": "fix", "summary": "The Ace trainer's Improved attacks and Grand master Features now actually add their damage bonus to a Pokémon's moves, shown by name in the damage breakdown." }
+    ]
+  },
+  {
     "version": "1.3.2",
     "date": "2026-09-21",
     "entries": [
