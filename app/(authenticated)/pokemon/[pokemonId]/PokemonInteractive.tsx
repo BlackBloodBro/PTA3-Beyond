@@ -7,6 +7,7 @@ import { statModifier } from '@/lib/pta3/pointBuy'
 import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { EV_STAT_COLUMNS, MAX_EV_PER_STAT, computePokemonMaxHp, type EvStatKey } from '@/lib/pta3/pokemonEv'
 import { computeStatRows, type SpeciesStats, type StatBonusMap } from '@/lib/pta3/pokemonStats'
+import type { TrainerStatBonus } from '@/lib/pta3/trainerFeatures'
 import {
   stabBonus,
   effectivenessFor,
@@ -269,8 +270,8 @@ type PokemonStateValue = {
   isEditingPassives: boolean
   species: SpeciesStats
   statBonuses: StatBonusMap
-  trainerAttackBonus: number
-  trainerSpecialAttackBonus: number
+  trainerAttackBonuses: TrainerStatBonus[]
+  trainerSpecialAttackBonuses: TrainerStatBonus[]
   growthRateName: string | null
   growthRateModifier: number
   obtainMethodName: string | null
@@ -344,8 +345,8 @@ export function PokemonStateProvider(props: {
   initialEvs: Record<EvStatKey, number>
   species: SpeciesStats
   statBonuses: StatBonusMap
-  trainerAttackBonus: number
-  trainerSpecialAttackBonus: number
+  trainerAttackBonuses: TrainerStatBonus[]
+  trainerSpecialAttackBonuses: TrainerStatBonus[]
   natureIncreasedName: string | null
   natureDecreasedName: string | null
   initialKnownMoves: KnownMoveEntry[]
@@ -464,8 +465,8 @@ export function PokemonStateProvider(props: {
     isEditingPassives: props.isEditingPassives,
     species: props.species,
     statBonuses: props.statBonuses,
-    trainerAttackBonus: props.trainerAttackBonus,
-    trainerSpecialAttackBonus: props.trainerSpecialAttackBonus,
+    trainerAttackBonuses: props.trainerAttackBonuses,
+    trainerSpecialAttackBonuses: props.trainerSpecialAttackBonuses,
     growthRateName: props.growthRateName,
     growthRateModifier: props.growthRateModifier,
     obtainMethodName: props.obtainMethodName,
@@ -1218,8 +1219,8 @@ export function MovesSection() {
     allTypeNames,
     level,
     expDisabled,
-    trainerAttackBonus,
-    trainerSpecialAttackBonus,
+    trainerAttackBonuses,
+    trainerSpecialAttackBonuses,
     addKnownMove,
     removeKnownMove,
     updateMoveUses,
@@ -1371,13 +1372,16 @@ export function MovesSection() {
             const toHit = accuracyStat.modifier
             const stab = stabBonus(move.types?.name, effectiveType1, effectiveType2)
             // [[Feature - Apply unconditional Class Feature stat bonuses]]: the Trainer's own
-            // "Improved attacks"/"Grand master" bonus, matching whichever stat category this move's
+            // "Improved attacks"/"Grand master" bonuses, matching whichever stat category this move's
             // own accuracy stat already resolved to (so an "either" move's physical-vs-special pick
-            // stays consistent between the Pokemon's own modifier and the Trainer's) -- 0 for a
-            // speed-keyed (non-attack) move, same as neither Feature applying.
-            const trainerBonus =
-              accuracyStat.targetStatKey === 'defense' ? trainerAttackBonus : accuracyStat.targetStatKey === 'special_defense' ? trainerSpecialAttackBonus : 0
-            const damageModifier = toHit + stab + trainerBonus
+            // stays consistent between the Pokemon's own modifier and the Trainer's) -- empty for a
+            // speed-keyed (non-attack) move, same as neither Feature applying. Kept as a list (not
+            // pre-summed) so each Feature can show under its own name in the tooltip below, per the
+            // user (2026-09-23).
+            const trainerBonuses =
+              accuracyStat.targetStatKey === 'defense' ? trainerAttackBonuses : accuracyStat.targetStatKey === 'special_defense' ? trainerSpecialAttackBonuses : []
+            const trainerBonusTotal = trainerBonuses.reduce((sum, b) => sum + b.amount, 0)
+            const damageModifier = toHit + stab + trainerBonusTotal
             const effectiveness = effectivenessFor(move.types?.name, defType1 || undefined, defType2 || undefined, typeMatchups, typeImmunities)
             const displayDice = move.damage_dice ? adjustDiceCount(move.damage_dice, effectiveness?.dice ?? 0) : move.damage_dice
             const { maxUses } = parseMoveFrequency(move.frequency)
@@ -1387,7 +1391,7 @@ export function MovesSection() {
               ? [
                   `Base damage: ${move.damage_dice}`,
                   ...(toHit !== 0 ? [`Stat bonus: ${formatSigned(toHit)}`] : []),
-                  ...(trainerBonus !== 0 ? [`Trainer bonus: ${formatSigned(trainerBonus)}`] : []),
+                  ...trainerBonuses.map((b) => `${b.name}: ${formatSigned(b.amount)}`),
                   ...(stab > 0 ? [`STAB: +${stab}`] : []),
                   ...(effectiveness?.immune
                     ? ['Effectiveness: Immune (0 damage)']

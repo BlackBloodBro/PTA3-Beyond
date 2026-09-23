@@ -83,23 +83,30 @@ export async function trainerHasBaseClassFeature(supabase: SupabaseClient, train
   return !!feature
 }
 
+// One named Feature's contribution to a Pokemon's move damage -- kept separate rather than pre-summed
+// so the display (a Moves-section tooltip) can show each Feature by its own name, per the user
+// (2026-09-23: "just use the name of the Class feature, that will make it easier"), instead of one
+// opaque combined "Trainer bonus" line.
+export type TrainerStatBonus = { name: string; amount: number }
+
 // [[Feature - Apply unconditional Class Feature stat bonuses]]: the two real unconditional-damage
 // Ace Trainer Features -- "Improved attacks" adds the Trainer's own Attack/Special Attack *modifier*
 // to their Pokemon's move damage; "Grand master" explicitly stacks (not replaces) an additional twice
-// the Trainer's raw Attack/Special Attack *stat* on top. Returns per-category totals so the caller
-// (a Pokemon's Moves section) can pick the right one per move via its own damage_stat, since a single
-// Pokemon can know both physical and special moves. Callers with no owning Trainer at all (a Wild/pool
-// Pokemon) simply don't call this -- there's nothing to compute.
+// the Trainer's raw Attack/Special Attack *stat* on top. Returns per-category lists (only the Features
+// that actually apply, in order) so the caller (a Pokemon's Moves section) can pick the right category
+// per move via its own damage_stat, since a single Pokemon can know both physical and special moves.
+// Callers with no owning Trainer at all (a Wild/pool Pokemon) simply don't call this -- there's
+// nothing to compute.
 export async function loadTrainerAttackBonuses(
   supabase: SupabaseClient,
   trainerId: string,
-): Promise<{ attack: number; special_attack: number }> {
+): Promise<{ attack: TrainerStatBonus[]; special_attack: TrainerStatBonus[] }> {
   const { data: trainer } = await supabase
     .from('trainers')
     .select('class_id, level, base_attack, base_defense, base_special_attack, base_special_defense, base_speed')
     .eq('id', trainerId)
     .maybeSingle()
-  if (!trainer) return { attack: 0, special_attack: 0 }
+  if (!trainer) return { attack: [], special_attack: [] }
 
   const [milestones, hasImprovedAttacks, hasGrandMaster] = await Promise.all([
     loadQualifyingMilestones(supabase, trainerId, trainer.level),
@@ -117,8 +124,11 @@ export async function loadTrainerAttackBonuses(
     milestones,
   )
 
-  const bonusFor = (stat: number) => (hasImprovedAttacks ? statModifier(stat) : 0) + (hasGrandMaster ? stat * 2 : 0)
-  return { attack: bonusFor(effective.attack), special_attack: bonusFor(effective.special_attack) }
+  const bonusesFor = (stat: number): TrainerStatBonus[] => [
+    ...(hasImprovedAttacks ? [{ name: 'Improved attacks', amount: statModifier(stat) }] : []),
+    ...(hasGrandMaster ? [{ name: 'Grand master', amount: stat * 2 }] : []),
+  ]
+  return { attack: bonusesFor(effective.attack), special_attack: bonusesFor(effective.special_attack) }
 }
 
 export async function loadQualifyingMilestones(

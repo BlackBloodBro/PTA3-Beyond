@@ -549,9 +549,9 @@ export default async function WildPokemonPage({
           speed: pokemon.bonus_base_speed,
         }}
         // [[Feature - Apply unconditional Class Feature stat bonuses]]: a Wild/pool Pokemon has no
-        // owning Trainer at all -- nothing to check, always 0.
-        trainerAttackBonus={0}
-        trainerSpecialAttackBonus={0}
+        // owning Trainer at all -- nothing to check, always empty.
+        trainerAttackBonuses={[]}
+        trainerSpecialAttackBonuses={[]}
         natureIncreasedName={pokemon.nature?.increased?.name ?? null}
         natureDecreasedName={pokemon.nature?.decreased?.name ?? null}
         initialKnownMoves={initialKnownMoves}

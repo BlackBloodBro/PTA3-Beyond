@@ -200,7 +200,7 @@ export default async function PokemonPage({
   const trainerId = ownerLink?.trainer_id ?? null
   // [[Feature - Apply unconditional Class Feature stat bonuses]]: 0 for both when this Pokemon has no
   // owning Trainer at all (an unassigned personal-pool Pokemon) -- there's no Trainer to check.
-  const trainerAttackBonuses = trainerId ? await loadTrainerAttackBonuses(supabase, trainerId) : { attack: 0, special_attack: 0 }
+  const trainerAttackBonuses = trainerId ? await loadTrainerAttackBonuses(supabase, trainerId) : { attack: [], special_attack: [] }
   const trainerLinkHref =
     trainerId && trainer ? trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaigns?.id ?? null }) : null
   // Read-only/system-managed -- shown only when it differs from the current Trainer, to avoid noise
@@ -538,8 +538,8 @@ export default async function PokemonPage({
           special_defense: pokemon.bonus_base_sp_def,
           speed: pokemon.bonus_base_speed,
         }}
-        trainerAttackBonus={trainerAttackBonuses.attack}
-        trainerSpecialAttackBonus={trainerAttackBonuses.special_attack}
+        trainerAttackBonuses={trainerAttackBonuses.attack}
+        trainerSpecialAttackBonuses={trainerAttackBonuses.special_attack}
         natureIncreasedName={pokemon.nature?.increased?.name ?? null}
         natureDecreasedName={pokemon.nature?.decreased?.name ?? null}
         initialKnownMoves={initialKnownMoves}
