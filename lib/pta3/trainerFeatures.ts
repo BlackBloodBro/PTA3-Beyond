@@ -2,6 +2,7 @@ import type { createClient } from '@/lib/supabase/server'
 import { loadAdvancedClassOptions } from '@/lib/pta3/advancedClassOptions'
 import { loadTrainerSkillTalents, type SkillOption } from '@/lib/pta3/skillTalents'
 import { isRaringToGoOrigin, RARING_TO_GO_BONUS_TALENT_LEVELS } from '@/lib/pta3/originBonuses'
+import { statModifier } from '@/lib/pta3/pointBuy'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -80,6 +81,44 @@ export async function trainerHasBaseClassFeature(supabase: SupabaseClient, train
     .lte('level_required', trainer.level)
     .maybeSingle()
   return !!feature
+}
+
+// [[Feature - Apply unconditional Class Feature stat bonuses]]: the two real unconditional-damage
+// Ace Trainer Features -- "Improved attacks" adds the Trainer's own Attack/Special Attack *modifier*
+// to their Pokemon's move damage; "Grand master" explicitly stacks (not replaces) an additional twice
+// the Trainer's raw Attack/Special Attack *stat* on top. Returns per-category totals so the caller
+// (a Pokemon's Moves section) can pick the right one per move via its own damage_stat, since a single
+// Pokemon can know both physical and special moves. Callers with no owning Trainer at all (a Wild/pool
+// Pokemon) simply don't call this -- there's nothing to compute.
+export async function loadTrainerAttackBonuses(
+  supabase: SupabaseClient,
+  trainerId: string,
+): Promise<{ attack: number; special_attack: number }> {
+  const { data: trainer } = await supabase
+    .from('trainers')
+    .select('class_id, level, base_attack, base_defense, base_special_attack, base_special_defense, base_speed')
+    .eq('id', trainerId)
+    .maybeSingle()
+  if (!trainer) return { attack: 0, special_attack: 0 }
+
+  const [milestones, hasImprovedAttacks, hasGrandMaster] = await Promise.all([
+    loadQualifyingMilestones(supabase, trainerId, trainer.level),
+    trainerHasBaseClassFeature(supabase, trainerId, 'Improved attacks'),
+    trainerHasBaseClassFeature(supabase, trainerId, 'Grand master'),
+  ])
+  const effective = computeEffectiveStats(
+    {
+      attack: trainer.base_attack,
+      defense: trainer.base_defense,
+      special_attack: trainer.base_special_attack,
+      special_defense: trainer.base_special_defense,
+      speed: trainer.base_speed,
+    },
+    milestones,
+  )
+
+  const bonusFor = (stat: number) => (hasImprovedAttacks ? statModifier(stat) : 0) + (hasGrandMaster ? stat * 2 : 0)
+  return { attack: bonusFor(effective.attack), special_attack: bonusFor(effective.special_attack) }
 }
 
 export async function loadQualifyingMilestones(
