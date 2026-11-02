@@ -9,13 +9,14 @@ import { loadEncounterLiveSnapshot } from '@/lib/pta3/encounterLive'
 export async function GET(_request: Request, { params }: { params: Promise<{ encounterId: string }> }) {
   const { encounterId } = await params
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'unauthenticated' }, { status: 401, headers: { 'Cache-Control': 'no-store' } })
+  // getClaims verifies the JWT signature locally (no Auth-server round trip, unlike getUser). That's enough
+  // here: RLS re-checks the same token on every query, and this route only reads.
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const userId = claimsData?.claims.sub
+  if (!userId) return NextResponse.json({ error: 'unauthenticated' }, { status: 401, headers: { 'Cache-Control': 'no-store' } })
 
   try {
-    const snapshot = await loadEncounterLiveSnapshot(supabase, encounterId, user.id)
+    const snapshot = await loadEncounterLiveSnapshot(supabase, encounterId, userId)
     if (!snapshot) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
     return NextResponse.json(snapshot, { headers: { 'Cache-Control': 'no-store' } })
   } catch {

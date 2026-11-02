@@ -14,7 +14,13 @@ import { computeCurrentCombatantId, structureKey, type EncounterLiveSnapshot } f
 //                              left, an enemy was revealed -- all server-rendered identity/layout)
 // A failed poll is ignored and retried on the next tick; it never redirects, so a transient error can't
 // eject anyone. Polling pauses while the tab is hidden and catches up the moment it's visible again.
-const POLL_INTERVAL_MS = 4000
+// While a fight is quiet the poll backs off (4 s -> 8 s -> 10 s) and snaps back to 4 s on any change, on the
+// viewer's own action, on a server re-render, or when the tab becomes visible.
+function pollDelayMs(unchangedPolls: number): number {
+  if (unchangedPolls < 5) return 4000
+  if (unchangedPolls < 15) return 8000
+  return 10000
+}
 
 type LiveContextValue = {
   snapshot: EncounterLiveSnapshot
@@ -46,13 +52,9 @@ export function EncounterLiveProvider({
   const [snapshot, setSnapshot] = useState(initial)
   const structureRef = useRef(structureKey(initial))
   const inFlight = useRef(false)
-
-  // A server re-render (router.refresh(), or any of the viewer's own actions) hands down a fresh `initial`
-  // -- adopt it so the store never lags behind what the server just rendered.
-  useEffect(() => {
-    setSnapshot(initial)
-    structureRef.current = structureKey(initial)
-  }, [initial])
+  const lastJson = useRef(JSON.stringify(initial))
+  const unchangedPolls = useRef(0)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const poll = useCallback(async () => {
     if (inFlight.current || document.hidden) return
@@ -64,10 +66,18 @@ export function EncounterLiveProvider({
       const nextStructure = structureKey(next)
       if (nextStructure !== structureRef.current) {
         structureRef.current = nextStructure
+        unchangedPolls.current = 0
         router.refresh()
         return
       }
-      setSnapshot((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
+      const nextJson = JSON.stringify(next)
+      if (nextJson === lastJson.current) {
+        unchangedPolls.current += 1
+        return
+      }
+      lastJson.current = nextJson
+      unchangedPolls.current = 0
+      setSnapshot(next)
     } catch {
       // Network blip: keep the last known state, try again next tick.
     } finally {
@@ -75,20 +85,51 @@ export function EncounterLiveProvider({
     }
   }, [encounterId, router])
 
+  // Self-rescheduling timer rather than setInterval so the gap can change between polls. Nothing is scheduled
+  // while the tab is hidden.
+  const schedule = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    if (document.hidden) return
+    timer.current = setTimeout(async () => {
+      await poll()
+      schedule()
+    }, pollDelayMs(unchangedPolls.current))
+  }, [poll])
+
+  // Re-read right now and go back to the fast rate: the viewer just did something, or the tab just woke up.
+  const pollNow = useCallback(() => {
+    unchangedPolls.current = 0
+    void poll()
+    schedule()
+  }, [poll, schedule])
+
+  // A server re-render (router.refresh(), or any of the viewer's own actions) hands down a fresh `initial`
+  // -- adopt it so the store never lags behind what the server just rendered, and poll quickly again.
+  useEffect(() => {
+    setSnapshot(initial)
+    lastJson.current = JSON.stringify(initial)
+    structureRef.current = structureKey(initial)
+    unchangedPolls.current = 0
+    if (enabled) schedule()
+  }, [initial, enabled, schedule])
+
   useEffect(() => {
     if (!enabled) return
-    const id = setInterval(poll, POLL_INTERVAL_MS)
-    const onVisible = () => {
-      if (!document.hidden) poll()
+    schedule()
+    const onVisibility = () => {
+      if (document.hidden) schedule()
+      else pollNow()
     }
-    document.addEventListener('visibilitychange', onVisible)
+    document.addEventListener('visibilitychange', onVisibility)
     return () => {
-      clearInterval(id)
-      document.removeEventListener('visibilitychange', onVisible)
+      if (timer.current) clearTimeout(timer.current)
+      timer.current = null
+      document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [enabled, poll])
+  }, [enabled, schedule, pollNow])
 
   const currentCombatantId = computeCurrentCombatantId(snapshot.combatants, snapshot.currentTurnPosition, snapshot.status === 'active')
 
-  return <LiveContext.Provider value={{ snapshot, currentCombatantId, pollNow: poll }}>{children}</LiveContext.Provider>
+  return <LiveContext.Provider value={{ snapshot, currentCombatantId, pollNow }}>{children}</LiveContext.Provider>
 }
