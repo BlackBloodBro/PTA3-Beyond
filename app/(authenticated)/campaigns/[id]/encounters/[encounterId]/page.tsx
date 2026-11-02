@@ -4,7 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import { singleWithRetry } from '@/lib/supabase/retrySingle'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
-import { PokemonSprite } from '@/components/PokemonSprite'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { RollInputButton } from '@/components/RollInputButton'
 import { loadQualifyingMilestones, computeMaxHp, loadTrainerDerived } from '@/lib/pta3/trainerFeatures'
@@ -23,10 +22,12 @@ import {
   skipMyTurn,
   scanSpecies,
 } from '../actions'
-import { AttackResolver, type AttackerOption, type TargetOption } from './AttackResolver'
-import { EncounterLivePoll } from './EncounterLivePoll'
-import { TrainerActionsPanel, type TrainerActionsData } from './TrainerActionsPanel'
-import { CombatantDetailModal } from './CombatantDetailModal'
+import type { AttackerOption, TargetOption } from './AttackResolver'
+import type { TrainerActionsData } from './TrainerActionsPanel'
+import { EncounterLiveProvider } from './EncounterLiveProvider'
+import { InitiativeTracker, type TrackerCombatant } from './InitiativeTracker'
+import { LiveAttackResolver, LiveTrainerActionsPanel } from './LiveEncounterPanels'
+import { buildScannedKey, type EncounterLiveSnapshot } from '@/lib/pta3/encounterLive'
 
 type CombatantRow = {
   id: string
@@ -204,41 +205,11 @@ export default async function EncounterDetailPage({
     ),
   )
 
-  // [[Feature - Add a combat encounter tracker]]: "down" isn't a separate GM-toggled flag (per the
-  // user, 2026-09-08) -- it's just whether the combatant's own current HP has hit 0, read live from
-  // trainers/pokemon, the same source of truth every other HP display already uses. Can never drift
-  // out of sync the way a manually-set flag could.
-  function combatantIsDown(c: CombatantRow): boolean {
-    const hp = c.trainers ? c.trainers.current_hp : (c.pokemon?.current_hp ?? 0)
-    return hp <= 0
-  }
-
-  // Highest turn_order acts first (d20+Speed-modifier for a Trainer, raw effective Speed for a
-  // Pokemon -- see actions.ts). A Draft-added combatant has no turn_order at all yet (null) until
-  // startEncounter fills it in -- sorts last, and is excluded from the "whose turn" computation.
-  // current_turn_position is a plain incrementing counter indexed modulo this active-only sorted
-  // list, so a combatant at 0 HP is skipped automatically without needing its own "skip" logic.
-  //
-  // Bug fix (2026-09-14): a tied turn_order (a real, common occurrence -- e.g. two Pokemon with the
-  // same effective Speed) used to break arbitrarily, since neither this sort nor the
-  // `encounter_combatants` query it reads from (fetched with no explicit `.order(...)`) had any
-  // secondary key -- Postgres gives no ordering guarantee for an unordered SELECT. That was harmless
-  // while "whose turn" only ever needed to be self-consistent within one page render, but the new
-  // skip_my_turn() Postgres function ([[Feature - Only active player on initiative tracker can do an
-  // action]]) re-derives the same ranking independently in SQL, and Postgres's own `row_number() over
-  // (order by turn_order desc)` breaks ties arbitrarily too -- with no guarantee of agreeing with
-  // whatever this sort happened to produce. Root-caused as the actual cause of the user's live report
-  // ("It is not your turn" firing repeatedly for a real player on their own turn) -- confirmed via the
-  // real campaign's own combatant data, which has three separate tied turn_order groups. Fixed by
-  // giving both a deterministic secondary key (`id`) -- same tiebreak convention now used in
-  // skip_my_turn()'s own `order by`.
-  const activeSorted = [...combatants]
-    .filter((c) => !combatantIsDown(c) && c.turn_order !== null)
-    .sort((a, b) => b.turn_order! - a.turn_order! || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  const currentCombatantId = isActive && activeSorted.length > 0 ? activeSorted[encounter.current_turn_position % activeSorted.length].id : null
-  const sortedForDisplay = [...combatants].sort(
-    (a, b) => (b.turn_order ?? -Infinity) - (a.turn_order ?? -Infinity) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-  )
+  // [[Bug - Combat encounter page is slow, fails to load, and ejects players]]: "down" (0 HP), initiative
+  // order and whose turn it is are no longer computed here -- they change every few seconds mid-fight, so
+  // they're derived on the client from the live-state store (lib/pta3/encounterLive.ts holds the one shared
+  // implementation of the turn rules, including the deterministic tie-break on id). This page only renders
+  // the static half once.
 
   // [[Feature - Add a combat encounter tracker]]: per the user (2026-09-08) -- the same Trainer/
   // Pokemon can't be added twice (also enforced in the DB), so every "add" dropdown below excludes
@@ -339,7 +310,7 @@ export default async function EncounterDetailPage({
   }))
   if (isActive) {
     const pokemonCombatants = combatants.filter((c): c is CombatantRow & { pokemon: NonNullable<CombatantRow['pokemon']> } => c.pokemon !== null)
-    const eligible = pokemonCombatants.filter((c) => isGM || (ownTeamPokemonIds.has(c.pokemon.id) && c.id === currentCombatantId))
+    const eligible = pokemonCombatants.filter((c) => isGM || ownTeamPokemonIds.has(c.pokemon.id))
     if (eligible.length > 0) {
       // Bug fix (2026-09-14): reproduced live while running a full multi-player encounter test --
       // this query has the exact same unguarded vulnerability to a poisoned pooled connection as the
@@ -398,8 +369,9 @@ export default async function EncounterDetailPage({
         const usesRemainingByFeature = Object.fromEntries((featureUses ?? []).map((fu) => [fu.feature_id, fu.uses_remaining]))
         return {
           trainerId,
+          combatantId: c.id,
           trainerName: c.trainers.name,
-          isCurrentTurn: isGM || c.id === currentCombatantId,
+          isCurrentTurn: isGM,
           moves: ((trainerMovesRaw ?? []) as unknown as { uses_remaining: number | null; moves: { name: string } | null }[])
             .filter((m) => m.moves)
             .map((m) => ({ name: m.moves!.name, usesRemaining: m.uses_remaining })),
@@ -408,6 +380,7 @@ export default async function EncounterDetailPage({
             name: f.name,
             description: f.description,
             usesRemaining: f.max_uses !== null ? (usesRemainingByFeature[f.id] ?? f.max_uses) : null,
+            maxUses: f.max_uses,
           })),
           items: bag.items.filter((i) => i.quantity > 0).map((i) => ({ id: i.id, name: i.name, quantity: i.quantity })),
         }
@@ -438,353 +411,282 @@ export default async function EncounterDetailPage({
     return '#'
   }
 
-  return (
-    <main className="flex min-h-screen justify-center p-24">
-      {isActive && <EncounterLivePoll />}
-      {/* [[Improvement - Move initiative tracker to a right sidebar]]: same two-column shape as the PC
-          board's own sidebar (`flex ... items-start gap-4` wrapping a flex-1 main column and a
-          `sticky top-4 w-64 shrink-0` aside) -- only the tracker moves; everything else keeps its
-          existing max-w-2xl width inside the now-narrower main column. No responsive stacking, per the
-          user -- matches that same existing precedent, which has none either. */}
-      <div className="flex w-full max-w-6xl items-start gap-4">
-        <div className="flex flex-1 flex-col items-center gap-6">
-          <div className="w-full max-w-2xl">
-            <Link href={isGM ? `/campaigns/${campaignId}/encounters` : `/campaigns/${campaignId}`} className="text-sm underline">
-              ← {isGM ? 'Encounters' : campaign.name}
-            </Link>
-          </div>
+  // The static half of each initiative row, plus the starting live values -- InitiativeTracker overlays the
+  // live HP/initiative/turn from the store, so none of this is re-fetched by the poll.
+  const trackerCombatants: TrackerCombatant[] = combatants.map((c) => ({
+    id: c.id,
+    side: c.side,
+    name: combatantName(c),
+    href: combatantHref(c),
+    typeLabel: combatantTypeLabel(c),
+    pokemon: c.pokemon
+      ? {
+          pokedexId: c.pokemon.pokedex_id,
+          spriteCode: c.pokemon.pokedex?.sprite_code ?? null,
+          shiny: c.pokemon.is_shiny,
+          identified: combatantIsIdentified(c),
+        }
+      : null,
+    maxHp: combatantMaxHp(c),
+    isOwnTrainer: !!c.trainers?.id && ownTrainerIds.has(c.trainers.id),
+    isOwnPokemon: !!c.pokemon?.id && ownTeamPokemonIds.has(c.pokemon.id),
+    initialHp: c.trainers ? c.trainers.current_hp : (c.pokemon?.current_hp ?? 0),
+    initialTurnOrder: c.turn_order,
+  }))
 
-          <div className="flex w-full max-w-2xl items-center justify-between">
-            <h1 className="text-2xl font-bold">
-              {encounter.name} <span className="text-base font-normal text-muted">({encounter.status})</span>
-            </h1>
-            {isGM && (
-              <div className="flex gap-2">
-                {isDraft && (
-                  <form action={startEncounter.bind(null, campaignId, encounterId)}>
-                    <button type="submit" className="rounded bg-accent px-4 py-2 text-sm text-accent-foreground">
-                      Start encounter
-                    </button>
-                  </form>
-                )}
-                {isActive && (
-                  <>
-                    <form action={advanceTurn.bind(null, encounterId, campaignId)}>
-                      <button type="submit" className="rounded border px-4 py-2 text-sm">
-                        Advance turn
+  // Must agree with loadEncounterLiveSnapshot's own structureKey inputs (status, combatant ids, scanned
+  // key), or the very first poll would look like a structural change and trigger a pointless refresh.
+  const initialSnapshot: EncounterLiveSnapshot = {
+    status: encounter.status,
+    currentTurnPosition: encounter.current_turn_position,
+    combatants: combatants.map((c) => ({
+      id: c.id,
+      currentHp: c.trainers ? c.trainers.current_hp : (c.pokemon?.current_hp ?? 0),
+      turnOrder: c.turn_order,
+    })),
+    scannedKey: buildScannedKey(
+      combatants.filter((c) => c.side === 'enemy' && c.pokemon).map((c) => c.pokemon!.pokedex_id),
+      scannedPokedexIds,
+    ),
+    // Filled in by the first poll; until then the panel shows the server-rendered uses.
+    trainers: {},
+  }
+
+  return (
+    <EncounterLiveProvider encounterId={encounterId} initial={initialSnapshot} enabled={isActive}>
+      <main className="flex min-h-screen justify-center p-24">
+        {/* [[Improvement - Move initiative tracker to a right sidebar]]: same two-column shape as the PC
+            board's own sidebar (`flex ... items-start gap-4` wrapping a flex-1 main column and a
+            `sticky top-4 w-64 shrink-0` aside) -- only the tracker moves; everything else keeps its
+            existing max-w-2xl width inside the now-narrower main column. No responsive stacking, per the
+            user -- matches that same existing precedent, which has none either. */}
+        <div className="flex w-full max-w-6xl items-start gap-4">
+          <div className="flex flex-1 flex-col items-center gap-6">
+            <div className="w-full max-w-2xl">
+              <Link href={isGM ? `/campaigns/${campaignId}/encounters` : `/campaigns/${campaignId}`} className="text-sm underline">
+                ← {isGM ? 'Encounters' : campaign.name}
+              </Link>
+            </div>
+
+            <div className="flex w-full max-w-2xl items-center justify-between">
+              <h1 className="text-2xl font-bold">
+                {encounter.name} <span className="text-base font-normal text-muted">({encounter.status})</span>
+              </h1>
+              {isGM && (
+                <div className="flex gap-2">
+                  {isDraft && (
+                    <form action={startEncounter.bind(null, campaignId, encounterId)}>
+                      <button type="submit" className="rounded bg-accent px-4 py-2 text-sm text-accent-foreground">
+                        Start encounter
                       </button>
                     </form>
-                    <form action={resetEncounterToDraft.bind(null, campaignId, encounterId)}>
-                      <ConfirmButton
-                        confirmMessage="Reset this encounter back to Draft? Every combatant's initiative and the current turn will be cleared -- you'll need to Start it again to re-roll."
-                        className="rounded border px-4 py-2 text-sm"
-                      >
-                        Reset to draft
-                      </ConfirmButton>
-                    </form>
-                  </>
-                )}
-                <form action={deleteEncounter.bind(null, campaignId, encounterId)}>
-                  <ConfirmButton confirmMessage={`Permanently delete "${encounter.name}"? This cannot be undone.`} className="rounded border border-danger px-4 py-2 text-sm text-danger">
-                    Delete
-                  </ConfirmButton>
-                </form>
-              </div>
-            )}
-          </div>
-
-          {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
-
-          {isGM && (
-            <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
-              <h2 className="font-semibold">Add a combatant</h2>
-              {isDraft && (
-                <p className="text-xs text-muted">
-                  No initiative is rolled yet while this Encounter is a Draft -- it's filled in automatically (or you can set it by hand
-                  below) once you Start it.
-                </p>
+                  )}
+                  {isActive && (
+                    <>
+                      <form action={advanceTurn.bind(null, encounterId, campaignId)}>
+                        <button type="submit" className="rounded border px-4 py-2 text-sm">
+                          Advance turn
+                        </button>
+                      </form>
+                      <form action={resetEncounterToDraft.bind(null, campaignId, encounterId)}>
+                        <ConfirmButton
+                          confirmMessage="Reset this encounter back to Draft? Every combatant's initiative and the current turn will be cleared -- you'll need to Start it again to re-roll."
+                          className="rounded border px-4 py-2 text-sm"
+                        >
+                          Reset to draft
+                        </ConfirmButton>
+                      </form>
+                    </>
+                  )}
+                  <form action={deleteEncounter.bind(null, campaignId, encounterId)}>
+                    <ConfirmButton confirmMessage={`Permanently delete "${encounter.name}"? This cannot be undone.`} className="rounded border border-danger px-4 py-2 text-sm text-danger">
+                      Delete
+                    </ConfirmButton>
+                  </form>
+                </div>
               )}
+            </div>
 
-              {campaignTrainers.length > 0 && (
-                <form action={addTrainerCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
-                  <div className="flex flex-col gap-1">
-                    <label htmlFor="trainerId">Trainer / NPC</label>
-                    <select id="trainerId" name="trainerId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
-                      <option value="" disabled>
-                        Select...
-                      </option>
-                      {campaignTrainers.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                          {t.is_npc ? ' (NPC)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  {npcTeamPokemon.length > 0 && (
+            {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
+
+            {isGM && (
+              <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
+                <h2 className="font-semibold">Add a combatant</h2>
+                {isDraft && (
+                  <p className="text-xs text-muted">
+                    No initiative is rolled yet while this Encounter is a Draft -- it's filled in automatically (or you can set it by hand
+                    below) once you Start it.
+                  </p>
+                )}
+
+                {campaignTrainers.length > 0 && (
+                  <form action={addTrainerCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
                     <div className="flex flex-col gap-1">
-                      <label htmlFor="teamPokemonId">Team member (for an NPC)</label>
-                      <select id="teamPokemonId" name="teamPokemonId" defaultValue="" className="bg-surface-subtle rounded border p-2">
-                        <option value="">None</option>
-                        {npcTeamPokemon.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.label}
+                      <label htmlFor="trainerId">Trainer / NPC</label>
+                      <select id="trainerId" name="trainerId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
+                        <option value="" disabled>
+                          Select...
+                        </option>
+                        {campaignTrainers.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                            {t.is_npc ? ' (NPC)' : ''}
                           </option>
                         ))}
                       </select>
                     </div>
-                  )}
-                  <div className="flex flex-col gap-1">
-                    <label htmlFor="side1">Side</label>
-                    <select id="side1" name="side" defaultValue="enemy" className="bg-surface-subtle rounded border p-2">
-                      <option value="ally">Ally</option>
-                      <option value="enemy">Enemy</option>
-                    </select>
-                  </div>
-                  {isDraft ? (
+                    {npcTeamPokemon.length > 0 && (
+                      <div className="flex flex-col gap-1">
+                        <label htmlFor="teamPokemonId">Team member (for an NPC)</label>
+                        <select id="teamPokemonId" name="teamPokemonId" defaultValue="" className="bg-surface-subtle rounded border p-2">
+                          <option value="">None</option>
+                          {npcTeamPokemon.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="side1">Side</label>
+                      <select id="side1" name="side" defaultValue="enemy" className="bg-surface-subtle rounded border p-2">
+                        <option value="ally">Ally</option>
+                        <option value="enemy">Enemy</option>
+                      </select>
+                    </div>
+                    {isDraft ? (
+                      <button type="submit" className="rounded border px-3 py-2">
+                        Add
+                      </button>
+                    ) : (
+                      <RollInputButton
+                        promptMessage="Roll a d20 for initiative and enter the result (1-20)."
+                        min={1}
+                        max={20}
+                        fieldName="d20Roll"
+                        formAction={addTrainerCombatant.bind(null, encounterId, campaignId)}
+                        className="rounded border px-3 py-2"
+                      >
+                        Add (roll d20)
+                      </RollInputButton>
+                    )}
+                  </form>
+                )}
+
+                {campaignPool.length > 0 && (
+                  <form action={addPokemonCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="pokemonId">Wild Pokémon</label>
+                      <select id="pokemonId" name="pokemonId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
+                        <option value="" disabled>
+                          Select...
+                        </option>
+                        {campaignPool.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="side2">Side</label>
+                      <select id="side2" name="side" defaultValue="enemy" className="bg-surface-subtle rounded border p-2">
+                        <option value="ally">Ally</option>
+                        <option value="enemy">Enemy</option>
+                      </select>
+                    </div>
                     <button type="submit" className="rounded border px-3 py-2">
                       Add
                     </button>
-                  ) : (
+                  </form>
+                )}
+
+                {campaignTrainers.length === 0 && campaignPool.length === 0 && (
+                  <p className="text-xs text-muted">No Trainers, NPCs, or unassigned Wild Pokémon in this Campaign to add yet.</p>
+                )}
+              </div>
+            )}
+
+            {/* [[Feature - Hide certain sections in Encounters]]: hides entirely once the player has
+                already joined with everything they have, rather than showing the section with an
+                explanatory "nothing to join with" message -- that message read oddly once the real
+                reason was "already joined," not "nothing exists." GM stays unaffected (this section
+                never showed for the GM in the first place). */}
+            {!isGM && isActive && (ownTrainers.length > 0 || ownTeamPokemon.length > 0) && (
+              <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
+                <h2 className="font-semibold">Join the fight</h2>
+
+                {ownTrainers.length > 0 && (
+                  <form action={addTrainerCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
+                    <input type="hidden" name="side" value="ally" />
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="joinTrainerId">Your Trainer</label>
+                      <select id="joinTrainerId" name="trainerId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
+                        <option value="" disabled>
+                          Select...
+                        </option>
+                        {ownTrainers.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <RollInputButton
                       promptMessage="Roll a d20 for initiative and enter the result (1-20)."
                       min={1}
                       max={20}
                       fieldName="d20Roll"
                       formAction={addTrainerCombatant.bind(null, encounterId, campaignId)}
-                      className="rounded border px-3 py-2"
+                      className="rounded bg-accent px-3 py-2 text-accent-foreground"
                     >
-                      Add (roll d20)
+                      Join (roll d20)
                     </RollInputButton>
-                  )}
-                </form>
-              )}
+                  </form>
+                )}
 
-              {campaignPool.length > 0 && (
-                <form action={addPokemonCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
-                  <div className="flex flex-col gap-1">
-                    <label htmlFor="pokemonId">Wild Pokémon</label>
-                    <select id="pokemonId" name="pokemonId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
-                      <option value="" disabled>
-                        Select...
-                      </option>
-                      {campaignPool.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name}
+                {ownTeamPokemon.length > 0 && (
+                  <form action={addPokemonCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
+                    <input type="hidden" name="side" value="ally" />
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="sendPokemonId">Send out a Pokémon</label>
+                      <select id="sendPokemonId" name="pokemonId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
+                        <option value="" disabled>
+                          Select...
                         </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label htmlFor="side2">Side</label>
-                    <select id="side2" name="side" defaultValue="enemy" className="bg-surface-subtle rounded border p-2">
-                      <option value="ally">Ally</option>
-                      <option value="enemy">Enemy</option>
-                    </select>
-                  </div>
-                  <button type="submit" className="rounded border px-3 py-2">
-                    Add
-                  </button>
-                </form>
-              )}
-
-              {campaignTrainers.length === 0 && campaignPool.length === 0 && (
-                <p className="text-xs text-muted">No Trainers, NPCs, or unassigned Wild Pokémon in this Campaign to add yet.</p>
-              )}
-            </div>
-          )}
-
-          {/* [[Feature - Hide certain sections in Encounters]]: hides entirely once the player has
-              already joined with everything they have, rather than showing the section with an
-              explanatory "nothing to join with" message -- that message read oddly once the real
-              reason was "already joined," not "nothing exists." GM stays unaffected (this section
-              never showed for the GM in the first place). */}
-          {!isGM && isActive && (ownTrainers.length > 0 || ownTeamPokemon.length > 0) && (
-            <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
-              <h2 className="font-semibold">Join the fight</h2>
-
-              {ownTrainers.length > 0 && (
-                <form action={addTrainerCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
-                  <input type="hidden" name="side" value="ally" />
-                  <div className="flex flex-col gap-1">
-                    <label htmlFor="joinTrainerId">Your Trainer</label>
-                    <select id="joinTrainerId" name="trainerId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
-                      <option value="" disabled>
-                        Select...
-                      </option>
-                      {ownTrainers.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <RollInputButton
-                    promptMessage="Roll a d20 for initiative and enter the result (1-20)."
-                    min={1}
-                    max={20}
-                    fieldName="d20Roll"
-                    formAction={addTrainerCombatant.bind(null, encounterId, campaignId)}
-                    className="rounded bg-accent px-3 py-2 text-accent-foreground"
-                  >
-                    Join (roll d20)
-                  </RollInputButton>
-                </form>
-              )}
-
-              {ownTeamPokemon.length > 0 && (
-                <form action={addPokemonCombatant.bind(null, encounterId, campaignId)} className="flex flex-wrap items-end gap-2">
-                  <input type="hidden" name="side" value="ally" />
-                  <div className="flex flex-col gap-1">
-                    <label htmlFor="sendPokemonId">Send out a Pokémon</label>
-                    <select id="sendPokemonId" name="pokemonId" required defaultValue="" className="bg-surface-subtle rounded border p-2">
-                      <option value="" disabled>
-                        Select...
-                      </option>
-                      {ownTeamPokemon.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <button type="submit" className="rounded bg-accent px-3 py-2 text-accent-foreground">
-                    Send out
-                  </button>
-                </form>
-              )}
-            </div>
-          )}
-
-          {/* [[Feature - Hide certain sections in Encounters]]: hides entirely for a non-GM player
-              when it isn't their own Pokemon's turn, rather than showing the panel with "No Pokemon
-              combatants available to attack with." Stays visible unconditionally for the GM (who can
-              always attack with any Pokemon combatant, or hits that same message if there are truly
-              none in the encounter at all). */}
-          {isActive && (isGM || attackerOptions.length > 0) && (
-            <AttackResolver
-              attackers={attackerOptions}
-              targets={targetOptions}
-              currentAttackerId={currentCombatantId}
-              isGM={isGM}
-              encounterId={encounterId}
-              campaignId={campaignId}
-            />
-          )}
-
-          {isActive && trainerActionsData.length > 0 && <TrainerActionsPanel trainers={trainerActionsData} />}
-        </div>
-
-        <aside className="sticky top-4 flex w-64 shrink-0 flex-col gap-2">
-          {sortedForDisplay.length === 0 ? (
-            <p className="text-sm text-muted">No combatants yet.</p>
-          ) : (
-            sortedForDisplay.map((c) => (
-              <div
-                key={c.id}
-                className={`flex flex-col gap-2 rounded border p-3 ${
-                  c.id === currentCombatantId ? 'border-2 border-warning bg-warning/10' : 'border-accent bg-accent/10'
-                } ${combatantIsDown(c) ? 'opacity-50' : ''}`}
-              >
-                <div className="flex items-start gap-2">
-                  {c.pokemon && !combatantIsIdentified(c) ? (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-surface-muted text-sm text-muted">?</div>
-                  ) : (
-                    c.pokemon?.pokedex?.sprite_code && (
-                      <PokemonSprite spriteCode={c.pokemon.pokedex.sprite_code} shiny={c.pokemon.is_shiny} alt={combatantName(c)} size={32} />
-                    )
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-sm">
-                      <span className={`mr-1 rounded px-1.5 py-0.5 text-xs font-semibold ${c.side === 'ally' ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'}`}>
-                        {c.side === 'ally' ? 'Ally' : 'Enemy'}
-                      </span>
-                      {/* [[Feature - Show more Pokemon and trainer information in Encounters]]: the
-                          name is now a clickable trigger for the info overlay, regardless of whether
-                          it's identified -- an unidentified enemy's overlay just says so, matching the
-                          gating already enforced server-side in combatantDetailActions.ts. The old
-                          navigate-away link still exists inside the overlay itself ("View full page"),
-                          for the rare case something actually needs editing there. */}
-                      <CombatantDetailModal combatantId={c.id} label={combatantName(c)} href={combatantHref(c)} />
-                      {combatantTypeLabel(c) && <span className="text-muted"> -- {combatantTypeLabel(c)}</span>}
-                    </p>
-                    {c.id === currentCombatantId && <p className="text-xs font-semibold text-warning">← Current turn</p>}
-                    <p className="text-xs text-muted">
-                      {c.trainers ? c.trainers.current_hp : c.pokemon?.current_hp}/{combatantMaxHp(c)} HP · Initiative{' '}
-                      {c.turn_order ?? 'not set'}
-                      {combatantIsDown(c) ? ' · Down (0 HP)' : ''}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {isGM && (
-                    <>
-                      <form action={setCombatantInitiative.bind(null, encounterId, campaignId, c.id)} className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          name="turnOrder"
-                          defaultValue={c.turn_order ?? ''}
-                          placeholder="Init."
-                          className="bg-surface-subtle w-16 rounded border px-1 py-1 text-xs"
-                        />
-                        <button type="submit" className="rounded border px-2 py-1 text-xs">
-                          Set
-                        </button>
-                      </form>
-                      <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
-                        <ConfirmButton confirmMessage={`Remove ${combatantName(c)} from this encounter?`} className="rounded border border-danger px-2 py-1 text-xs text-danger">
-                          Remove
-                        </ConfirmButton>
-                      </form>
-                    </>
-                  )}
-                  {/* Bug fix (2026-09-13): these two used to check `ownTrainers`/`ownTeamPokemon` --
-                      but those are deliberately *filtered to exclude anyone already a combatant*
-                      (they back the "Join the fight"/"Send out" dropdowns, per the comment on their own
-                      declaration above). That meant Leave/Recall could never appear for the exact
-                      combatant row they're meant to act on, since being a combatant is precisely what
-                      got it excluded from that list. Fixed to use the unfiltered `ownTrainerIds`/
-                      `ownTeamPokemonIds` sets instead -- the same ones Attack Resolver/Trainer Actions
-                      already rely on for this identical "is this already-in-combat one mine" check. */}
-                  {!isGM && c.trainers?.id && ownTrainerIds.has(c.trainers.id) && (
-                    <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
-                      <ConfirmButton confirmMessage="Leave this encounter?" className="rounded border px-2 py-1 text-xs">
-                        Leave
-                      </ConfirmButton>
-                    </form>
-                  )}
-                  {!isGM && c.pokemon?.id && ownTeamPokemonIds.has(c.pokemon.id) && (
-                    <form action={removeCombatant.bind(null, encounterId, campaignId, c.id)}>
-                      <ConfirmButton confirmMessage="Recall this Pokémon from the encounter?" className="rounded border px-2 py-1 text-xs">
-                        Recall
-                      </ConfirmButton>
-                    </form>
-                  )}
-                  {/* [[Feature - Only active player on initiative tracker can do an action]]: the new
-                      self-service escape hatch -- a player who doesn't want to (or can't) act on their
-                      own turn no longer has to wait on the GM's "Advance turn". Only offered on the
-                      player's own current-turn combatant; skip_my_turn() re-checks ownership itself
-                      server-side regardless. */}
-                  {!isGM && c.id === currentCombatantId && ((c.trainers?.id && ownTrainerIds.has(c.trainers.id)) || (c.pokemon?.id && ownTeamPokemonIds.has(c.pokemon.id))) && (
-                    <form action={skipMyTurn.bind(null, encounterId, campaignId)}>
-                      <button type="submit" className="rounded border px-2 py-1 text-xs">
-                        Skip turn
-                      </button>
-                    </form>
-                  )}
-                  {c.pokemon && !combatantIsIdentified(c) && (
-                    <form action={scanSpecies.bind(null, encounterId, campaignId, c.pokemon.pokedex_id)}>
-                      <button type="submit" className="rounded border border-accent px-2 py-1 text-xs font-semibold text-accent">
-                        Use Pokédex
-                      </button>
-                    </form>
-                  )}
-                </div>
+                        {ownTeamPokemon.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.nickname ? `${p.nickname} (${p.pokedex?.name})` : p.pokedex?.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button type="submit" className="rounded bg-accent px-3 py-2 text-accent-foreground">
+                      Send out
+                    </button>
+                  </form>
+                )}
               </div>
-            ))
-          )}
-        </aside>
-      </div>
-    </main>
+            )}
+
+            {/* [[Feature - Hide certain sections in Encounters]]: hides entirely for a non-GM player
+                when it isn't their own Pokemon's turn, rather than showing the panel with "No Pokemon
+                combatants available to attack with." Stays visible unconditionally for the GM (who can
+                always attack with any Pokemon combatant, or hits that same message if there are truly
+                none in the encounter at all). */}
+            {isActive && (isGM || attackerOptions.length > 0) && (
+              <LiveAttackResolver candidates={attackerOptions} targets={targetOptions} isGM={isGM} encounterId={encounterId} campaignId={campaignId} />
+            )}
+
+            {isActive && trainerActionsData.length > 0 && <LiveTrainerActionsPanel trainers={trainerActionsData} isGM={isGM} />}
+          </div>
+
+          <aside className="sticky top-4 flex w-64 shrink-0 flex-col gap-2">
+            <InitiativeTracker combatants={trackerCombatants} isGM={isGM} encounterId={encounterId} campaignId={campaignId} />
+          </aside>
+        </div>
+      </main>
+    </EncounterLiveProvider>
   )
 }
