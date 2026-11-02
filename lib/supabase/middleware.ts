@@ -25,7 +25,16 @@ export async function updateSession(request: NextRequest) {
 
   // Refresh the session if expired. Required for Server Components, which
   // can't write cookies themselves.
-  await supabase.auth.getUser();
+  //
+  // The Encounter live-state poll hits this every few seconds per viewer, so for that one route verify the
+  // token locally (getClaims -- checks the signature against the cached public key, still refreshes an
+  // expired session) instead of a getUser() round trip to Supabase Auth on every request. Everything else
+  // keeps the full server-side check.
+  if (/^\/api\/encounters\/[^/]+\/live$/.test(request.nextUrl.pathname)) {
+    await supabase.auth.getClaims();
+  } else {
+    await supabase.auth.getUser();
+  }
 
   return response;
 }

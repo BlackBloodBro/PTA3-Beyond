@@ -7,10 +7,13 @@ import { useItem } from '@/app/(authenticated)/trainers/[id]/bag/actions'
 
 export type TrainerActionsData = {
   trainerId: string
+  // The Trainer's own combatant row, so the live store can work out whose turn it is without a server refresh.
+  combatantId: string
   trainerName: string
   isCurrentTurn: boolean
   moves: { name: string; usesRemaining: number | null }[]
-  features: { id: number; name: string; description: string; usesRemaining: number | null }[]
+  // maxUses: what an absent trainer_feature_uses row means (a rest deletes the row to recharge it).
+  features: { id: number; name: string; description: string; usesRemaining: number | null; maxUses: number | null }[]
   items: { id: string; name: string; quantity: number }[]
 }
 
@@ -21,7 +24,7 @@ export type TrainerActionsData = {
 // *does* when triggered (an Affliction, a stat change, temp HP, ...) stays that Feature's own FR to
 // automate -- this only tracks that it was used. Trainer Moves are read-only: no resolution or "use"
 // action exists for those, matching attack resolution's own Pokemon-only scoping.
-export function TrainerActionsPanel({ trainers }: { trainers: TrainerActionsData[] }) {
+export function TrainerActionsPanel({ trainers, onActionDone }: { trainers: TrainerActionsData[]; onActionDone?: () => void }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
@@ -61,7 +64,9 @@ export function TrainerActionsPanel({ trainers }: { trainers: TrainerActionsData
       setError(result.error)
       return
     }
-    router.refresh()
+    // Re-read just the live state (cheap) instead of re-running the whole server page.
+    if (onActionDone) onActionDone()
+    else router.refresh()
   }
 
   async function handleUseItem(trainerId: string, trainersItemId: string) {
@@ -73,7 +78,9 @@ export function TrainerActionsPanel({ trainers }: { trainers: TrainerActionsData
       setError(result.error)
       return
     }
-    router.refresh()
+    // Re-read just the live state (cheap) instead of re-running the whole server page.
+    if (onActionDone) onActionDone()
+    else router.refresh()
   }
 
   return (
