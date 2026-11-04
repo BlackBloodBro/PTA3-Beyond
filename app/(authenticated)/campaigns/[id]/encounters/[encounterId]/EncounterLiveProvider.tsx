@@ -27,6 +27,9 @@ type LiveContextValue = {
   currentCombatantId: string | null
   // Re-read the live state right now -- used after the viewer's own action so they see it immediately.
   pollNow: () => void
+  // Show a turn change the viewer just made at once (the action already returned the new position), then
+  // confirm it with an immediate poll.
+  applyTurnPosition: (position: number) => void
 }
 
 const LiveContext = createContext<LiveContextValue | null>(null)
@@ -52,6 +55,12 @@ export function EncounterLiveProvider({
   const [snapshot, setSnapshot] = useState(initial)
   const structureRef = useRef(structureKey(initial))
   const inFlight = useRef(false)
+  // A pollNow() that arrives while a routine poll is already in flight can't just be dropped -- that poll may
+  // have read the state *before* the viewer's own action landed. It re-polls as soon as the running one ends.
+  const rerunAfter = useRef(false)
+  const pollRef = useRef<() => Promise<void>>(async () => {})
+  const snapshotRef = useRef(snapshot)
+  snapshotRef.current = snapshot
   const lastJson = useRef(JSON.stringify(initial))
   const unchangedPolls = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -82,8 +91,13 @@ export function EncounterLiveProvider({
       // Network blip: keep the last known state, try again next tick.
     } finally {
       inFlight.current = false
+      if (rerunAfter.current) {
+        rerunAfter.current = false
+        void pollRef.current()
+      }
     }
   }, [encounterId, router])
+  pollRef.current = poll
 
   // Self-rescheduling timer rather than setInterval so the gap can change between polls. Nothing is scheduled
   // while the tab is hidden.
@@ -100,9 +114,20 @@ export function EncounterLiveProvider({
   // Re-read right now and go back to the fast rate: the viewer just did something, or the tab just woke up.
   const pollNow = useCallback(() => {
     unchangedPolls.current = 0
-    void poll()
+    if (inFlight.current) rerunAfter.current = true
+    else void poll()
     schedule()
   }, [poll, schedule])
+
+  const applyTurnPosition = useCallback(
+    (position: number) => {
+      const next = { ...snapshotRef.current, currentTurnPosition: position }
+      lastJson.current = JSON.stringify(next)
+      setSnapshot(next)
+      pollNow()
+    },
+    [pollNow],
+  )
 
   // A server re-render (router.refresh(), or any of the viewer's own actions) hands down a fresh `initial`
   // -- adopt it so the store never lags behind what the server just rendered, and poll quickly again.
@@ -131,5 +156,5 @@ export function EncounterLiveProvider({
 
   const currentCombatantId = computeCurrentCombatantId(snapshot.combatants, snapshot.currentTurnPosition, snapshot.status === 'active')
 
-  return <LiveContext.Provider value={{ snapshot, currentCombatantId, pollNow }}>{children}</LiveContext.Provider>
+  return <LiveContext.Provider value={{ snapshot, currentCombatantId, pollNow, applyTurnPosition }}>{children}</LiveContext.Provider>
 }

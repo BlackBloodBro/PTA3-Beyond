@@ -18,13 +18,12 @@ import {
   addPokemonCombatant,
   removeCombatant,
   setCombatantInitiative,
-  advanceTurn,
-  skipMyTurn,
   scanSpecies,
 } from '../actions'
 import type { AttackerOption, TargetOption } from './AttackResolver'
 import type { TrainerActionsData } from './TrainerActionsPanel'
 import { EncounterLiveProvider } from './EncounterLiveProvider'
+import { AdvanceTurnButton } from './AdvanceTurnButton'
 import { InitiativeTracker, type TrackerCombatant } from './InitiativeTracker'
 import { LiveAttackResolver, LiveTrainerActionsPanel } from './LiveEncounterPanels'
 import { buildScannedKey, type EncounterLiveSnapshot } from '@/lib/pta3/encounterLive'
@@ -483,11 +482,7 @@ export default async function EncounterDetailPage({
                   )}
                   {isActive && (
                     <>
-                      <form action={advanceTurn.bind(null, encounterId, campaignId)}>
-                        <button type="submit" className="rounded border px-4 py-2 text-sm">
-                          Advance turn
-                        </button>
-                      </form>
+                      <AdvanceTurnButton encounterId={encounterId} campaignId={campaignId} />
                       <form action={resetEncounterToDraft.bind(null, campaignId, encounterId)}>
                         <ConfirmButton
                           confirmMessage="Reset this encounter back to Draft? Every combatant's initiative and the current turn will be cleared -- you'll need to Start it again to re-roll."
