@@ -8,6 +8,7 @@ import { parseMoveFrequency } from '@/lib/pta3/moveFrequency'
 import { trainerHref } from '@/lib/pta3/trainerPaths'
 import {
   loadTrainerDerived,
+  grantHandmadeRepel,
   loadPendingMilestone,
   loadQualifyingMilestones,
   loadClassBuilderData,
@@ -1244,9 +1245,12 @@ export async function restSleep(trainerId: string, formData: FormData) {
     )
   }
 
+  // [[Feature - Craft a free Repel each Sleep on Repel crafting (Researcher)]]
+  const craftedRepel = await grantHandmadeRepel(supabase, trainerId)
+
   redirect(
     `${base}?message=${encodeURIComponent(
-      `Slept and rolled a ${roll} — healed to ${newTrainerHp}/${maxHp} HP. Rest-based features and Pokémon move uses recharged.`,
+      `Slept and rolled a ${roll} — healed to ${newTrainerHp}/${maxHp} HP. Rest-based features and Pokémon move uses recharged.${craftedRepel ? ' Crafted a Repel (handmade).' : ''}`,
     )}`,
   )
 }

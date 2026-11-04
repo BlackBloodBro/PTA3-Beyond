@@ -83,6 +83,46 @@ export async function trainerHasBaseClassFeature(supabase: SupabaseClient, train
   return !!feature
 }
 
+// [[Feature - Craft a free Repel each Sleep on Repel crafting (Researcher)]]: called from restSleep. A
+// Trainer with the Researcher's "Repel crafting" Feature who owns a Portable Chemistry Set wakes up with
+// exactly one "Repel (handmade)" -- force-set to 1, not incremented, so an unused one from yesterday is
+// replaced rather than stacked (the Feature says it loses its potency). Without the Chemistry Set nothing
+// changes, including any handmade Repel they already hold. Returns whether one was granted.
+export async function grantHandmadeRepel(supabase: SupabaseClient, trainerId: string): Promise<boolean> {
+  if (!(await trainerHasBaseClassFeature(supabase, trainerId, 'Repel crafting'))) return false
+
+  const { data: items } = await supabase
+    .from('items')
+    .select('id, name')
+    .in('name', ['Repel (handmade)', 'Portable Chemistry Set'])
+    .is('campaign_id', null)
+  const repel = items?.find((i) => i.name === 'Repel (handmade)')
+  const chemistrySet = items?.find((i) => i.name === 'Portable Chemistry Set')
+  if (!repel || !chemistrySet) return false
+
+  const { data: chemistrySetRows } = await supabase
+    .from('trainers_items')
+    .select('id')
+    .eq('trainer_id', trainerId)
+    .eq('item_id', chemistrySet.id)
+    .gt('quantity', 0)
+    .limit(1)
+  if (!chemistrySetRows || chemistrySetRows.length === 0) return false
+
+  // trainers_items has no unique (trainer, item) constraint, so reuse one existing row and drop any strays
+  // rather than assuming there is at most one.
+  const { data: existing } = await supabase.from('trainers_items').select('id').eq('trainer_id', trainerId).eq('item_id', repel.id)
+  if (existing && existing.length > 0) {
+    const { error } = await supabase.from('trainers_items').update({ quantity: 1 }).eq('id', existing[0].id)
+    if (error) return false
+    const strays = existing.slice(1).map((r) => r.id)
+    if (strays.length > 0) await supabase.from('trainers_items').delete().in('id', strays)
+    return true
+  }
+  const { error } = await supabase.from('trainers_items').insert({ trainer_id: trainerId, item_id: repel.id, quantity: 1 })
+  return !error
+}
+
 // One named Feature's contribution to a Pokemon's move damage -- kept separate rather than pre-summed
 // so the display (a Moves-section tooltip) can show each Feature by its own name, per the user
 // (2026-09-23: "just use the name of the Class feature, that will make it easier"), instead of one
