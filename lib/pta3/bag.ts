@@ -10,6 +10,9 @@ export type BagItem = {
   stackable: boolean
   holdable: boolean
   categoryNames: string[]
+  // True when any of the item's categories is flagged show_in_encounters (see [[Improvement - Only show
+  // battle items in an encounter]]) -- the Encounter's Items list shows only these unless "Show all" is on.
+  battle: boolean
   aliases: string[]
   moveId: number | null
   moveName: string | null
@@ -52,7 +55,7 @@ export async function loadBagSnapshot(supabase: SupabaseClient, trainerId: strin
       .select(
         `
         id, quantity, uses_remaining,
-        items(id, name, description, price, stackable, holdable, items_item_categories(item_categories(name)), item_aliases(alias)),
+        items(id, name, description, price, stackable, holdable, items_item_categories(item_categories(name, show_in_encounters)), item_aliases(alias)),
         moves(id, name),
         pokedex(id, name)
       `,
@@ -75,7 +78,7 @@ export async function loadBagSnapshot(supabase: SupabaseClient, trainerId: strin
       price: number | null
       stackable: boolean
       holdable: boolean
-      items_item_categories: { item_categories: { name: string } | null }[]
+      items_item_categories: { item_categories: { name: string; show_in_encounters: boolean } | null }[]
       item_aliases: { alias: string }[]
     } | null
     moves: { id: number; name: string } | null
@@ -86,6 +89,7 @@ export async function loadBagSnapshot(supabase: SupabaseClient, trainerId: strin
   const items: BagItem[] = typedRows.map((r) => {
     const item = r.items!
     const categoryNames = item.items_item_categories.map((c) => c.item_categories!.name)
+    const battle = item.items_item_categories.some((c) => c.item_categories?.show_in_encounters)
     const aliases = item.item_aliases.map((a) => a.alias)
     return {
       id: r.id,
@@ -97,6 +101,7 @@ export async function loadBagSnapshot(supabase: SupabaseClient, trainerId: strin
       stackable: item.stackable,
       holdable: item.holdable,
       categoryNames,
+      battle,
       aliases,
       moveId: r.moves?.id ?? null,
       moveName: r.moves?.name ?? null,

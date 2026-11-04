@@ -38,7 +38,7 @@ export default async function NewCustomItemCategoryPage({
 
   const parsedTemplateId = templateId ? Number(templateId) : null
   if (parsedTemplateId) {
-    const { data: templateRaw } = await supabase.from('item_categories').select('name, description').eq('id', parsedTemplateId).maybeSingle()
+    const { data: templateRaw } = await supabase.from('item_categories').select('name, description, show_in_encounters').eq('id', parsedTemplateId).maybeSingle()
 
     if (templateRaw) {
       initial = {

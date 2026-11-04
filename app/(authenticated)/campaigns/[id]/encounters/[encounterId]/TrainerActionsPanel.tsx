@@ -14,7 +14,8 @@ export type TrainerActionsData = {
   moves: { name: string; usesRemaining: number | null }[]
   // maxUses: what an absent trainer_feature_uses row means (a rest deletes the row to recharge it).
   features: { id: number; name: string; description: string; usesRemaining: number | null; maxUses: number | null }[]
-  items: { id: string; name: string; quantity: number }[]
+  // battle: in a category flagged show_in_encounters -- the only items listed unless "Show all items" is on.
+  items: { id: string; name: string; quantity: number; battle: boolean }[]
 }
 
 // [[Feature - Trainers should see actions they could do in an Encounter]]: deliberately generic --
@@ -34,6 +35,17 @@ export function TrainerActionsPanel({ trainers, onActionDone }: { trainers: Trai
   // sharing the same Feature id can't happen (Features are id'd globally, not per-Trainer), so this is
   // safe without needing a composite key.
   const [expandedFeatureIds, setExpandedFeatureIds] = useState<Set<number>>(new Set())
+  // [[Improvement - Only show battle items in an encounter]]: per-Trainer, local, off by default.
+  const [showAllItemsFor, setShowAllItemsFor] = useState<Set<string>>(new Set())
+
+  function toggleShowAllItems(trainerId: string) {
+    setShowAllItemsFor((prev) => {
+      const next = new Set(prev)
+      if (next.has(trainerId)) next.delete(trainerId)
+      else next.add(trainerId)
+      return next
+    })
+  }
 
   function toggleFeatureDescription(featureId: number) {
     setExpandedFeatureIds((prev) => {
@@ -148,12 +160,21 @@ export function TrainerActionsPanel({ trainers, onActionDone }: { trainers: Trai
           </div>
 
           <div>
-            <p className="text-xs font-semibold text-muted">Items</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-semibold text-muted">Items</p>
+              {t.items.some((i) => !i.battle) && (
+                <button type="button" onClick={() => toggleShowAllItems(t.trainerId)} className="text-xs underline">
+                  {showAllItemsFor.has(t.trainerId) ? 'Show battle items only' : 'Show all items'}
+                </button>
+              )}
+            </div>
             {t.items.length === 0 ? (
               <p className="text-xs text-muted">Bag is empty.</p>
+            ) : t.items.filter((i) => showAllItemsFor.has(t.trainerId) || i.battle).length === 0 ? (
+              <p className="text-xs text-muted">No battle items.</p>
             ) : (
               <ul className="flex flex-col gap-1">
-                {t.items.map((i) => (
+                {t.items.filter((i) => showAllItemsFor.has(t.trainerId) || i.battle).map((i) => (
                   <li key={i.id} className="flex flex-wrap items-center gap-2">
                     <span>
                       {i.name} <span className="text-xs text-muted">×{i.quantity}</span>
