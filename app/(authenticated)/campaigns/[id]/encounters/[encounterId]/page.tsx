@@ -382,7 +382,7 @@ export default async function EncounterDetailPage({
             usesRemaining: f.max_uses !== null ? (usesRemainingByFeature[f.id] ?? f.max_uses) : null,
             maxUses: f.max_uses,
           })),
-          items: bag.items.filter((i) => i.quantity > 0).map((i) => ({ id: i.id, name: i.name, quantity: i.quantity })),
+          items: bag.items.filter((i) => i.quantity > 0).map((i) => ({ id: i.id, name: i.name, quantity: i.quantity, battle: i.battle })),
         }
       }),
     )

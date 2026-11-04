@@ -1,6 +1,7 @@
 export type ItemCategoryFieldsInitial = {
   name: string
   description: string | null
+  show_in_encounters: boolean
 }
 
 // [[Feature - GM Custom - Item Category]]: the simplest fields component in the whole "GM Custom X"
@@ -15,6 +16,12 @@ export function ItemCategoryFields({ initial }: { initial?: ItemCategoryFieldsIn
 
       <label htmlFor="description">Description (optional)</label>
       <textarea id="description" name="description" defaultValue={initial?.description ?? ''} rows={3} className="bg-surface-subtle rounded border px-3 py-2" />
+
+      <label className="flex items-center gap-2">
+        <input type="checkbox" name="show_in_encounters" defaultChecked={initial?.show_in_encounters ?? false} />
+        Show items in Encounters
+      </label>
+      <p className="text-xs text-muted">Items in this category are listed in a Trainer&apos;s Encounter actions. Other items stay hidden unless &quot;Show all items&quot; is clicked.</p>
     </section>
   )
 }

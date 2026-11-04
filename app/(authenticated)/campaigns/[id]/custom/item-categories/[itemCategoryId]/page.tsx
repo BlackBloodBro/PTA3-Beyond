@@ -33,7 +33,7 @@ export default async function EditCustomItemCategoryPage({
 
   const { data: category } = await supabase
     .from('item_categories')
-    .select('id, name, description')
+    .select('id, name, description, show_in_encounters')
     .eq('id', itemCategoryId)
     .eq('campaign_id', id)
     .maybeSingle()

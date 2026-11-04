@@ -20,6 +20,7 @@ function optionalText(formData: FormData, key: string): string | null {
 type ItemCategoryFields = {
   name: string
   description: string | null
+  show_in_encounters: boolean
 }
 
 function parseItemCategoryFields(formData: FormData): { error: string } | { fields: ItemCategoryFields } {
@@ -30,6 +31,7 @@ function parseItemCategoryFields(formData: FormData): { error: string } | { fiel
     fields: {
       name,
       description: optionalText(formData, 'description'),
+      show_in_encounters: formData.get('show_in_encounters') === 'on',
     },
   }
 }
