@@ -371,7 +371,7 @@ export async function scanSpecies(encounterId: string, campaignId: string, poked
 // that list's length), so advancing never needs to know the combatant list at all. No automatic
 // "combat is over" detection, matching this app's non-simulation convention -- the GM resets or
 // deletes the encounter explicitly whenever the table decides it's over.
-export async function advanceTurn(encounterId: string, campaignId: string) {
+export async function advanceTurn(encounterId: string, campaignId: string): Promise<{ error: string } | { currentTurnPosition: number }> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -385,16 +385,14 @@ export async function advanceTurn(encounterId: string, campaignId: string) {
     redirect(`/campaigns/${campaignId}/encounters`)
   }
 
-  const { error } = await supabase
-    .from('encounters')
-    .update({ current_turn_position: encounter.current_turn_position + 1 })
-    .eq('id', encounterId)
+  const next = encounter.current_turn_position + 1
+  const { error } = await supabase.from('encounters').update({ current_turn_position: next }).eq('id', encounterId)
 
-  if (error) {
-    redirect(`/campaigns/${campaignId}/encounters/${encounterId}?error=${encodeURIComponent(error.message)}`)
-  }
-
-  redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
+  // [[Improvement - Make Advance turn update in place]]: no redirect on success or failure any more -- a
+  // redirect re-renders the whole Encounter page on the server (~1.2 s) just to show a turn change the live
+  // store can patch in place. The caller applies the returned position (or shows the error) itself.
+  if (error) return { error: error.message }
+  return { currentTurnPosition: next }
 }
 
 // [[Feature - Only active player on initiative tracker can do an action]]: the self-service half of
@@ -404,7 +402,7 @@ export async function advanceTurn(encounterId: string, campaignId: string) {
 // their own current turn should ever move it), so the real "is it actually my turn" check lives in the
 // skip_my_turn() Postgres function itself (re-derives the same activeSorted computation this page
 // already does, then only advances if that combatant is one of the caller's own) rather than here.
-export async function skipMyTurn(encounterId: string, campaignId: string) {
+export async function skipMyTurn(encounterId: string): Promise<{ error: string } | { ok: true }> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -415,9 +413,8 @@ export async function skipMyTurn(encounterId: string, campaignId: string) {
 
   const { error } = await supabase.rpc('skip_my_turn', { target_encounter_id: encounterId })
 
-  if (error) {
-    redirect(`/campaigns/${campaignId}/encounters/${encounterId}?error=${encodeURIComponent(error.message)}`)
-  }
-
-  redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
+  // [[Improvement - Make Advance turn update in place]]: same as advanceTurn -- the caller re-polls instead
+  // of the whole page re-rendering through a redirect.
+  if (error) return { error: error.message }
+  return { ok: true }
 }

@@ -3,9 +3,39 @@
 import { PokemonSprite } from '@/components/PokemonSprite'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { sortByInitiative } from '@/lib/pta3/encounterLive'
+import { useState } from 'react'
 import { removeCombatant, scanSpecies, setCombatantInitiative, skipMyTurn } from '../actions'
 import { CombatantDetailModal } from './CombatantDetailModal'
 import { useEncounterLive } from './EncounterLiveProvider'
+
+// [[Improvement - Make Advance turn update in place]]: the player's own "Skip turn" -- calls skip_my_turn() and
+// re-polls instead of redirecting (which re-rendered the whole page).
+function SkipTurnButton({ encounterId }: { encounterId: string }) {
+  const { pollNow } = useEncounterLive()
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleClick() {
+    setPending(true)
+    setError(null)
+    const res = await skipMyTurn(encounterId)
+    setPending(false)
+    if ('error' in res) {
+      setError(res.error)
+      return
+    }
+    pollNow()
+  }
+
+  return (
+    <>
+      <button type="button" onClick={handleClick} disabled={pending} className="rounded border px-2 py-1 text-xs disabled:opacity-60">
+        {pending ? 'Skipping…' : 'Skip turn'}
+      </button>
+      {error && <span className="text-xs text-danger">{error}</span>}
+    </>
+  )
+}
 
 // The static, server-rendered half of one initiative row -- identity/masking, max HP, and what the viewer
 // owns. None of it changes mid-fight (a change in who's in the fight, or an enemy being revealed, does a
@@ -127,11 +157,7 @@ export function InitiativeTracker({
                   skip, only on the player's own current-turn combatant; skip_my_turn() re-checks
                   ownership server-side regardless. */}
               {!isGM && isCurrent && (c.isOwnTrainer || c.isOwnPokemon) && (
-                <form action={skipMyTurn.bind(null, encounterId, campaignId)}>
-                  <button type="submit" className="rounded border px-2 py-1 text-xs">
-                    Skip turn
-                  </button>
-                </form>
+                <SkipTurnButton encounterId={encounterId} />
               )}
               {c.pokemon && !c.pokemon.identified && (
                 <form action={scanSpecies.bind(null, encounterId, campaignId, c.pokemon.pokedexId)}>

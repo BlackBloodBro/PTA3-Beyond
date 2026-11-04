@@ -5,6 +5,7 @@ import { resolveAccuracy, maybeGrantAffirmationBonus, grantMoveUseRewards, type 
 import { adjustPokemonHp } from '@/app/(authenticated)/pokemon/actions'
 import { adjustTrainerHp } from '@/app/(authenticated)/trainers/actions'
 import { advanceTurn, skipMyTurn } from '../actions'
+import { useEncounterLive } from './EncounterLiveProvider'
 
 export type AttackerOption = { id: string; pokemonId: string; side: 'ally' | 'enemy'; name: string; moves: { id: number; name: string }[] }
 export type TargetOption = { id: string; name: string; side: 'ally' | 'enemy'; trainerId: string | null; pokemonId: string | null }
@@ -31,6 +32,7 @@ export function AttackResolver({
   encounterId: string
   campaignId: string
 }) {
+  const { applyTurnPosition, pollNow } = useEncounterLive()
   const [attackerId, setAttackerId] = useState('')
   const [moveId, setMoveId] = useState('')
   const [targetId, setTargetId] = useState('')
@@ -80,14 +82,25 @@ export function AttackResolver({
   // *owning* the current combatant, which happens to cover the GM's own NPCs (an NPC's own
   // trainers.user_id is the GM) but wouldn't generalize to a GM resolving through a combatant they
   // don't own (e.g. acting on an absent player's behalf) -- advanceTurn is already unconditional for
-  // the GM via RLS and works for any combatant, so that's the one the GM path calls instead. Both
-  // actions redirect back to this same page on completion (success or error), which is what actually
-  // refreshes the tracker -- no separate router.refresh() needed alongside this.
+  // the GM via RLS and works for any combatant, so that's the one the GM path calls instead. Neither
+  // action redirects any more; the tracker updates through the live store (see below).
   async function autoAdvanceTurn() {
+    // [[Improvement - Make Advance turn update in place]]: neither action redirects any more -- the turn is
+    // applied through the live store, and the poll that follows also picks up the HP the attack just changed.
     if (isGM) {
-      await advanceTurn(encounterId, campaignId)
+      const res = await advanceTurn(encounterId, campaignId)
+      if ('error' in res) {
+        setApplyError(res.error)
+        return
+      }
+      applyTurnPosition(res.currentTurnPosition)
     } else {
-      await skipMyTurn(encounterId, campaignId)
+      const res = await skipMyTurn(encounterId)
+      if ('error' in res) {
+        setApplyError(res.error)
+        return
+      }
+      pollNow()
     }
   }
 
@@ -177,9 +190,8 @@ export function AttackResolver({
     }
 
     setApplying(false)
-    // The move was used and its damage applied -- the turn concludes here. This is also what refreshes
-    // the tracker for everyone (the redirect it ends in), so there's no separate router.refresh() call
-    // needed alongside it the way there used to be.
+    // The move was used and its damage applied -- the turn concludes here. autoAdvanceTurn applies the
+    // new turn and re-polls, which is also what shows the HP this attack just changed.
     await autoAdvanceTurn()
   }
 
