@@ -14,6 +14,7 @@ import {
   loadTypesBrowse,
 } from '@/lib/pta3/referenceBrowser'
 import { loadItemCatalog } from '@/lib/pta3/bag'
+import { loadPokedexVisibility } from '@/lib/pta3/pokedexDiscovery'
 import { PokedexBrowser } from './PokedexBrowser'
 
 // [[Improvement - Move Pokedex browsing into a Campaign's context]]: /pokedex is now Campaign-aware --
@@ -43,8 +44,13 @@ export default async function PokedexPage({ searchParams }: { searchParams: Prom
 
   const selectedCampaignId = campaign?.id ?? null
 
+  // [[Feature - Only show Pokemon a Trainer has encountered in the Pokedex]]: a Campaign running a "discovery"
+  // Pokedex limits the species tab for everyone but the GM and Walking encyclopedia holders; no Campaign context
+  // (or the setting off) means the full list, exactly as before.
+  const visibility = selectedCampaignId ? await loadPokedexVisibility(supabase, selectedCampaignId, user.id) : ({ restricted: false } as const)
+
   const [pokedex, moves, items, skills, classes, origins, afflictions, passives, itemCategories, proficiencies, types, { data: habitats }] = await Promise.all([
-    loadPokedexBrowse(supabase, selectedCampaignId),
+    loadPokedexBrowse(supabase, selectedCampaignId, visibility.restricted ? visibility.discoveredIds : null),
     loadMovesBrowse(supabase, selectedCampaignId),
     loadItemCatalog(supabase, selectedCampaignId),
     loadSkillsBrowse(supabase, selectedCampaignId),
@@ -72,6 +78,8 @@ export default async function PokedexPage({ searchParams }: { searchParams: Prom
       <h1 className="w-full max-w-4xl text-2xl font-bold">Pokédex</h1>
       <p className="w-full max-w-4xl text-sm text-muted">
         {campaign ? `Showing the global catalog plus ${campaign.name}'s own homebrew.` : 'Showing the global catalog only.'}
+        {visibility.restricted &&
+          ` Only discovered species are listed (${pokedex.length} so far) -- ones your party has scanned in an Encounter, or that one of your Trainers owns.`}
       </p>
 
       <PokedexBrowser
