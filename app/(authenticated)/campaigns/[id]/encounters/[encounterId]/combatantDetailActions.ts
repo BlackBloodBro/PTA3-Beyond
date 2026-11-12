@@ -31,15 +31,18 @@ export type CombatantDetail =
       types: string[]
       ability: string | null
       heldItem: string | null
-      stats: { label: string; value: number }[]
+      // inBattle: the Encounter-scoped modifier already included in `value` (e.g. -2 from Intimidate).
+      stats: { label: string; value: number; inBattle?: number }[]
       moves: string[]
       afflictions: { name: string; description: string }[]
+      // Active Encounter effects on this Pokemon, e.g. "Attack -2 (Intimidate)", for display.
+      effects: { stat: string; amount: number; source: string }[]
     }
   | {
       kind: 'trainer'
       name: string
       className: string | null
-      stats: { label: string; value: number }[]
+      stats: { label: string; value: number; inBattle?: number }[]
       features: { id: number; name: string; description: string }[]
       moves: string[]
       items: { id: string; name: string; quantity: number }[]
@@ -82,7 +85,12 @@ async function isPokemonIdentifiedForViewer(
   return false
 }
 
-async function loadPokemonDetail(supabase: SupabaseClient, pokemonId: string, campaignId?: string | null): Promise<CombatantDetail> {
+async function loadPokemonDetail(
+  supabase: SupabaseClient,
+  pokemonId: string,
+  campaignId?: string | null,
+  combatantId?: string,
+): Promise<CombatantDetail> {
   const { data: pokemonRaw } = await supabase
     .from('pokemon')
     .select(
@@ -117,12 +125,15 @@ async function loadPokemonDetail(supabase: SupabaseClient, pokemonId: string, ca
     campaignId,
   })
 
-  const [statRows, effectiveType, abilityRowsRaw, moveRowsRaw, afflictionIdsRaw] = await Promise.all([
-    loadPokemonEffectiveStats(supabase, pokemonId),
+  const [statRows, effectiveType, abilityRowsRaw, moveRowsRaw, afflictionIdsRaw, effectRowsRaw] = await Promise.all([
+    loadPokemonEffectiveStats(supabase, pokemonId, combatantId),
     loadPokemonEffectiveType(supabase, pokemonId),
     supabase.from('pokedex_passives').select('level_learned, passives(name, passive_type)').eq('pokedex_id', pokemon.pokedex_id),
     supabase.from('pokemon_moves').select('moves(name)').eq('pokemon_id', pokemonId),
     supabase.from('pokemon_afflictions').select('affliction_id').eq('pokemon_id', pokemonId),
+    combatantId
+      ? supabase.from('encounter_combatant_stat_modifiers').select('stat, amount, source').eq('combatant_id', combatantId).order('created_at')
+      : Promise.resolve({ data: [] as { stat: string; amount: number; source: string }[] }),
   ])
 
   const abilityRows = (abilityRowsRaw.data ?? []) as unknown as { level_learned: number | null; passives: { name: string; passive_type: string } | null }[]
@@ -146,9 +157,14 @@ async function loadPokemonDetail(supabase: SupabaseClient, pokemonId: string, ca
     types: [effectiveType?.type1, effectiveType?.type2].filter((t): t is string => !!t),
     ability,
     heldItem: pokemon.held_item?.name ?? null,
-    stats: (statRows ?? []).map((s) => ({ label: STAT_LABELS[s.key as StatColumn], value: s.value })),
+    stats: (statRows ?? []).map((s) => ({ label: STAT_LABELS[s.key as StatColumn], value: s.value, inBattle: s.inBattle })),
     moves,
     afflictions,
+    effects: ((effectRowsRaw.data ?? []) as { stat: string; amount: number; source: string }[]).map((e) => ({
+      stat: STAT_LABELS[e.stat as StatColumn] ?? e.stat,
+      amount: e.amount,
+      source: e.source,
+    })),
   }
 }
 
@@ -253,5 +269,5 @@ export async function getCombatantDetail(combatantId: string): Promise<Combatant
     if (!identified) return { kind: 'pokemon', identified: false }
   }
 
-  return loadPokemonDetail(supabase, combatant.pokemon_id, encounter.campaign_id)
+  return loadPokemonDetail(supabase, combatant.pokemon_id, encounter.campaign_id, combatantId)
 }

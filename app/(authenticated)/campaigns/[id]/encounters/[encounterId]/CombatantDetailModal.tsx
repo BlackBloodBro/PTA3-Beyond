@@ -115,10 +115,18 @@ function CombatantDetailBody({ detail }: { detail: CombatantDetail }) {
           {detail.stats.map((s) => (
             <li key={s.label} className="flex justify-between">
               <span>{s.label}</span>
-              <span className="font-semibold">{s.value}</span>
+              <span className="font-semibold">
+                {s.value}
+                {s.inBattle ? <span className="text-muted ml-1 text-xs font-normal">({s.inBattle > 0 ? '+' : ''}{s.inBattle} in battle)</span> : null}
+              </span>
             </li>
           ))}
         </ul>
+        {detail.kind === 'pokemon' && detail.effects.length > 0 && (
+          <p className="text-muted mt-1 text-xs">
+            Active effects: {detail.effects.map((e) => `${e.stat} ${e.amount > 0 ? '+' : ''}${e.amount} (${e.source})`).join(', ')}
+          </p>
+        )}
       </div>
 
       <div>

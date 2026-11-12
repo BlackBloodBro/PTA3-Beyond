@@ -88,7 +88,9 @@ export async function resolveAccuracy(
     return { error: 'Move not found' }
   }
 
-  const attackerStatRows = await loadPokemonEffectiveStats(supabase, attackerCombatant.pokemon_id)
+  // Both sides include their Encounter-scoped modifiers (Intimidate lowers an attacker's Attack; a boost to a
+  // target's Defense would raise the number to beat).
+  const attackerStatRows = await loadPokemonEffectiveStats(supabase, attackerCombatant.pokemon_id, attackerCombatantId)
   if (!attackerStatRows) {
     return { error: 'Could not read the attacking Pokemon' }
   }
@@ -99,7 +101,7 @@ export async function resolveAccuracy(
   let targetType2: string | null = null
 
   if (targetCombatant.pokemon_id) {
-    const targetStatRows = await loadPokemonEffectiveStats(supabase, targetCombatant.pokemon_id)
+    const targetStatRows = await loadPokemonEffectiveStats(supabase, targetCombatant.pokemon_id, targetCombatantId)
     if (!targetStatRows) {
       return { error: 'Could not read the target Pokemon' }
     }
