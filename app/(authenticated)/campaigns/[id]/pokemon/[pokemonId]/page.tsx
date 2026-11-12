@@ -208,7 +208,7 @@ export default async function CampaignPokemonPage({
   const trainer = ownerLink?.trainers
   const trainerId = ownerLink?.trainer_id ?? null
   // [[Feature - Apply unconditional Class Feature stat bonuses]]
-  const trainerAttackBonuses = trainerId ? await loadTrainerAttackBonuses(supabase, trainerId) : { attack: [], special_attack: [] }
+  const trainerAttackBonuses = trainerId ? await loadTrainerAttackBonuses(supabase, trainerId) : { attack: [], special_attack: [], damagelessMoveDamage: null }
   const trainerLinkHref =
     trainerId && trainer ? trainerHref({ id: trainerId, is_npc: trainer.is_npc, campaign_id: trainer.campaigns?.id ?? null }) : null
   // Read-only/system-managed -- shown only when it differs from the current Trainer, to avoid noise
@@ -566,6 +566,7 @@ export default async function CampaignPokemonPage({
         }}
         trainerAttackBonuses={trainerAttackBonuses.attack}
         trainerSpecialAttackBonuses={trainerAttackBonuses.special_attack}
+        grandMasterDamagelessDamage={trainerAttackBonuses.damagelessMoveDamage}
         natureIncreasedName={pokemon.nature?.increased?.name ?? null}
         natureDecreasedName={pokemon.nature?.decreased?.name ?? null}
         initialKnownMoves={initialKnownMoves}

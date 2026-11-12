@@ -552,6 +552,7 @@ export default async function WildPokemonPage({
         // owning Trainer at all -- nothing to check, always empty.
         trainerAttackBonuses={[]}
         trainerSpecialAttackBonuses={[]}
+        grandMasterDamagelessDamage={null}
         natureIncreasedName={pokemon.nature?.increased?.name ?? null}
         natureDecreasedName={pokemon.nature?.decreased?.name ?? null}
         initialKnownMoves={initialKnownMoves}
