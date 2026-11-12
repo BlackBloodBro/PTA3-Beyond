@@ -6,6 +6,7 @@ import { loadShinyRate } from '@/lib/pta3/shinyRateSettings'
 import { loadGrantEvents } from '@/lib/pta3/grantEvents'
 import { LoyaltySettingsSection } from '../LoyaltySettingsSection'
 import { ExpSettingsSection } from '../ExpSettingsSection'
+import { PokedexSettingsSection } from '../PokedexSettingsSection'
 
 // [[Improvement - Move all Customization settings into one menu]]: the single GM-only "Customization"
 // menu -- every tunable Campaign setting (Sell price, Loyalty settings) plus every "GM Custom X"
@@ -27,7 +28,7 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
 
   const { data: campaign } = await supabase
     .from('campaigns')
-    .select('id, name, gm_user_id, sell_price_percent, lp_disabled, exp_disabled, ev_disabled')
+    .select('id, name, gm_user_id, sell_price_percent, lp_disabled, exp_disabled, ev_disabled, pokedex_discovery_only')
     .eq('id', id)
     .single()
 
@@ -137,6 +138,8 @@ export default async function CampaignCustomPage({ params }: { params: Promise<{
       <ExpSettingsSection campaignId={id} bands={levelBandRows} events={expGrantRows} initialExpDisabled={campaign.exp_disabled} />
 
       <LoyaltySettingsSection campaignId={id} tiers={loyaltyTierRows} events={loyaltyEventRows} initialLpDisabled={campaign.lp_disabled} />
+
+      <PokedexSettingsSection campaignId={id} initialDiscoveryOnly={campaign.pokedex_discovery_only} />
 
       {/* Per the user (2026-09-18): the 9 "GM Custom X" catalogs specifically (Pokemon through Types)
           as a 3x3 grid under their own "Homebrew" heading -- Excluded Pokémon stays out of this grid

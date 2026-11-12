@@ -107,7 +107,16 @@ export type NamedCatalogRow = { id: number; name: string; description: string | 
 // from this bulk query -- embedding that across ~986 species would multiply the payload far beyond
 // loadItemCatalog's single-join precedent. Learnset eligibility stays visible on the owned-Pokémon
 // detail page, where it's actually actionable.
-export async function loadPokedexBrowse(supabase: SupabaseClient, campaignId?: string | null): Promise<PokedexBrowseRow[]> {
+export async function loadPokedexBrowse(
+  supabase: SupabaseClient,
+  campaignId?: string | null,
+  // [[Feature - Only show Pokemon a Trainer has encountered in the Pokedex]]: when set, only these species are
+  // returned (a Campaign running a "discovery" Pokedex, for a viewer who may not see everything). The filter is
+  // applied here, on the server, because the whole list is sent to the browser -- hiding rows there would still
+  // leak every species.
+  onlyPokedexIds?: number[] | null,
+): Promise<PokedexBrowseRow[]> {
+  if (onlyPokedexIds && onlyPokedexIds.length === 0) return []
   let query = supabase
     .from('pokedex')
     .select(
@@ -136,6 +145,7 @@ export async function loadPokedexBrowse(supabase: SupabaseClient, campaignId?: s
       query = query.not('id', 'in', `(${excludedIds.join(',')})`)
     }
   }
+  if (onlyPokedexIds) query = query.in('id', onlyPokedexIds)
   const { data } = await query
 
   // Same reverse/forward-embed quirk documented elsewhere in this codebase (lib/pta3/bag.ts) --

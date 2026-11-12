@@ -244,6 +244,36 @@ export async function updateCampaignLpDisabled(campaignId: string, disabled: boo
   return { lpDisabled: disabled }
 }
 
+// [[Feature - Only show Pokemon a Trainer has encountered in the Pokedex]]: GM-only, same tier/shape as
+// updateCampaignLpDisabled above -- a plain column on `campaigns`, off by default.
+export async function updateCampaignPokedexDiscoveryOnly(
+  campaignId: string,
+  discoveryOnly: boolean,
+): Promise<{ error: string } | { discoveryOnly: boolean }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: campaign } = await supabase.from('campaigns').select('gm_user_id').eq('id', campaignId).maybeSingle()
+
+  if (!campaign || campaign.gm_user_id !== user.id) {
+    return { error: 'Only this campaign\'s GM can change Pokédex settings' }
+  }
+
+  const { error } = await supabase.from('campaigns').update({ pokedex_discovery_only: discoveryOnly }).eq('id', campaignId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { discoveryOnly }
+}
+
 // [[Feature - Fully turn off EXP]]: GM-only, same tier/shape as updateCampaignLpDisabled above.
 export async function updateCampaignExpDisabled(campaignId: string, disabled: boolean): Promise<{ error: string } | { expDisabled: boolean }> {
   const supabase = await createClient()
