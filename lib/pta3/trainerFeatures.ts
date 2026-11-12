@@ -137,16 +137,25 @@ export type TrainerStatBonus = { name: string; amount: number }
 // per move via its own damage_stat, since a single Pokemon can know both physical and special moves.
 // Callers with no owning Trainer at all (a Wild/pool Pokemon) simply don't call this -- there's
 // nothing to compute.
-export async function loadTrainerAttackBonuses(
-  supabase: SupabaseClient,
-  trainerId: string,
-): Promise<{ attack: TrainerStatBonus[]; special_attack: TrainerStatBonus[] }> {
+//
+// [[Feature - Let Grand master's Pokémon deal damage with moves that have no Damage value]]: also returns
+// `damagelessMoveDamage` -- Grand master's second clause, "add twice your Attack or Special Attack
+// *modifier* to attacks without a Damage value" -- as the flat damage such a move deals, per category
+// (null when the Trainer doesn't have Grand master). Note it's twice the *modifier* here, unlike the
+// first clause's twice the *stat* above.
+export type TrainerAttackBonuses = {
+  attack: TrainerStatBonus[]
+  special_attack: TrainerStatBonus[]
+  damagelessMoveDamage: { attack: number; special_attack: number } | null
+}
+
+export async function loadTrainerAttackBonuses(supabase: SupabaseClient, trainerId: string): Promise<TrainerAttackBonuses> {
   const { data: trainer } = await supabase
     .from('trainers')
     .select('class_id, level, base_attack, base_defense, base_special_attack, base_special_defense, base_speed')
     .eq('id', trainerId)
     .maybeSingle()
-  if (!trainer) return { attack: [], special_attack: [] }
+  if (!trainer) return { attack: [], special_attack: [], damagelessMoveDamage: null }
 
   const [milestones, hasImprovedAttacks, hasGrandMaster] = await Promise.all([
     loadQualifyingMilestones(supabase, trainerId, trainer.level),
@@ -168,7 +177,13 @@ export async function loadTrainerAttackBonuses(
     ...(hasImprovedAttacks ? [{ name: 'Improved attacks', amount: statModifier(stat) }] : []),
     ...(hasGrandMaster ? [{ name: 'Grand master', amount: stat * 2 }] : []),
   ]
-  return { attack: bonusesFor(effective.attack), special_attack: bonusesFor(effective.special_attack) }
+  return {
+    attack: bonusesFor(effective.attack),
+    special_attack: bonusesFor(effective.special_attack),
+    damagelessMoveDamage: hasGrandMaster
+      ? { attack: statModifier(effective.attack) * 2, special_attack: statModifier(effective.special_attack) * 2 }
+      : null,
+  }
 }
 
 export async function loadQualifyingMilestones(

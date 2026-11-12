@@ -272,6 +272,8 @@ type PokemonStateValue = {
   statBonuses: StatBonusMap
   trainerAttackBonuses: TrainerStatBonus[]
   trainerSpecialAttackBonuses: TrainerStatBonus[]
+  // Grand master's flat damage for moves with no Damage value, per category; null without the Feature.
+  grandMasterDamagelessDamage: { attack: number; special_attack: number } | null
   growthRateName: string | null
   growthRateModifier: number
   obtainMethodName: string | null
@@ -347,6 +349,8 @@ export function PokemonStateProvider(props: {
   statBonuses: StatBonusMap
   trainerAttackBonuses: TrainerStatBonus[]
   trainerSpecialAttackBonuses: TrainerStatBonus[]
+  // Grand master's flat damage for moves with no Damage value, per category; null without the Feature.
+  grandMasterDamagelessDamage: { attack: number; special_attack: number } | null
   natureIncreasedName: string | null
   natureDecreasedName: string | null
   initialKnownMoves: KnownMoveEntry[]
@@ -467,6 +471,7 @@ export function PokemonStateProvider(props: {
     statBonuses: props.statBonuses,
     trainerAttackBonuses: props.trainerAttackBonuses,
     trainerSpecialAttackBonuses: props.trainerSpecialAttackBonuses,
+    grandMasterDamagelessDamage: props.grandMasterDamagelessDamage,
     growthRateName: props.growthRateName,
     growthRateModifier: props.growthRateModifier,
     obtainMethodName: props.obtainMethodName,
@@ -1221,6 +1226,7 @@ export function MovesSection() {
     expDisabled,
     trainerAttackBonuses,
     trainerSpecialAttackBonuses,
+    grandMasterDamagelessDamage,
     addKnownMove,
     removeKnownMove,
     updateMoveUses,
@@ -1387,6 +1393,20 @@ export function MovesSection() {
             const { maxUses } = parseMoveFrequency(move.frequency)
             const slotCount = maxUses ?? km.uses_remaining ?? 0
             const usedCount = km.uses_remaining !== null ? slotCount - km.uses_remaining : 0
+            // [[Feature - Let Grand master's Pokémon deal damage with moves that have no Damage value]]: a move
+            // with no damage dice gets a flat Damage line of twice the Trainer's Attack/Special Attack
+            // modifier -- the category its own damage_stat names, or (for an "effect" move, which has none)
+            // whichever of the two is higher.
+            const damagelessDamage =
+              !move.damage_dice && grandMasterDamagelessDamage
+                ? move.damage_stat === 'physical'
+                  ? { amount: grandMasterDamagelessDamage.attack, source: 'Attack' }
+                  : move.damage_stat === 'special'
+                    ? { amount: grandMasterDamagelessDamage.special_attack, source: 'Special Attack' }
+                    : grandMasterDamagelessDamage.attack >= grandMasterDamagelessDamage.special_attack
+                      ? { amount: grandMasterDamagelessDamage.attack, source: 'Attack' }
+                      : { amount: grandMasterDamagelessDamage.special_attack, source: 'Special Attack' }
+                : null
             const damageTitle = move.damage_dice
               ? [
                   `Base damage: ${move.damage_dice}`,
@@ -1488,6 +1508,15 @@ export function MovesSection() {
                             : `${damageModifier >= 0 ? '+' : ''}${damageModifier}`
                       }
                       tooltip={damageTitle!}
+                    />
+                  </p>
+                )}
+                {damagelessDamage && damagelessDamage.amount > 0 && (
+                  <p className="text-sm">
+                    Damage:{' '}
+                    <ClickTooltip
+                      label={`+${damagelessDamage.amount}`}
+                      tooltip={`Grand master: twice your ${damagelessDamage.source} modifier (+${damagelessDamage.amount}) -- this move has no Damage value of its own`}
                     />
                   </p>
                 )}
