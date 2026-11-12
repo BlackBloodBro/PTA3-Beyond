@@ -160,6 +160,17 @@ export async function resetEncounterToDraft(campaignId: string, encounterId: str
 
   await supabase.from('encounter_combatants').update({ turn_order: null }).eq('encounter_id', encounterId)
 
+  // [[Feature - Apply Intimidate's stat penalty in Encounters (Ace trainer)]]: Encounter-scoped stat modifiers last
+  // for the rest of the encounter, so resetting it back to a Draft clears them (deleting the Encounter or a
+  // combatant already cascades them away).
+  const { data: combatantIds } = await supabase.from('encounter_combatants').select('id').eq('encounter_id', encounterId)
+  if (combatantIds && combatantIds.length > 0) {
+    await supabase
+      .from('encounter_combatant_stat_modifiers')
+      .delete()
+      .in('combatant_id', combatantIds.map((c) => c.id))
+  }
+
   redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
 }
 

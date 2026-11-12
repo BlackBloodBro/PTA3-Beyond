@@ -363,6 +363,12 @@ export default async function EncounterDetailPage({
   // [[Feature - Create Pokemon catching mechanic]]: the enemy wild Pokemon a Ball can be thrown at. Decided by
   // the database (encounter_wild_combatant_ids), since a member can't see every trainers_pokemon row.
   let catchTargets: { combatantId: string; label: string }[] = []
+  // [[Feature - Apply Intimidate's stat penalty in Encounters (Ace trainer)]]: every Pokemon combatant, enemies first,
+  // as the targets Intimidate can be used on.
+  const pokemonTargets = combatants
+    .filter((c) => c.pokemon !== null)
+    .sort((a, b) => (a.side === b.side ? 0 : a.side === 'enemy' ? -1 : 1))
+    .map((c) => ({ combatantId: c.id, label: `${combatantName(c)}${c.side === 'enemy' ? ' (enemy)' : ' (ally)'}` }))
   if (isActive) {
     const trainerCombatants = combatants.filter((c): c is CombatantRow & { trainers: NonNullable<CombatantRow['trainers']> } => c.trainers !== null)
     const eligibleTrainers = trainerCombatants.filter((c) => isGM || ownTrainerIds.has(c.trainers.id))
@@ -726,7 +732,13 @@ export default async function EncounterDetailPage({
             )}
 
             {isActive && trainerActionsData.length > 0 && (
-              <LiveTrainerActionsPanel trainers={trainerActionsData} isGM={isGM} encounterId={encounterId} catchTargets={catchTargets} />
+              <LiveTrainerActionsPanel
+                trainers={trainerActionsData}
+                isGM={isGM}
+                encounterId={encounterId}
+                catchTargets={catchTargets}
+                pokemonTargets={pokemonTargets}
+              />
             )}
           </div>
 

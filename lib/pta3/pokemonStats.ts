@@ -37,6 +37,9 @@ export function computeStatRows(
   // touching the `ev` field itself in the returned row -- already-assigned EVs stay visible/known,
   // they just stop contributing to the stat total while the Campaign has EVs off.
   evsDisabled = false,
+  // [[Feature - Apply Intimidate's stat penalty in Encounters (Ace trainer)]]: the temporary, Encounter-scoped
+  // modifiers on this combatant (summed per stat label), the slot `inBattle` was always reserved for.
+  inBattleByStat: Record<string, number> = {},
 ) {
   return (
     [
@@ -62,7 +65,7 @@ export function computeStatRows(
     const natureAdjust = natureIncreasedName === s.label ? 1 : natureDecreasedName === s.label ? -1 : 0
     const passiveBonus = passiveBonusByStat[s.label] ?? 0
     const afflictionBonus = afflictionBonusByStat[s.label] ?? 0
-    const inBattle = 0 // No in-combat temporary-modifier tracking exists yet; always displayed as 0.
+    const inBattle = inBattleByStat[s.label] ?? 0
     const effectiveEv = evsDisabled ? 0 : s.ev
     const value = s.base + s.statBonus + effectiveEv + natureAdjust + passiveBonus + afflictionBonus + inBattle
     return { ...s, natureAdjust, passiveBonus, afflictionBonus, inBattle, value, modifier: statModifier(value) }
@@ -77,7 +80,13 @@ export type PokemonStatRows = ReturnType<typeof computeStatRows>
 // the tracker needs this at combatant-add time (a server action), not as page props. Used to seed a
 // Pokemon combatant's turn-order value from its effective Speed (not just the raw pokedex base_speed
 // column) -- reusable for any other stat, not just Speed.
-export async function loadPokemonEffectiveStats(supabase: SupabaseClient, pokemonId: string): Promise<PokemonStatRows | null> {
+export async function loadPokemonEffectiveStats(
+  supabase: SupabaseClient,
+  pokemonId: string,
+  // Pass the Pokemon's Encounter combatant id to include its Encounter-scoped stat modifiers (Intimidate, Press);
+  // omitted everywhere outside an Encounter (the Pokemon's own page), where no such modifiers exist.
+  encounterCombatantId?: string,
+): Promise<PokemonStatRows | null> {
   const { data: pokemonRaw } = await supabase
     .from('pokemon')
     .select(
@@ -123,7 +132,7 @@ export async function loadPokemonEffectiveStats(supabase: SupabaseClient, pokemo
   const effectiveCampaignId = pokemon.trainers_pokemon ? (pokemon.trainers_pokemon.trainers?.campaign_id ?? null) : pokemon.campaign_id
   const evsDisabled = await loadCampaignEvDisabled(supabase, effectiveCampaignId)
 
-  const [{ data: activeAfflictionRows }, { data: statPassiveRows }] = await Promise.all([
+  const [{ data: activeAfflictionRows }, { data: statPassiveRows }, { data: encounterModifierRows }] = await Promise.all([
     supabase
       .from('pokemon_afflictions')
       .select('afflictions(afflictions_stats(modifier, stats(name)))')
@@ -132,7 +141,23 @@ export async function loadPokemonEffectiveStats(supabase: SupabaseClient, pokemo
       .from('pokemon_passives')
       .select('passives(passive_type, passives_stats(modifier, stats(name)))')
       .eq('pokemon_id', pokemonId),
+    encounterCombatantId
+      ? supabase.from('encounter_combatant_stat_modifiers').select('stat, amount').eq('combatant_id', encounterCombatantId)
+      : Promise.resolve({ data: [] as { stat: string; amount: number }[] }),
   ])
+
+  const inBattleByStat: Record<string, number> = {}
+  const modifierLabels: Record<string, string> = {
+    attack: 'Attack',
+    defense: 'Defense',
+    special_attack: 'Special Attack',
+    special_defense: 'Special Defense',
+    speed: 'Speed',
+  }
+  for (const m of (encounterModifierRows ?? []) as { stat: string; amount: number }[]) {
+    const label = modifierLabels[m.stat]
+    if (label) inBattleByStat[label] = (inBattleByStat[label] ?? 0) + m.amount
+  }
 
   const afflictionBonusByStat: Record<string, number> = {}
   for (const row of (activeAfflictionRows ?? []) as unknown as { afflictions: { afflictions_stats: { modifier: number; stats: { name: string } | null }[] } | null }[]) {
@@ -181,6 +206,7 @@ export async function loadPokemonEffectiveStats(supabase: SupabaseClient, pokemo
       speed: pokemon.bonus_base_speed,
     },
     evsDisabled,
+    inBattleByStat,
   )
 }
 

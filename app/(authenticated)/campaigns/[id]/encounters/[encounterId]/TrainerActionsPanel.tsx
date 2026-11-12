@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { setFeatureUsesRemaining } from '@/app/(authenticated)/trainers/actions'
 import { useItem } from '@/app/(authenticated)/trainers/[id]/bag/actions'
 import { attemptCatch } from './catchActions'
+import { useIntimidate } from './featureActions'
 
 export type TrainerActionsData = {
   trainerId: string
@@ -33,12 +34,15 @@ export function TrainerActionsPanel({
   onActionDone,
   encounterId,
   catchTargets = [],
+  pokemonTargets = [],
 }: {
   trainers: TrainerActionsData[]
   onActionDone?: () => void
   encounterId?: string
   // The enemy wild Pokemon a Ball can be thrown at (empty when there are none).
   catchTargets?: { combatantId: string; label: string }[]
+  // Every Pokemon combatant, enemies first -- the targets Intimidate can be used on.
+  pokemonTargets?: { combatantId: string; label: string }[]
 }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
@@ -57,6 +61,11 @@ export function TrainerActionsPanel({
   const [throwConditionMet, setThrowConditionMet] = useState(false)
   const [throwTimerTier, setThrowTimerTier] = useState<0 | 1 | 2>(0)
   const [throwResult, setThrowResult] = useState<{ trainerId: string; text: string } | null>(null)
+  // [[Feature - Apply Intimidate's stat penalty in Encounters (Ace trainer)]]: the open Intimidate form (one at a time).
+  const [intimidatingFeatureId, setIntimidatingFeatureId] = useState<number | null>(null)
+  const [intimidateTargetId, setIntimidateTargetId] = useState('')
+  const [intimidateStat, setIntimidateStat] = useState<'attack' | 'special_attack'>('attack')
+  const [intimidateResult, setIntimidateResult] = useState<{ trainerId: string; text: string } | null>(null)
 
   function openThrow(itemId: string) {
     setThrowResult(null)
@@ -155,6 +164,25 @@ export function TrainerActionsPanel({
     else router.refresh()
   }
 
+  async function handleIntimidate(trainerId: string, featureId: number) {
+    if (!encounterId || !intimidateTargetId) return
+    setError(null)
+    setIntimidateResult(null)
+    setPendingId(`feature-${featureId}`)
+    const result = await useIntimidate({ encounterId, trainerId, targetCombatantId: intimidateTargetId, stat: intimidateStat })
+    setPendingId(null)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    const target = pokemonTargets.find((p) => p.combatantId === intimidateTargetId)
+    setIntimidateResult({ trainerId, text: `${target?.label ?? 'The Pokémon'}'s ${intimidateStat === 'attack' ? 'Attack' : 'Special Attack'} is lowered by 2.` })
+    setIntimidatingFeatureId(null)
+    // The use count changed -- re-read the live state (cheap) instead of re-running the whole server page.
+    if (onActionDone) onActionDone()
+    else router.refresh()
+  }
+
   async function handleUseItem(trainerId: string, trainersItemId: string) {
     setError(null)
     setPendingId(`item-${trainersItemId}`)
@@ -214,17 +242,63 @@ export function TrainerActionsPanel({
                           {isExpanded ? '▾' : '▸'} {f.name}
                           {f.usesRemaining !== null && <span className="text-xs text-muted"> ({f.usesRemaining} left)</span>}
                         </button>
-                        {f.usesRemaining !== null && (
+                        {f.usesRemaining !== null && f.name === 'Intimidate' && encounterId ? (
                           <button
                             type="button"
-                            onClick={() => handleUseFeature(t.trainerId, f.id, f.usesRemaining!)}
-                            disabled={f.usesRemaining <= 0 || pendingId === `feature-${f.id}`}
+                            onClick={() => {
+                              setIntimidateResult(null)
+                              setIntimidateTargetId('')
+                              setIntimidatingFeatureId((prev) => (prev === f.id ? null : f.id))
+                            }}
+                            disabled={f.usesRemaining <= 0 || pokemonTargets.length === 0 || pendingId === `feature-${f.id}`}
+                            title={pokemonTargets.length === 0 ? 'No Pokémon in this encounter to target' : undefined}
                             className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
                           >
-                            {pendingId === `feature-${f.id}` ? 'Using…' : 'Use'}
+                            {pendingId === `feature-${f.id}` ? 'Using…' : intimidatingFeatureId === f.id ? 'Cancel' : 'Use'}
                           </button>
+                        ) : (
+                          f.usesRemaining !== null && (
+                            <button
+                              type="button"
+                              onClick={() => handleUseFeature(t.trainerId, f.id, f.usesRemaining!)}
+                              disabled={f.usesRemaining <= 0 || pendingId === `feature-${f.id}`}
+                              className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
+                            >
+                              {pendingId === `feature-${f.id}` ? 'Using…' : 'Use'}
+                            </button>
+                          )
                         )}
                       </div>
+                      {f.name === 'Intimidate' && intimidatingFeatureId === f.id && (
+                        <div className="flex flex-col gap-2 rounded border bg-surface-subtle p-2">
+                          <label className="flex flex-col gap-1 text-xs">
+                            Intimidate
+                            <select value={intimidateTargetId} onChange={(e) => setIntimidateTargetId(e.target.value)} className="bg-surface-subtle rounded border px-2 py-1 text-sm">
+                              <option value="">Select a Pokémon...</option>
+                              {pokemonTargets.map((p) => (
+                                <option key={p.combatantId} value={p.combatantId}>
+                                  {p.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            Lower its
+                            <select value={intimidateStat} onChange={(e) => setIntimidateStat(e.target.value as 'attack' | 'special_attack')} className="bg-surface-subtle rounded border px-2 py-1 text-sm">
+                              <option value="attack">Attack (-2)</option>
+                              <option value="special_attack">Special Attack (-2)</option>
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => handleIntimidate(t.trainerId, f.id)}
+                            disabled={!intimidateTargetId || pendingId === `feature-${f.id}`}
+                            className="self-start rounded bg-accent px-3 py-1 text-xs text-accent-foreground disabled:opacity-40"
+                          >
+                            Intimidate
+                          </button>
+                        </div>
+                      )}
                       {isExpanded && <p className="text-xs text-muted">{f.description}</p>}
                     </li>
                   )
@@ -319,6 +393,7 @@ export function TrainerActionsPanel({
             )}
           </div>
 
+          {intimidateResult && intimidateResult.trainerId === t.trainerId && <p className="text-sm font-semibold">{intimidateResult.text}</p>}
           {throwResult && throwResult.trainerId === t.trainerId && <p className="text-sm font-semibold">{throwResult.text}</p>}
 
           <p className="text-xs text-muted">You can also recall or send out a Pokémon above.</p>
