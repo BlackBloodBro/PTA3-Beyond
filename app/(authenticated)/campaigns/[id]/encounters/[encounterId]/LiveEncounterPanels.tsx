@@ -41,7 +41,17 @@ export function LiveAttackResolver({
   )
 }
 
-export function LiveTrainerActionsPanel({ trainers, isGM }: { trainers: TrainerActionsData[]; isGM: boolean }) {
+export function LiveTrainerActionsPanel({
+  trainers,
+  isGM,
+  encounterId,
+  catchTargets,
+}: {
+  trainers: TrainerActionsData[]
+  isGM: boolean
+  encounterId: string
+  catchTargets: { combatantId: string; label: string }[]
+}) {
   const { snapshot, currentCombatantId, pollNow } = useEncounterLive()
   const merged = trainers.map((t) => {
     const isCurrentTurn = isGM || t.combatantId === currentCombatantId
@@ -59,5 +69,5 @@ export function LiveTrainerActionsPanel({ trainers, isGM }: { trainers: TrainerA
       }),
     }
   })
-  return <TrainerActionsPanel trainers={merged} onActionDone={pollNow} />
+  return <TrainerActionsPanel trainers={merged} onActionDone={pollNow} encounterId={encounterId} catchTargets={catchTargets} />
 }

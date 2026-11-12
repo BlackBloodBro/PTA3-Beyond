@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { setFeatureUsesRemaining } from '@/app/(authenticated)/trainers/actions'
 import { useItem } from '@/app/(authenticated)/trainers/[id]/bag/actions'
+import { attemptCatch } from './catchActions'
 
 export type TrainerActionsData = {
   trainerId: string
@@ -15,7 +16,9 @@ export type TrainerActionsData = {
   // maxUses: what an absent trainer_feature_uses row means (a rest deletes the row to recharge it).
   features: { id: number; name: string; description: string; usesRemaining: number | null; maxUses: number | null }[]
   // battle: in a category flagged show_in_encounters -- the only items listed unless "Show all items" is on.
-  items: { id: string; name: string; quantity: number; battle: boolean }[]
+  // ball: a Poke Ball with catch data -- thrown at a wild Pokemon (see attemptCatch) instead of just "used".
+  // condition is its free-text rule (e.g. "If the Pokemon is in water."); isTimer is the Timer Ball's duration tier.
+  items: { id: string; name: string; quantity: number; battle: boolean; ball: { condition: string | null; isTimer: boolean } | null }[]
 }
 
 // [[Feature - Trainers should see actions they could do in an Encounter]]: deliberately generic --
@@ -25,7 +28,18 @@ export type TrainerActionsData = {
 // *does* when triggered (an Affliction, a stat change, temp HP, ...) stays that Feature's own FR to
 // automate -- this only tracks that it was used. Trainer Moves are read-only: no resolution or "use"
 // action exists for those, matching attack resolution's own Pokemon-only scoping.
-export function TrainerActionsPanel({ trainers, onActionDone }: { trainers: TrainerActionsData[]; onActionDone?: () => void }) {
+export function TrainerActionsPanel({
+  trainers,
+  onActionDone,
+  encounterId,
+  catchTargets = [],
+}: {
+  trainers: TrainerActionsData[]
+  onActionDone?: () => void
+  encounterId?: string
+  // The enemy wild Pokemon a Ball can be thrown at (empty when there are none).
+  catchTargets?: { combatantId: string; label: string }[]
+}) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
@@ -37,6 +51,30 @@ export function TrainerActionsPanel({ trainers, onActionDone }: { trainers: Trai
   const [expandedFeatureIds, setExpandedFeatureIds] = useState<Set<number>>(new Set())
   // [[Improvement - Only show battle items in an encounter]]: per-Trainer, local, off by default.
   const [showAllItemsFor, setShowAllItemsFor] = useState<Set<string>>(new Set())
+  // [[Feature - Create Pokemon catching mechanic]]: the open "throw a Ball" form (one at a time) and its inputs.
+  const [throwingItemId, setThrowingItemId] = useState<string | null>(null)
+  const [throwTargetId, setThrowTargetId] = useState('')
+  const [throwConditionMet, setThrowConditionMet] = useState(false)
+  const [throwTimerTier, setThrowTimerTier] = useState<0 | 1 | 2>(0)
+  const [throwResult, setThrowResult] = useState<{ trainerId: string; text: string } | null>(null)
+
+  function openThrow(itemId: string) {
+    setThrowResult(null)
+    setThrowTargetId(catchTargets.length === 1 ? catchTargets[0].combatantId : '')
+    setThrowConditionMet(false)
+    setThrowTimerTier(0)
+    setThrowingItemId((prev) => (prev === itemId ? null : itemId))
+  }
+
+  function promptForD100(): number | null {
+    let entry = window.prompt('Roll a d100 for real and enter the result (1-100).')
+    while (entry !== null) {
+      const n = Number(entry)
+      if (Number.isInteger(n) && n >= 1 && n <= 100) return n
+      entry = window.prompt('Enter a whole number from 1 to 100:')
+    }
+    return null
+  }
 
   function toggleShowAllItems(trainerId: string) {
     setShowAllItemsFor((prev) => {
@@ -77,6 +115,42 @@ export function TrainerActionsPanel({ trainers, onActionDone }: { trainers: Trai
       return
     }
     // Re-read just the live state (cheap) instead of re-running the whole server page.
+    if (onActionDone) onActionDone()
+    else router.refresh()
+  }
+
+  async function handleThrow(trainerId: string, item: TrainerActionsData['items'][number]) {
+    if (!encounterId || !throwTargetId) return
+    const target = catchTargets.find((c) => c.combatantId === throwTargetId)
+    const roll = promptForD100()
+    if (roll === null) return
+    setError(null)
+    setThrowResult(null)
+    setPendingId(`item-${item.id}`)
+    const result = await attemptCatch({
+      encounterId,
+      combatantId: throwTargetId,
+      trainerId,
+      trainersItemId: item.id,
+      conditionMet: throwConditionMet,
+      timerTier: throwTimerTier,
+      roll,
+    })
+    setPendingId(null)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    const name = target?.label ?? 'The Pokémon'
+    setThrowResult({
+      trainerId,
+      text: result.success
+        ? `Rolled ${result.roll}, needed ≤ ${result.targetPercent}% — ${name} was caught!`
+        : `Rolled ${result.roll}, needed ≤ ${result.targetPercent}% — ${name} broke free!`,
+    })
+    setThrowingItemId(null)
+    // The Ball count, the turn and (on a catch) the combatant list all changed -- re-read the live state; a
+    // changed combatant list triggers the one full refresh itself.
     if (onActionDone) onActionDone()
     else router.refresh()
   }
@@ -179,19 +253,73 @@ export function TrainerActionsPanel({ trainers, onActionDone }: { trainers: Trai
                     <span>
                       {i.name} <span className="text-xs text-muted">×{i.quantity}</span>
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => handleUseItem(t.trainerId, i.id)}
-                      disabled={pendingId === `item-${i.id}`}
-                      className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      {pendingId === `item-${i.id}` ? 'Using…' : 'Use'}
-                    </button>
+                    {i.ball && encounterId ? (
+                      <button
+                        type="button"
+                        onClick={() => openThrow(i.id)}
+                        disabled={catchTargets.length === 0 || pendingId === `item-${i.id}`}
+                        title={catchTargets.length === 0 ? 'No wild Pokémon in this encounter to catch' : undefined}
+                        className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        {pendingId === `item-${i.id}` ? 'Throwing…' : throwingItemId === i.id ? 'Cancel' : 'Throw'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleUseItem(t.trainerId, i.id)}
+                        disabled={pendingId === `item-${i.id}`}
+                        className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        {pendingId === `item-${i.id}` ? 'Using…' : 'Use'}
+                      </button>
+                    )}
+                    {i.ball && throwingItemId === i.id && (
+                      <div className="flex w-full flex-col gap-2 rounded border bg-surface-subtle p-2">
+                        <label className="flex flex-col gap-1 text-xs">
+                          Throw at
+                          <select value={throwTargetId} onChange={(e) => setThrowTargetId(e.target.value)} className="bg-surface-subtle rounded border px-2 py-1 text-sm">
+                            <option value="">Select...</option>
+                            {catchTargets.map((c) => (
+                              <option key={c.combatantId} value={c.combatantId}>
+                                {c.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {i.ball.isTimer ? (
+                          <label className="flex flex-col gap-1 text-xs">
+                            How long has the encounter lasted?
+                            <select value={throwTimerTier} onChange={(e) => setThrowTimerTier(Number(e.target.value) as 0 | 1 | 2)} className="bg-surface-subtle rounded border px-2 py-1 text-sm">
+                              <option value={0}>Under a minute (no bonus)</option>
+                              <option value={1}>At least a minute (+10)</option>
+                              <option value={2}>At least two minutes (+25)</option>
+                            </select>
+                          </label>
+                        ) : (
+                          i.ball.condition && (
+                            <label className="flex items-start gap-2 text-xs">
+                              <input type="checkbox" checked={throwConditionMet} onChange={(e) => setThrowConditionMet(e.target.checked)} className="mt-0.5" />
+                              <span>{i.ball.condition} (tick if this applies — it adds the Ball&apos;s bonus)</span>
+                            </label>
+                          )
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleThrow(t.trainerId, i)}
+                          disabled={!throwTargetId || pendingId === `item-${i.id}`}
+                          className="self-start rounded bg-accent px-3 py-1 text-xs text-accent-foreground disabled:opacity-40"
+                        >
+                          Throw &amp; roll d100
+                        </button>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
           </div>
+
+          {throwResult && throwResult.trainerId === t.trainerId && <p className="text-sm font-semibold">{throwResult.text}</p>}
 
           <p className="text-xs text-muted">You can also recall or send out a Pokémon above.</p>
         </div>
