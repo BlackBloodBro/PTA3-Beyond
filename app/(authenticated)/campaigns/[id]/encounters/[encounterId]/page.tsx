@@ -24,6 +24,7 @@ import type { AttackerOption, TargetOption } from './AttackResolver'
 import type { TrainerActionsData } from './TrainerActionsPanel'
 import { EncounterLiveProvider } from './EncounterLiveProvider'
 import { AdvanceTurnButton } from './AdvanceTurnButton'
+import { setEncounterBattleStart } from './catchActions'
 import { InitiativeTracker, type TrackerCombatant } from './InitiativeTracker'
 import { LiveAttackResolver, LiveTrainerActionsPanel } from './LiveEncounterPanels'
 import { buildScannedKey, type EncounterLiveSnapshot } from '@/lib/pta3/encounterLive'
@@ -85,7 +86,7 @@ export default async function EncounterDetailPage({
   const { data: encounterRaw, error: encounterError } = await singleWithRetry(() =>
     supabase
       .from('encounters')
-      .select('id, campaign_id, name, status, current_turn_position, started_at, ended_at')
+      .select('id, campaign_id, name, status, current_turn_position, started_at, ended_at, catch_battle_start_id')
       .eq('id', encounterId)
       .single(),
   )
@@ -118,6 +119,12 @@ export default async function EncounterDetailPage({
   const encounter = encounterRaw!
   const isDraft = encounter.status === 'draft'
   const isActive = encounter.status === 'active'
+
+  // [[Feature - Create Pokemon catching mechanic]]: the choices for how a battle started (ambushed / Pokemon
+  // initiated / knew they were there) -- three seeded rows, shown while the Encounter can still be caught in.
+  const { data: battleStartRaw } =
+    isDraft || isActive ? await supabase.from('catch_modifiers_battle_start').select('id, name, modifier').order('id') : { data: null }
+  const battleStartOptions = (battleStartRaw ?? []) as { id: number; name: string; modifier: number }[]
 
   // Bug fix (2026-09-14): the single most consequential query on this page to lose to a poisoned
   // pooled connection (see singleWithRetry's own comment) -- every combatant on the page, GM and
@@ -353,9 +360,19 @@ export default async function EncounterDetailPage({
   // Use buttons on Features/Items unless it's actually that Trainer combatant's turn. GM stays fully
   // exempt, per the FR.
   let trainerActionsData: TrainerActionsData[] = []
+  // [[Feature - Create Pokemon catching mechanic]]: the enemy wild Pokemon a Ball can be thrown at. Decided by
+  // the database (encounter_wild_combatant_ids), since a member can't see every trainers_pokemon row.
+  let catchTargets: { combatantId: string; label: string }[] = []
   if (isActive) {
     const trainerCombatants = combatants.filter((c): c is CombatantRow & { trainers: NonNullable<CombatantRow['trainers']> } => c.trainers !== null)
     const eligibleTrainers = trainerCombatants.filter((c) => isGM || ownTrainerIds.has(c.trainers.id))
+    const [{ data: ballModifierRows }, { data: wildIds }] = await Promise.all([
+      supabase.from('pokeball_catch_modifiers').select('item_id, condition'),
+      eligibleTrainers.length > 0 ? supabase.rpc('encounter_wild_combatant_ids', { target_encounter_id: encounterId }) : Promise.resolve({ data: [] as string[] }),
+    ])
+    const ballByItemId = new Map((ballModifierRows ?? []).map((r) => [r.item_id as number, (r.condition as string | null) ?? null]))
+    const wildIdSet = new Set((wildIds ?? []) as unknown as string[])
+    catchTargets = combatants.filter((c) => wildIdSet.has(c.id)).map((c) => ({ combatantId: c.id, label: combatantName(c) }))
     trainerActionsData = await Promise.all(
       eligibleTrainers.map(async (c) => {
         const trainerId = c.trainers.id
@@ -381,7 +398,16 @@ export default async function EncounterDetailPage({
             usesRemaining: f.max_uses !== null ? (usesRemainingByFeature[f.id] ?? f.max_uses) : null,
             maxUses: f.max_uses,
           })),
-          items: bag.items.filter((i) => i.quantity > 0).map((i) => ({ id: i.id, name: i.name, quantity: i.quantity, battle: i.battle })),
+          items: bag.items
+            .filter((i) => i.quantity > 0)
+            .map((i) => ({
+              id: i.id,
+              name: i.name,
+              quantity: i.quantity,
+              battle: i.battle,
+              // A Poke Ball with catch data can be thrown at a wild Pokemon instead of just "used".
+              ball: ballByItemId.has(i.itemId) ? { condition: ballByItemId.get(i.itemId) ?? null, isTimer: i.name === 'Timer Ball' } : null,
+            })),
         }
       }),
     )
@@ -503,6 +529,31 @@ export default async function EncounterDetailPage({
             </div>
 
             {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
+
+            {/* [[Feature - Create Pokemon catching mechanic]]: how the battle started feeds every catch attempt in
+                it, so it is set once here by the GM instead of being asked on each throw. */}
+            {(isDraft || isActive) && battleStartOptions.length > 0 && (
+              <div className="flex w-full max-w-2xl flex-wrap items-center gap-2 text-sm">
+                <span className="text-muted">Catch conditions — battle start:</span>
+                {isGM ? (
+                  <form action={setEncounterBattleStart.bind(null, encounterId, campaignId)} className="flex items-center gap-2">
+                    <select name="battleStartId" defaultValue={encounter.catch_battle_start_id ?? ''} className="bg-surface-subtle rounded border px-2 py-1 text-sm">
+                      {battleStartOptions.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name} ({o.modifier >= 0 ? '+' : ''}
+                          {o.modifier})
+                        </option>
+                      ))}
+                    </select>
+                    <button type="submit" className="rounded border px-2 py-1 text-xs">
+                      Save
+                    </button>
+                  </form>
+                ) : (
+                  <span>{battleStartOptions.find((o) => o.id === encounter.catch_battle_start_id)?.name ?? 'Not set'}</span>
+                )}
+              </div>
+            )}
 
             {isGM && (
               <div className="flex w-full max-w-2xl flex-col gap-3 rounded border-accent bg-accent/10 p-4 text-sm">
@@ -674,7 +725,9 @@ export default async function EncounterDetailPage({
               <LiveAttackResolver candidates={attackerOptions} targets={targetOptions} isGM={isGM} encounterId={encounterId} campaignId={campaignId} />
             )}
 
-            {isActive && trainerActionsData.length > 0 && <LiveTrainerActionsPanel trainers={trainerActionsData} isGM={isGM} />}
+            {isActive && trainerActionsData.length > 0 && (
+              <LiveTrainerActionsPanel trainers={trainerActionsData} isGM={isGM} encounterId={encounterId} catchTargets={catchTargets} />
+            )}
           </div>
 
           <aside className="sticky top-4 flex w-64 shrink-0 flex-col gap-2">
