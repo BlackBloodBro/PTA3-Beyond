@@ -51,7 +51,7 @@ export function AttackResolver({
   // [[Feature - Apply Constructive Criticism's accuracy bonus in Encounters (Ace trainer)]]: the bonus the attacker would
   // get right now, shown before rolling. Re-read when the attacker, Move or target change, and after every resolution
   // (a miss raises it, a hit clears it).
-  const [preview, setPreview] = useState<{ accuracyBonus: { name: string; amount: number } | null } | null>(null)
+  const [preview, setPreview] = useState<{ accuracyBonus: { name: string; amount: number } | null; critThreshold: number | null } | null>(null)
   const [resolveCount, setResolveCount] = useState(0)
   useEffect(() => {
     if (!attackerId || !moveId || !targetId) {
@@ -200,7 +200,8 @@ export function AttackResolver({
     setApplied(true)
 
     const isKo = target.pokemonId !== null && target.side !== attacker.side && applyResult.currentHp <= 0
-    const isCrit = result.hit && result.isDamageMove && result.roll === 20
+    // A natural 20, or 18-20 against a target marked by Critical advice -- worked out in resolveAccuracy.
+    const isCrit = result.isCritical
     if (isKo || isCrit) {
       const affirmation = await maybeGrantAffirmationBonus(attacker.pokemonId, isKo, isCrit)
       if (affirmation.granted > 0) {
@@ -296,6 +297,9 @@ export function AttackResolver({
               {preview.accuracyBonus.name}: +{preview.accuracyBonus.amount} to this Accuracy Check
             </p>
           )}
+          {preview?.critThreshold && (
+            <p className="text-sm text-muted">Critical advice: this target is critical-hit on a natural {preview.critThreshold}-20</p>
+          )}
 
           <button
             type="button"
@@ -317,6 +321,7 @@ export function AttackResolver({
             {result.accuracyBonus ? ` + ${result.accuracyBonus.amount} (${result.accuracyBonus.name})` : ''} ={' '}
             {result.roll + result.toHitModifier + (result.accuracyBonus?.amount ?? 0)} vs. target&apos;s {result.targetStatLabel} ({result.targetNumber}):{' '}
             <span className={result.hit ? 'font-semibold text-success' : 'font-semibold text-danger'}>{result.hit ? 'Hit!' : 'Missed'}</span>
+            {result.isCritical && !result.isImmune && <span className="ml-2 font-semibold text-warning">Critical hit!</span>}
           </p>
 
           {result.moveDescription && <p className="mt-1 text-xs text-muted">{result.moveDescription}</p>}

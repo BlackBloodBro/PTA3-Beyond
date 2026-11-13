@@ -7,6 +7,29 @@ import { createClient } from '@/lib/supabase/server'
 // Encounter -- -2 to its Attack or Special Attack for the rest of the encounter (stacking), and one of the Trainer's
 // 3 uses spent. Everything happens in one atomic use_intimidate() call, which re-checks who may act, that the Trainer
 // really has the Feature, and that a use is left. A plain Feature use: it does not advance the turn.
+// [[Feature - Mark a target for Critical advice in Encounters (Researcher)]]: mark a combatant so that, for the rest of the
+// encounter, attacks against it are critical hits on a natural 18-20; spends one of the Trainer's 3 uses. One atomic
+// use_critical_advice() call re-checks who may act, the Feature and the uses left. A free action: no turn change.
+export async function useCriticalAdvice(input: {
+  encounterId: string
+  trainerId: string
+  targetCombatantId: string
+}): Promise<{ error: string } | { ok: true }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { error } = await supabase.rpc('use_critical_advice', {
+    target_encounter_id: input.encounterId,
+    acting_trainer_id: input.trainerId,
+    target_combatant_id: input.targetCombatantId,
+  })
+  if (error) return { error: error.message }
+  return { ok: true }
+}
+
 export async function useIntimidate(input: {
   encounterId: string
   trainerId: string

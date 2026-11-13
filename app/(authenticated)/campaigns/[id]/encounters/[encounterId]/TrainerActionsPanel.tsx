@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { setFeatureUsesRemaining } from '@/app/(authenticated)/trainers/actions'
 import { useItem } from '@/app/(authenticated)/trainers/[id]/bag/actions'
 import { attemptCatch } from './catchActions'
-import { useIntimidate } from './featureActions'
+import { useCriticalAdvice, useIntimidate } from './featureActions'
 
 export type TrainerActionsData = {
   trainerId: string
@@ -35,6 +35,7 @@ export function TrainerActionsPanel({
   encounterId,
   catchTargets = [],
   pokemonTargets = [],
+  markTargets = [],
 }: {
   trainers: TrainerActionsData[]
   onActionDone?: () => void
@@ -43,6 +44,8 @@ export function TrainerActionsPanel({
   catchTargets?: { combatantId: string; label: string }[]
   // Every Pokemon combatant, enemies first -- the targets Intimidate can be used on.
   pokemonTargets?: { combatantId: string; label: string }[]
+  // Every combatant (Pokemon and Trainers), enemies first -- the targets Critical advice can mark ("any target").
+  markTargets?: { combatantId: string; label: string }[]
 }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
@@ -66,6 +69,10 @@ export function TrainerActionsPanel({
   const [intimidateTargetId, setIntimidateTargetId] = useState('')
   const [intimidateStat, setIntimidateStat] = useState<'attack' | 'special_attack'>('attack')
   const [intimidateResult, setIntimidateResult] = useState<{ trainerId: string; text: string } | null>(null)
+  // [[Feature - Mark a target for Critical advice in Encounters (Researcher)]]: the open Critical advice form (one at a time).
+  const [markingFeatureId, setMarkingFeatureId] = useState<number | null>(null)
+  const [markTargetId, setMarkTargetId] = useState('')
+  const [markResult, setMarkResult] = useState<{ trainerId: string; text: string } | null>(null)
 
   function openThrow(itemId: string) {
     setThrowResult(null)
@@ -183,6 +190,25 @@ export function TrainerActionsPanel({
     else router.refresh()
   }
 
+  async function handleMark(trainerId: string, featureId: number) {
+    if (!encounterId || !markTargetId) return
+    setError(null)
+    setMarkResult(null)
+    setPendingId(`feature-${featureId}`)
+    const result = await useCriticalAdvice({ encounterId, trainerId, targetCombatantId: markTargetId })
+    setPendingId(null)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    const target = markTargets.find((p) => p.combatantId === markTargetId)
+    setMarkResult({ trainerId, text: `${target?.label ?? 'The target'} is marked: attacks against it are critical hits on a natural 18-20.` })
+    setMarkingFeatureId(null)
+    // The use count and the mark both changed -- re-read the live state (cheap) instead of re-running the whole server page.
+    if (onActionDone) onActionDone()
+    else router.refresh()
+  }
+
   async function handleUseItem(trainerId: string, trainersItemId: string) {
     setError(null)
     setPendingId(`item-${trainersItemId}`)
@@ -242,7 +268,21 @@ export function TrainerActionsPanel({
                           {isExpanded ? '▾' : '▸'} {f.name}
                           {f.usesRemaining !== null && <span className="text-xs text-muted"> ({f.usesRemaining} left)</span>}
                         </button>
-                        {f.usesRemaining !== null && f.name === 'Intimidate' && encounterId ? (
+                        {f.usesRemaining !== null && f.name === 'Critical advice' && encounterId ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMarkResult(null)
+                              setMarkTargetId('')
+                              setMarkingFeatureId((prev) => (prev === f.id ? null : f.id))
+                            }}
+                            disabled={f.usesRemaining <= 0 || markTargets.length === 0 || pendingId === `feature-${f.id}`}
+                            title={markTargets.length === 0 ? 'No one in this encounter to mark' : undefined}
+                            className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
+                          >
+                            {pendingId === `feature-${f.id}` ? 'Using…' : markingFeatureId === f.id ? 'Cancel' : 'Use'}
+                          </button>
+                        ) : f.usesRemaining !== null && f.name === 'Intimidate' && encounterId ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -269,6 +309,29 @@ export function TrainerActionsPanel({
                           )
                         )}
                       </div>
+                      {f.name === 'Critical advice' && markingFeatureId === f.id && (
+                        <div className="flex flex-col gap-2 rounded border bg-surface-subtle p-2">
+                          <label className="flex flex-col gap-1 text-xs">
+                            Mark a target (critical hits on a natural 18-20 for the rest of the encounter)
+                            <select value={markTargetId} onChange={(e) => setMarkTargetId(e.target.value)} className="bg-surface-subtle rounded border px-2 py-1 text-sm">
+                              <option value="">Select a target...</option>
+                              {markTargets.map((p) => (
+                                <option key={p.combatantId} value={p.combatantId}>
+                                  {p.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => handleMark(t.trainerId, f.id)}
+                            disabled={!markTargetId || pendingId === `feature-${f.id}`}
+                            className="self-start rounded bg-accent px-3 py-1 text-xs text-accent-foreground disabled:opacity-40"
+                          >
+                            Mark target
+                          </button>
+                        </div>
+                      )}
                       {f.name === 'Intimidate' && intimidatingFeatureId === f.id && (
                         <div className="flex flex-col gap-2 rounded border bg-surface-subtle p-2">
                           <label className="flex flex-col gap-1 text-xs">
@@ -393,6 +456,7 @@ export function TrainerActionsPanel({
             )}
           </div>
 
+          {markResult && markResult.trainerId === t.trainerId && <p className="text-sm font-semibold">{markResult.text}</p>}
           {intimidateResult && intimidateResult.trainerId === t.trainerId && <p className="text-sm font-semibold">{intimidateResult.text}</p>}
           {throwResult && throwResult.trainerId === t.trainerId && <p className="text-sm font-semibold">{throwResult.text}</p>}
 

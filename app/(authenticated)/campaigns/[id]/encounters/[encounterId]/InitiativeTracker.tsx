@@ -71,6 +71,7 @@ export function InitiativeTracker({
 }) {
   const { snapshot, currentCombatantId } = useEncounterLive()
   const liveById = new Map(snapshot.combatants.map((c) => [c.id, c]))
+  const marked = new Set(snapshot.markedCombatantIds)
 
   const rows = sortByInitiative(
     combatants.map((c) => {
@@ -105,6 +106,11 @@ export function InitiativeTracker({
                     {c.side === 'ally' ? 'Ally' : 'Enemy'}
                   </span>
                   <CombatantDetailModal combatantId={c.id} label={c.name} href={c.href} />
+                  {marked.has(c.id) && (
+                    <span className="ml-1 rounded bg-warning/20 px-1.5 py-0.5 text-xs font-semibold text-warning" title="Critical advice: critical hits on a natural 18-20">
+                      Marked
+                    </span>
+                  )}
                   {c.typeLabel && <span className="text-muted"> -- {c.typeLabel}</span>}
                 </p>
                 {isCurrent && <p className="text-xs font-semibold text-warning">← Current turn</p>}

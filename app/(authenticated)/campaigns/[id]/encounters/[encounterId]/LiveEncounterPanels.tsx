@@ -47,12 +47,14 @@ export function LiveTrainerActionsPanel({
   encounterId,
   catchTargets,
   pokemonTargets,
+  markTargets,
 }: {
   trainers: TrainerActionsData[]
   isGM: boolean
   encounterId: string
   catchTargets: { combatantId: string; label: string }[]
   pokemonTargets: { combatantId: string; label: string }[]
+  markTargets: { combatantId: string; label: string }[]
 }) {
   const { snapshot, currentCombatantId, pollNow } = useEncounterLive()
   const merged = trainers.map((t) => {
@@ -71,5 +73,5 @@ export function LiveTrainerActionsPanel({
       }),
     }
   })
-  return <TrainerActionsPanel trainers={merged} onActionDone={pollNow} encounterId={encounterId} catchTargets={catchTargets} pokemonTargets={pokemonTargets} />
+  return <TrainerActionsPanel trainers={merged} onActionDone={pollNow} encounterId={encounterId} catchTargets={catchTargets} pokemonTargets={pokemonTargets} markTargets={markTargets} />
 }

@@ -27,6 +27,10 @@ export type EncounterLiveSnapshot = {
   // that someone revealed an enemy (identity data is server-rendered), never to display anything.
   scannedKey: string
   trainers: Record<string, TrainerLiveUses>
+  // [[Feature - Mark a target for Critical advice in Encounters (Researcher)]]: ids of combatants carrying a Critical
+  // advice mark (sorted), so every viewer's tracker shows the "Marked" badge as it appears. Display-only: not part
+  // of structureKey.
+  markedCombatantIds: string[]
 }
 
 // Anything that changes the *shape* of the page (not just a number on it): the encounter starting/ending,
@@ -103,7 +107,7 @@ export async function loadEncounterLiveSnapshot(
     .filter((c) => c.trainers && c.trainer_id && (isGM || c.trainers.user_id === userId))
     .map((c) => c.trainer_id as string)
 
-  const [scannedRes, featureRes, moveRes, itemRes] = await Promise.all([
+  const [scannedRes, featureRes, moveRes, itemRes, markRes] = await Promise.all([
     enemyPokedexIds.length > 0
       ? supabase.from('campaign_scanned_species').select('pokedex_id').eq('campaign_id', encounter.campaign_id).in('pokedex_id', enemyPokedexIds)
       : Promise.resolve({ data: [] as { pokedex_id: number }[] }),
@@ -116,6 +120,9 @@ export async function loadEncounterLiveSnapshot(
     eligibleTrainerIds.length > 0
       ? supabase.from('trainers_items').select('id, trainer_id, quantity').in('trainer_id', eligibleTrainerIds)
       : Promise.resolve({ data: [] as { id: string; trainer_id: string; quantity: number }[] }),
+    combatants.length > 0
+      ? supabase.from('encounter_target_marks').select('target_combatant_id').in('target_combatant_id', combatants.map((c) => c.id))
+      : Promise.resolve({ data: [] as { target_combatant_id: string }[] }),
   ])
 
   const trainers: Record<string, TrainerLiveUses> = {}
@@ -136,5 +143,6 @@ export async function loadEncounterLiveSnapshot(
     })),
     scannedKey: buildScannedKey(enemyPokedexIds, (scannedRes.data ?? []).map((r) => r.pokedex_id)),
     trainers,
+    markedCombatantIds: (markRes.data ?? []).map((r) => r.target_combatant_id as string).sort(),
   }
 }

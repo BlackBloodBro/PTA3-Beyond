@@ -31,6 +31,11 @@ export type AccuracyResult =
       // [[Feature - Apply Constructive Criticism's accuracy bonus in Encounters (Ace trainer)]]: a bonus added to the
       // Accuracy Check only (already counted in `hit`), shown in the result line; null when none applies.
       accuracyBonus: { name: string; amount: number } | null
+      // [[Feature - Mark a target for Critical advice in Encounters (Researcher)]]: whether this hit is a critical hit
+      // (a damage move that hits on a natural roll of `critThreshold` or more -- 20 normally, 18 against a target marked
+      // by Critical advice).
+      isCritical: boolean
+      critThreshold: number
     }
 
 const TARGET_STAT_LABELS: Record<StatColumn, string> = {
@@ -64,13 +69,25 @@ async function loadConstructiveCriticism(
   return { hasFeature: true, misses: row?.misses ?? 0 }
 }
 
-// Read-only: what Accuracy Check bonus the attacker would get right now, so the resolver can show it before the player
-// rolls. The same numbers resolveAccuracy then uses.
+// [[Feature - Mark a target for Critical advice in Encounters (Researcher)]]: a target marked by Critical advice is crit on a
+// natural 18-20 for everyone attacking it; otherwise only a natural 20 is.
+async function loadCritThreshold(supabase: SupabaseClient, targetCombatantId: string): Promise<number> {
+  const { data } = await supabase
+    .from('encounter_target_marks')
+    .select('id')
+    .eq('target_combatant_id', targetCombatantId)
+    .eq('kind', 'critical_advice')
+    .maybeSingle()
+  return data ? 18 : 20
+}
+
+// Read-only: what the attacker would get right now -- an Accuracy Check bonus, and the crit range -- so the resolver can
+// show them before the player rolls. The same numbers resolveAccuracy then uses.
 export async function getAttackPreview(
   attackerCombatantId: string,
   targetCombatantId: string,
   moveId: number,
-): Promise<{ accuracyBonus: { name: string; amount: number } | null }> {
+): Promise<{ accuracyBonus: { name: string; amount: number } | null; critThreshold: number | null }> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -78,9 +95,16 @@ export async function getAttackPreview(
   if (!user) redirect('/login')
 
   const { data: attacker } = await supabase.from('encounter_combatants').select('pokemon_id').eq('id', attackerCombatantId).maybeSingle()
-  if (!attacker?.pokemon_id) return { accuracyBonus: null }
-  const cc = await loadConstructiveCriticism(supabase, attackerCombatantId, attacker.pokemon_id, targetCombatantId, moveId)
-  return { accuracyBonus: cc.hasFeature && cc.misses > 0 ? { name: 'Constructive Criticism', amount: 2 * cc.misses } : null }
+  if (!attacker?.pokemon_id) return { accuracyBonus: null, critThreshold: null }
+  const [cc, critThreshold] = await Promise.all([
+    loadConstructiveCriticism(supabase, attackerCombatantId, attacker.pokemon_id, targetCombatantId, moveId),
+    loadCritThreshold(supabase, targetCombatantId),
+  ])
+  return {
+    accuracyBonus: cc.hasFeature && cc.misses > 0 ? { name: 'Constructive Criticism', amount: 2 * cc.misses } : null,
+    // Only worth showing when it differs from the normal natural-20-only crit.
+    critThreshold: critThreshold < 20 ? critThreshold : null,
+  }
 }
 
 // [[Feature - Add attack resolution to combat encounters]]: the app's whole job here is computing
@@ -189,6 +213,7 @@ export async function resolveAccuracy(
 
   const hit = d20Roll + toHitModifier + (accuracyBonus?.amount ?? 0) >= targetNumber
   const isDamageMove = move.damage_dice !== null
+  const critThreshold = await loadCritThreshold(supabase, targetCombatantId)
 
   if (criticism.hasFeature) {
     if (hit) {
@@ -255,6 +280,8 @@ export async function resolveAccuracy(
     effectivenessLabel,
     isImmune,
     accuracyBonus,
+    isCritical: hit && isDamageMove && d20Roll >= critThreshold,
+    critThreshold,
   }
 }
 
