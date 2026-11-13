@@ -1,3 +1,5 @@
+import { loadTrainerMoves } from '@/lib/pta3/trainerMoves'
+import { TrainerMovesSection } from '@/app/(authenticated)/trainers/[id]/TrainerMovesSection'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -229,10 +231,7 @@ export default async function NpcPage({
     team.map((p) => ({ pokemonId: p.id, pokedexId: p.pokedex_id, level: p.level })),
   )
 
-  const { data: trainerMoves } = await supabase
-    .from('trainer_moves')
-    .select('uses_remaining, resets_on, moves(name)')
-    .eq('trainer_id', id)
+  const trainerMovesSnapshot = await loadTrainerMoves(supabase, id, trainer.campaign_id, isOwner || isGM)
 
   const eggSnapshot = await loadEggSnapshot(supabase, id)
 
@@ -366,18 +365,12 @@ export default async function NpcPage({
 
         <PassiveFeaturesSection />
 
-        <section className="rounded border border-accent bg-accent/10 p-4">
-          <h2 className="mb-2 font-semibold">Trainer Moves</h2>
-          {(trainerMoves ?? []).length === 0 ? (
-            <p className="text-sm text-muted">None yet.</p>
-          ) : (
-            <ul className="list-disc pl-5">
-              {(trainerMoves ?? []).map((tm, i) => (
-                <li key={i}>{tm.moves!.name}</li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <TrainerMovesSection
+          trainerId={id}
+          initialMoves={trainerMovesSnapshot.known}
+          catalog={trainerMovesSnapshot.catalog}
+          canEdit={isOwner || isGM}
+        />
         </div>
 
         <aside className="w-64 shrink-0">

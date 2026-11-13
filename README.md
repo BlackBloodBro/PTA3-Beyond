@@ -525,13 +525,9 @@ new schema — everything they touch (`trainers.current_hp`/`max_hp`, `pokemon.c
 - **Pokémon Center**: instantly sets every owned Pokémon's `current_hp` to its `base_hp` (full heal)
   and touches nothing else — not move uses, not the trainer's own HP, not features. This matches
   the user's explicit scope for it.
-- **Deliberately out of scope**: `trainer_moves` and `pokemon_moves` both have a `resets_on` column
-  with the same `'turn' | 'encounter' | 'rest'` enum as features, so a rest-driven recharge might be
-  expected there too — but neither table has a `max_uses`/similar column to reset *back to* (they
-  only ever store `uses_remaining`), and neither is populated by any existing flow yet (every
-  trainer's Moves section has read "None yet" throughout this project so far). Resetting them today
-  would mean guessing a target value with nothing to base it on, so they're left untouched until
-  those tables gain an actual max to recharge to.
+- **Move uses**: `pokemon_moves` and `trainer_moves` both carry `uses_remaining`/`resets_on`; Sleep re-derives each
+  rest-reset move's cap from its frequency ("N/day" -> N) and writes it back, for the Trainer's own moves
+  ([[Feature - Implement Trainer Moves]]) as well as their Pokémon's.
 - Both actions are available to **the trainer's owner and the campaign's GM**, same as Level/HP —
   a GM calling a rest for the whole party is the expected use case, not something to gate to owners
   only.
