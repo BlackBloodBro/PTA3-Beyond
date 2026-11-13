@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { loadQualifyingMilestones, computeEffectiveStats, loadTrainerDerived, type StatColumn } from '@/lib/pta3/trainerFeatures'
+import { loadQualifyingMilestones, computeEffectiveStats, loadTrainerDerived, trainerHasBaseClassFeature, type StatColumn } from '@/lib/pta3/trainerFeatures'
 import { statModifier } from '@/lib/pta3/pointBuy'
 import { loadPokemonEffectiveStats, loadPokemonEffectiveType } from '@/lib/pta3/pokemonStats'
 import { resolveAccuracyStat, stabBonus, effectivenessFor, adjustDiceCount, type TypeMatchupInfo, type TypeImmunityInfo } from '@/lib/pta3/combatMath'
@@ -10,6 +10,8 @@ import { grantPokemonTemporaryHp } from '@/app/(authenticated)/pokemon/actions'
 import { computePokemonLevel } from '@/lib/pta3/pokemonLevel'
 import { loadGrantEventAmounts } from '@/lib/pta3/grantEvents'
 import { loadCampaignExpDisabled } from '@/lib/pta3/levelBandSettings'
+
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
 export type AccuracyResult =
   | { error: string }
@@ -26,6 +28,9 @@ export type AccuracyResult =
       damageModifier: number
       effectivenessLabel: string | null
       isImmune: boolean
+      // [[Feature - Apply Constructive Criticism's accuracy bonus in Encounters (Ace trainer)]]: a bonus added to the
+      // Accuracy Check only (already counted in `hit`), shown in the result line; null when none applies.
+      accuracyBonus: { name: string; amount: number } | null
     }
 
 const TARGET_STAT_LABELS: Record<StatColumn, string> = {
@@ -34,6 +39,48 @@ const TARGET_STAT_LABELS: Record<StatColumn, string> = {
   special_attack: 'Special Attack',
   special_defense: 'Special Defense',
   speed: 'Speed',
+}
+
+// [[Feature - Apply Constructive Criticism's accuracy bonus in Encounters (Ace trainer)]]: whether the attacking
+// Pokemon's owning Trainer has the Feature (a Wild Pokemon has no owner, so never), and how many misses in a row this
+// attacker has racked up with this Move against this target. The streak is the only memory attack resolution has.
+async function loadConstructiveCriticism(
+  supabase: SupabaseClient,
+  attackerCombatantId: string,
+  attackerPokemonId: string,
+  targetCombatantId: string,
+  moveId: number,
+): Promise<{ hasFeature: boolean; misses: number }> {
+  const { data: link } = await supabase.from('trainers_pokemon').select('trainer_id').eq('pokemon_id', attackerPokemonId).maybeSingle()
+  if (!link) return { hasFeature: false, misses: 0 }
+  if (!(await trainerHasBaseClassFeature(supabase, link.trainer_id, 'Constructive Criticism'))) return { hasFeature: false, misses: 0 }
+  const { data: row } = await supabase
+    .from('encounter_attack_misses')
+    .select('misses')
+    .eq('attacker_combatant_id', attackerCombatantId)
+    .eq('target_combatant_id', targetCombatantId)
+    .eq('move_id', moveId)
+    .maybeSingle()
+  return { hasFeature: true, misses: row?.misses ?? 0 }
+}
+
+// Read-only: what Accuracy Check bonus the attacker would get right now, so the resolver can show it before the player
+// rolls. The same numbers resolveAccuracy then uses.
+export async function getAttackPreview(
+  attackerCombatantId: string,
+  targetCombatantId: string,
+  moveId: number,
+): Promise<{ accuracyBonus: { name: string; amount: number } | null }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: attacker } = await supabase.from('encounter_combatants').select('pokemon_id').eq('id', attackerCombatantId).maybeSingle()
+  if (!attacker?.pokemon_id) return { accuracyBonus: null }
+  const cc = await loadConstructiveCriticism(supabase, attackerCombatantId, attacker.pokemon_id, targetCombatantId, moveId)
+  return { accuracyBonus: cc.hasFeature && cc.misses > 0 ? { name: 'Constructive Criticism', amount: 2 * cc.misses } : null }
 }
 
 // [[Feature - Add attack resolution to combat encounters]]: the app's whole job here is computing
@@ -133,8 +180,32 @@ export async function resolveAccuracy(
     // A Trainer has no type -- STAB/effectiveness only ever apply against a Pokemon target, left null.
   }
 
-  const hit = d20Roll + toHitModifier >= targetNumber
+  // [[Feature - Apply Constructive Criticism's accuracy bonus in Encounters (Ace trainer)]]: +2 per consecutive miss
+  // with this Move on this target, to the Accuracy Check only (the damage modifier below keeps using the plain
+  // to-hit modifier). A miss then adds to the streak and a hit clears it -- an immune target is still a hit, since
+  // only the damage is 0.
+  const criticism = await loadConstructiveCriticism(supabase, attackerCombatantId, attackerCombatant.pokemon_id, targetCombatantId, moveId)
+  const accuracyBonus = criticism.hasFeature && criticism.misses > 0 ? { name: 'Constructive Criticism', amount: 2 * criticism.misses } : null
+
+  const hit = d20Roll + toHitModifier + (accuracyBonus?.amount ?? 0) >= targetNumber
   const isDamageMove = move.damage_dice !== null
+
+  if (criticism.hasFeature) {
+    if (hit) {
+      if (criticism.misses > 0) {
+        await supabase
+          .from('encounter_attack_misses')
+          .delete()
+          .eq('attacker_combatant_id', attackerCombatantId)
+          .eq('target_combatant_id', targetCombatantId)
+          .eq('move_id', moveId)
+      }
+    } else {
+      await supabase
+        .from('encounter_attack_misses')
+        .upsert({ attacker_combatant_id: attackerCombatantId, target_combatant_id: targetCombatantId, move_id: moveId, misses: criticism.misses + 1 })
+    }
+  }
 
   let damageDice: string | null = null
   let damageModifier = 0
@@ -183,6 +254,7 @@ export async function resolveAccuracy(
     damageModifier,
     effectivenessLabel,
     isImmune,
+    accuracyBonus,
   }
 }
 

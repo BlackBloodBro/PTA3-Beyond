@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { resolveAccuracy, maybeGrantAffirmationBonus, grantMoveUseRewards, type AccuracyResult } from './combatActions'
+import { resolveAccuracy, maybeGrantAffirmationBonus, grantMoveUseRewards, getAttackPreview, type AccuracyResult } from './combatActions'
 import { adjustPokemonHp } from '@/app/(authenticated)/pokemon/actions'
 import { adjustTrainerHp } from '@/app/(authenticated)/trainers/actions'
 import { advanceTurn, skipMyTurn } from '../actions'
@@ -47,6 +47,25 @@ export function AttackResolver({
 
   const attacker = attackers.find((a) => a.id === attackerId)
   const target = targets.find((t) => t.id === targetId)
+
+  // [[Feature - Apply Constructive Criticism's accuracy bonus in Encounters (Ace trainer)]]: the bonus the attacker would
+  // get right now, shown before rolling. Re-read when the attacker, Move or target change, and after every resolution
+  // (a miss raises it, a hit clears it).
+  const [preview, setPreview] = useState<{ accuracyBonus: { name: string; amount: number } | null } | null>(null)
+  const [resolveCount, setResolveCount] = useState(0)
+  useEffect(() => {
+    if (!attackerId || !moveId || !targetId) {
+      setPreview(null)
+      return
+    }
+    let cancelled = false
+    getAttackPreview(attackerId, targetId, Number(moveId)).then((p) => {
+      if (!cancelled) setPreview(p)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [attackerId, moveId, targetId, resolveCount])
 
   // [[Improvement - Autofill the current Pokemon as attacker in 'Resolve an attack']]: re-syncs to
   // whoever's turn it currently is every time it changes (not just on initial mount) -- only when
@@ -128,6 +147,7 @@ export function AttackResolver({
     const res = await resolveAccuracy(attackerId, targetId, Number(moveId), roll)
     setResolving(false)
     setResult(res)
+    setResolveCount((c) => c + 1)
 
     // [[Feature - Add triggers for a Pokemon to gain EXP automatically]]: fires here, unconditionally
     // on every resolved move use (hit or miss both count, per the user) -- deliberately not tucked
@@ -271,6 +291,12 @@ export function AttackResolver({
             </select>
           </div>
 
+          {preview?.accuracyBonus && (
+            <p className="text-sm text-muted">
+              {preview.accuracyBonus.name}: +{preview.accuracyBonus.amount} to this Accuracy Check
+            </p>
+          )}
+
           <button
             type="button"
             onClick={handleResolve}
@@ -287,8 +313,9 @@ export function AttackResolver({
       {result && !('error' in result) && (
         <div className="rounded border p-3">
           <p>
-            <span className="font-semibold">{result.moveName}</span> -- rolled {result.roll} + {result.toHitModifier} ={' '}
-            {result.roll + result.toHitModifier} vs. target&apos;s {result.targetStatLabel} ({result.targetNumber}):{' '}
+            <span className="font-semibold">{result.moveName}</span> -- rolled {result.roll} + {result.toHitModifier}
+            {result.accuracyBonus ? ` + ${result.accuracyBonus.amount} (${result.accuracyBonus.name})` : ''} ={' '}
+            {result.roll + result.toHitModifier + (result.accuracyBonus?.amount ?? 0)} vs. target&apos;s {result.targetStatLabel} ({result.targetNumber}):{' '}
             <span className={result.hit ? 'font-semibold text-success' : 'font-semibold text-danger'}>{result.hit ? 'Hit!' : 'Missed'}</span>
           </p>
 
