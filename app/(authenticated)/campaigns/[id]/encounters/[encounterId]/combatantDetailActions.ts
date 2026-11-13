@@ -160,12 +160,22 @@ async function loadPokemonDetail(
     stats: (statRows ?? []).map((s) => ({ label: STAT_LABELS[s.key as StatColumn], value: s.value, inBattle: s.inBattle })),
     moves,
     afflictions,
-    effects: ((effectRowsRaw.data ?? []) as { stat: string; amount: number; source: string }[]).map((e) => ({
-      stat: STAT_LABELS[e.stat as StatColumn] ?? e.stat,
-      amount: e.amount,
-      source: e.source,
-    })),
+    effects: mergeEffects((effectRowsRaw.data ?? []) as { stat: string; amount: number; source: string }[]),
   }
+}
+
+// One row per use is how the modifiers are stored (so stacking is just more rows), but three Presses read better as
+// "Attack +6 (Press)" than as fifteen separate entries -- merge by stat and source, keeping first-use order.
+function mergeEffects(rows: { stat: string; amount: number; source: string }[]): { stat: string; amount: number; source: string }[] {
+  const merged = new Map<string, { stat: string; amount: number; source: string }>()
+  for (const e of rows) {
+    const stat = STAT_LABELS[e.stat as StatColumn] ?? e.stat
+    const key = `${stat}|${e.source}`
+    const existing = merged.get(key)
+    if (existing) existing.amount += e.amount
+    else merged.set(key, { stat, amount: e.amount, source: e.source })
+  }
+  return [...merged.values()]
 }
 
 async function loadTrainerDetail(supabase: SupabaseClient, trainerId: string): Promise<CombatantDetail> {
