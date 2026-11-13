@@ -365,6 +365,11 @@ export default async function EncounterDetailPage({
   let catchTargets: { combatantId: string; label: string }[] = []
   // [[Feature - Apply Intimidate's stat penalty in Encounters (Ace trainer)]]: every Pokemon combatant, enemies first,
   // as the targets Intimidate can be used on.
+  // [[Feature - Mark a target for Critical advice in Encounters (Researcher)]]: "any target" -- every combatant, Pokemon and
+  // Trainers alike, enemies first.
+  const markTargets = [...combatants]
+    .sort((a, b) => (a.side === b.side ? 0 : a.side === 'enemy' ? -1 : 1))
+    .map((c) => ({ combatantId: c.id, label: `${combatantName(c)}${c.side === 'enemy' ? ' (enemy)' : ' (ally)'}` }))
   const pokemonTargets = combatants
     .filter((c) => c.pokemon !== null)
     .sort((a, b) => (a.side === b.side ? 0 : a.side === 'enemy' ? -1 : 1))
@@ -467,6 +472,11 @@ export default async function EncounterDetailPage({
 
   // Must agree with loadEncounterLiveSnapshot's own structureKey inputs (status, combatant ids, scanned
   // key), or the very first poll would look like a structural change and trigger a pointless refresh.
+  const { data: markRows } =
+    combatants.length > 0
+      ? await supabase.from('encounter_target_marks').select('target_combatant_id').in('target_combatant_id', combatants.map((c) => c.id))
+      : { data: [] as { target_combatant_id: string }[] }
+
   const initialSnapshot: EncounterLiveSnapshot = {
     status: encounter.status,
     currentTurnPosition: encounter.current_turn_position,
@@ -481,6 +491,7 @@ export default async function EncounterDetailPage({
     ),
     // Filled in by the first poll; until then the panel shows the server-rendered uses.
     trainers: {},
+    markedCombatantIds: (markRows ?? []).map((r) => r.target_combatant_id as string).sort(),
   }
 
   return (
@@ -738,6 +749,7 @@ export default async function EncounterDetailPage({
                 encounterId={encounterId}
                 catchTargets={catchTargets}
                 pokemonTargets={pokemonTargets}
+                markTargets={markTargets}
               />
             )}
           </div>
