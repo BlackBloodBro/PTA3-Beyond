@@ -169,6 +169,12 @@ export async function resetEncounterToDraft(campaignId: string, encounterId: str
       .from('encounter_combatant_stat_modifiers')
       .delete()
       .in('combatant_id', combatantIds.map((c) => c.id))
+    // [[Feature - Apply Constructive Criticism's accuracy bonus in Encounters (Ace trainer)]]: miss streaks end with the
+    // encounter too.
+    await supabase
+      .from('encounter_attack_misses')
+      .delete()
+      .in('attacker_combatant_id', combatantIds.map((c) => c.id))
   }
 
   redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
