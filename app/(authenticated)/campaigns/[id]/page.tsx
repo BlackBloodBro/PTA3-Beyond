@@ -118,6 +118,12 @@ export default async function CampaignPage({
         <span className="block text-sm text-muted underline">Browse the global catalog + this Campaign&apos;s own homebrew</span>
       </Link>
 
+      {/* [[Feature - Shared currency and inventory]]: the party's shared fund and item pool, visible to every member. */}
+      <Link href={`/campaigns/${id}/shared`} className="block w-full max-w-2xl rounded border-accent bg-accent/10 p-3 hover:bg-accent/20">
+        <span className="text-lg font-semibold">Shared inventory</span>
+        <span className="block text-sm text-muted underline">The party&apos;s shared fund and item pool</span>
+      </Link>
+
       {isGM && (
         <p className="w-full max-w-2xl text-sm">
           Invite code: <span className="font-mono font-semibold">{campaign.invite_code}</span>
