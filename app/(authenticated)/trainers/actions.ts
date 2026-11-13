@@ -1075,6 +1075,96 @@ export async function setFeatureUsesRemaining(
   return { usesRemaining: clamped }
 }
 
+// [[Feature - Implement Trainer Moves]]: owner-or-GM actions, authorised by the same RLS as the Trainer's other rows
+// (trainer_moves has an "Owner manages" and a "GM manages" policy). The uses cap is derived from the Move's frequency,
+// exactly as learnMove does for a Pokemon.
+export async function learnTrainerMove(
+  trainerId: string,
+  moveId: number,
+): Promise<{ error: string } | { usesRemaining: number | null; resetsOn: 'rest' | null }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const [{ data: trainer }, { data: move }, { data: existing }] = await Promise.all([
+    supabase.from('trainers').select('campaign_id').eq('id', trainerId).maybeSingle(),
+    supabase.from('moves').select('frequency, campaign_id').eq('id', moveId).maybeSingle(),
+    supabase.from('trainer_moves').select('move_id').eq('trainer_id', trainerId).eq('move_id', moveId).maybeSingle(),
+  ])
+
+  if (!trainer) return { error: 'Trainer not found' }
+  if (!move) return { error: 'Move not found' }
+  if (existing) return { error: 'That move is already known' }
+  // A custom Move only belongs to its own Campaign -- a member of two Campaigns can see both sets.
+  if (move.campaign_id !== null && move.campaign_id !== trainer.campaign_id) {
+    return { error: 'That move belongs to a different Campaign' }
+  }
+
+  const { maxUses, resetsOn } = parseMoveFrequency(move.frequency)
+  const { error } = await supabase
+    .from('trainer_moves')
+    .insert({ trainer_id: trainerId, move_id: moveId, uses_remaining: maxUses, resets_on: resetsOn })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { usesRemaining: maxUses, resetsOn }
+}
+
+export async function forgetTrainerMove(trainerId: string, moveId: number): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { error } = await supabase.from('trainer_moves').delete().eq('trainer_id', trainerId).eq('move_id', moveId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return {}
+}
+
+export async function setTrainerMoveUsesRemaining(
+  trainerId: string,
+  moveId: number,
+  newUsesRemaining: number,
+): Promise<{ error: string } | { usesRemaining: number }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const clamped = Math.max(0, newUsesRemaining)
+
+  const { error } = await supabase
+    .from('trainer_moves')
+    .update({ uses_remaining: clamped })
+    .eq('trainer_id', trainerId)
+    .eq('move_id', moveId)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { usesRemaining: clamped }
+}
+
 // Called directly from a client component -- see adjustTrainerHp above.
 export async function resetFeatureUses(
   trainerId: string,
@@ -1245,12 +1335,27 @@ export async function restSleep(trainerId: string, formData: FormData) {
     )
   }
 
+  // [[Feature - Implement Trainer Moves]]: the Trainer's own rest-reset moves recharge the same way their Pokemon's do.
+  const { data: trainerMovesToReset } = await supabase
+    .from('trainer_moves')
+    .select('move_id, moves(frequency)')
+    .eq('trainer_id', trainerId)
+    .eq('resets_on', 'rest')
+
+  await Promise.all(
+    (trainerMovesToReset ?? []).map((tm) => {
+      const { maxUses } = parseMoveFrequency((tm.moves as unknown as { frequency: string } | null)?.frequency ?? '')
+      if (maxUses === null) return Promise.resolve()
+      return supabase.from('trainer_moves').update({ uses_remaining: maxUses }).eq('trainer_id', trainerId).eq('move_id', tm.move_id)
+    }),
+  )
+
   // [[Feature - Craft a free Repel each Sleep on Repel crafting (Researcher)]]
   const craftedRepel = await grantHandmadeRepel(supabase, trainerId)
 
   redirect(
     `${base}?message=${encodeURIComponent(
-      `Slept and rolled a ${roll} — healed to ${newTrainerHp}/${maxHp} HP. Rest-based features and Pokémon move uses recharged.${craftedRepel ? ' Crafted a Repel (handmade).' : ''}`,
+      `Slept and rolled a ${roll} — healed to ${newTrainerHp}/${maxHp} HP. Rest-based features and Trainer and Pokémon move uses recharged.${craftedRepel ? ' Crafted a Repel (handmade).' : ''}`,
     )}`,
   )
 }
