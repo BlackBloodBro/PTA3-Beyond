@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { setFeatureUsesRemaining } from '@/app/(authenticated)/trainers/actions'
 import { useItem } from '@/app/(authenticated)/trainers/[id]/bag/actions'
 import { attemptCatch } from './catchActions'
-import { useCriticalAdvice, useIntimidate } from './featureActions'
+import { useCriticalAdvice, useIntimidate, usePress } from './featureActions'
 
 export type TrainerActionsData = {
   trainerId: string
@@ -19,7 +19,16 @@ export type TrainerActionsData = {
   // battle: in a category flagged show_in_encounters -- the only items listed unless "Show all items" is on.
   // ball: a Poke Ball with catch data -- thrown at a wild Pokemon (see attemptCatch) instead of just "used".
   // condition is its free-text rule (e.g. "If the Pokemon is in water."); isTimer is the Timer Ball's duration tier.
+  // Present only for a Trainer with the Press Feature.
+  press?: PressData | null
   items: { id: string; name: string; quantity: number; battle: boolean; ball: { condition: string | null; isTimer: boolean } | null }[]
+}
+
+export type PressData = {
+  // What one use costs the Pokemon in HP (8 minus the Trainer's higher Attack / Special Attack modifier).
+  damage: number
+  // The Trainer's own Pokemon that are combatants in this Encounter -- the only valid targets.
+  targets: { combatantId: string; label: string }[]
 }
 
 // [[Feature - Trainers should see actions they could do in an Encounter]]: deliberately generic --
@@ -73,6 +82,10 @@ export function TrainerActionsPanel({
   const [markingFeatureId, setMarkingFeatureId] = useState<number | null>(null)
   const [markTargetId, setMarkTargetId] = useState('')
   const [markResult, setMarkResult] = useState<{ trainerId: string; text: string } | null>(null)
+  // [[Feature - Apply Press's stat boost, damage and loyalty cost in Encounters (Ace trainer)]]: the open Press form (one at a time).
+  const [pressingFeatureId, setPressingFeatureId] = useState<number | null>(null)
+  const [pressTargetId, setPressTargetId] = useState('')
+  const [pressResult, setPressResult] = useState<{ trainerId: string; text: string } | null>(null)
 
   function openThrow(itemId: string) {
     setThrowResult(null)
@@ -209,6 +222,28 @@ export function TrainerActionsPanel({
     else router.refresh()
   }
 
+  async function handlePress(trainerId: string, featureId: number, targets: PressData['targets']) {
+    if (!encounterId || !pressTargetId) return
+    setError(null)
+    setPressResult(null)
+    setPendingId(`feature-${featureId}`)
+    const result = await usePress({ encounterId, trainerId, targetCombatantId: pressTargetId })
+    setPendingId(null)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    const name = targets.find((p) => p.combatantId === pressTargetId)?.label ?? 'The Pokémon'
+    const parts = [`${name} is pressed: +2 to all its stats for the rest of the encounter.`]
+    if (result.pokemonDamage > 0) parts.push(`It takes ${result.pokemonDamage} damage${result.fainted ? ' and faints' : ''}.`)
+    if (result.loyaltyChange !== 0) parts.push(`Its loyalty changes by ${result.loyaltyChange} (use #${result.useNumber}).`)
+    setPressResult({ trainerId, text: parts.join(' ') })
+    setPressingFeatureId(null)
+    // The stats, HP and loyalty changed -- re-read the live state (cheap) instead of re-running the whole server page.
+    if (onActionDone) onActionDone()
+    else router.refresh()
+  }
+
   async function handleUseItem(trainerId: string, trainersItemId: string) {
     setError(null)
     setPendingId(`item-${trainersItemId}`)
@@ -268,7 +303,21 @@ export function TrainerActionsPanel({
                           {isExpanded ? '▾' : '▸'} {f.name}
                           {f.usesRemaining !== null && <span className="text-xs text-muted"> ({f.usesRemaining} left)</span>}
                         </button>
-                        {f.usesRemaining !== null && f.name === 'Critical advice' && encounterId ? (
+                        {f.name === 'Press' && encounterId && t.press ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPressResult(null)
+                              setPressTargetId(t.press!.targets.length === 1 ? t.press!.targets[0].combatantId : '')
+                              setPressingFeatureId((prev) => (prev === f.id ? null : f.id))
+                            }}
+                            disabled={t.press.targets.length === 0 || pendingId === `feature-${f.id}`}
+                            title={t.press.targets.length === 0 ? 'None of your Pokémon are in this encounter' : undefined}
+                            className="rounded border border-accent px-2 py-0.5 text-xs font-semibold text-accent disabled:cursor-not-allowed disabled:opacity-30"
+                          >
+                            {pendingId === `feature-${f.id}` ? 'Using…' : pressingFeatureId === f.id ? 'Cancel' : 'Use'}
+                          </button>
+                        ) : f.usesRemaining !== null && f.name === 'Critical advice' && encounterId ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -309,6 +358,33 @@ export function TrainerActionsPanel({
                           )
                         )}
                       </div>
+                      {f.name === 'Press' && t.press && pressingFeatureId === f.id && (
+                        <div className="flex flex-col gap-2 rounded border bg-surface-subtle p-2">
+                          <label className="flex flex-col gap-1 text-xs">
+                            Press one of your Pokémon
+                            <select value={pressTargetId} onChange={(e) => setPressTargetId(e.target.value)} className="bg-surface-subtle rounded border px-2 py-1 text-sm">
+                              <option value="">Select a Pokémon...</option>
+                              {t.press.targets.map((p) => (
+                                <option key={p.combatantId} value={p.combatantId}>
+                                  {p.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <p className="text-xs text-muted">
+                            +2 to all its stats until the end of the encounter (stacks). It takes {t.press.damage} damage
+                            {t.press.damage === 0 ? ' (your modifier covers it)' : ''}. The first use costs no loyalty; each further use on the same Pokémon costs more.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => handlePress(t.trainerId, f.id, t.press!.targets)}
+                            disabled={!pressTargetId || pendingId === `feature-${f.id}`}
+                            className="self-start rounded bg-accent px-3 py-1 text-xs text-accent-foreground disabled:opacity-40"
+                          >
+                            Press
+                          </button>
+                        </div>
+                      )}
                       {f.name === 'Critical advice' && markingFeatureId === f.id && (
                         <div className="flex flex-col gap-2 rounded border bg-surface-subtle p-2">
                           <label className="flex flex-col gap-1 text-xs">
@@ -456,6 +532,7 @@ export function TrainerActionsPanel({
             )}
           </div>
 
+          {pressResult && pressResult.trainerId === t.trainerId && <p className="text-sm font-semibold">{pressResult.text}</p>}
           {markResult && markResult.trainerId === t.trainerId && <p className="text-sm font-semibold">{markResult.text}</p>}
           {intimidateResult && intimidateResult.trainerId === t.trainerId && <p className="text-sm font-semibold">{intimidateResult.text}</p>}
           {throwResult && throwResult.trainerId === t.trainerId && <p className="text-sm font-semibold">{throwResult.text}</p>}

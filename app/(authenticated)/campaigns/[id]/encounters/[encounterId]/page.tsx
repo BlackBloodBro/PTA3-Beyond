@@ -10,6 +10,7 @@ import { loadQualifyingMilestones, computeMaxHp, loadTrainerDerived } from '@/li
 import { loadCampaignEvDisabled, computePokemonMaxHp } from '@/lib/pta3/pokemonEv'
 import { loadPokemonEffectiveType } from '@/lib/pta3/pokemonStats'
 import { loadBagSnapshot } from '@/lib/pta3/bag'
+import { loadPressDamage } from '@/lib/pta3/press'
 import {
   startEncounter,
   resetEncounterToDraft,
@@ -394,11 +395,29 @@ export default async function EncounterDetailPage({
           loadBagSnapshot(supabase, trainerId),
         ])
         const usesRemainingByFeature = Object.fromEntries((featureUses ?? []).map((fu) => [fu.feature_id, fu.uses_remaining]))
+        // [[Feature - Apply Press's stat boost, damage and loyalty cost in Encounters (Ace trainer)]]: Press targets one of
+        // this Trainer's own Pokemon that is a combatant here, and its damage is known up front so it can be confirmed.
+        let press: TrainerActionsData['press'] = null
+        if (activeFeatures.some((f) => f.name === 'Press')) {
+          const combatantPokemonIds = combatants.flatMap((x) => (x.pokemon_id ? [x.pokemon_id] : []))
+          const [{ data: ownedRows }, pressDamage] = await Promise.all([
+            combatantPokemonIds.length > 0
+              ? supabase.from('trainers_pokemon').select('pokemon_id').eq('trainer_id', trainerId).in('pokemon_id', combatantPokemonIds)
+              : Promise.resolve({ data: [] as { pokemon_id: string }[] }),
+            loadPressDamage(supabase, trainerId),
+          ])
+          const ownedIds = new Set((ownedRows ?? []).map((r) => r.pokemon_id as string))
+          press = {
+            damage: pressDamage ?? 0,
+            targets: combatants.filter((x) => x.pokemon_id && ownedIds.has(x.pokemon_id)).map((x) => ({ combatantId: x.id, label: combatantName(x) })),
+          }
+        }
         return {
           trainerId,
           combatantId: c.id,
           trainerName: c.trainers.name,
           isCurrentTurn: isGM,
+          press,
           moves: ((trainerMovesRaw ?? []) as unknown as { uses_remaining: number | null; moves: { name: string } | null }[])
             .filter((m) => m.moves)
             .map((m) => ({ name: m.moves!.name, usesRemaining: m.uses_remaining })),
