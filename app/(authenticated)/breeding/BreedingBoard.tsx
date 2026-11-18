@@ -23,9 +23,9 @@ function canPairWith(candidate: BreedingCandidate, other: BreedingCandidate, has
 // Campaign's player Trainers, or -- when `campaignId` is null -- just the one campaign-less Trainer's
 // own Pokemon), previews the computed target number live (reusing the same pure formula the server
 // re-validates against -- see lib/pta3/breeding.ts), then submits a physically-rolled d100 result.
-// `candidates` never includes NPC-owned Pokemon at all -- per the user (2026-09-03), a player Trainer
-// can't select one for now; that's excluded at the query level (loadCampaignBreedingCandidates), not
-// filtered here, since a real flow for picking an NPC's Pokemon is being designed separately.
+// `candidates` never includes NPC-owned Pokemon -- per the user (2026-09-03), a player Trainer can't
+// select one -- except an NPC the GM has marked as travelling with the party ([[Improvement - Let a GM
+// temporarily add an NPC to the party]]). Decided in loadCampaignBreedingCandidates, not filtered here.
 //
 // [[Improvement - Only show eligible Pokemon in the Breeding picker]] (2026-09-05): the two `<select>`s
 // now pre-filter to only-eligible pairs after all -- afflicted Pokemon are dropped from both lists

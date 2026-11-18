@@ -15,6 +15,7 @@ import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { isBookmarked } from '@/lib/pta3/bookmarks'
 import { BookmarkToggle } from '@/components/BookmarkToggle'
 import { NpcLabelsSection } from '@/app/(authenticated)/trainers/[id]/NpcLabelsSection'
+import { TemporaryPartySection } from './TemporaryPartySection'
 import type { LabelColor } from '@/lib/pta3/labelColors'
 import { loadTrainerDerived, loadPendingMilestone, loadQualifyingMilestones, computeEffectiveStats, computeMaxHp } from '@/lib/pta3/trainerFeatures'
 import { loadCampaignEvDisabled, computePokemonMaxHp } from '@/lib/pta3/pokemonEv'
@@ -76,7 +77,7 @@ export default async function NpcPage({
     .from('trainers')
     .select(
       `
-      id, name, level, current_hp, temporary_hp, user_id, campaign_id, is_npc,
+      id, name, level, current_hp, temporary_hp, user_id, campaign_id, is_npc, is_temporary_party_member,
       base_attack, base_defense, base_special_attack, base_special_defense, base_speed,
       class_id, origin_id,
       classes(name),
@@ -102,6 +103,12 @@ export default async function NpcPage({
 
   const isOwner = trainer.user_id === user.id
   const isGM = trainer.campaigns?.gm_user_id === user.id
+  // [[Improvement - Let a GM temporarily add an NPC to the party]]: a party NPC's row is readable by players
+  // (RLS, 20261118100000_temporary_party_member.sql) so Breeding can list its Pokemon -- but its sheet stays the
+  // GM's. Before that, RLS alone kept players out of this route; now it has to be checked here.
+  if (!isOwner && !isGM) {
+    notFound()
+  }
   const campaign = trainer.campaign_id && trainer.campaigns ? { id: trainer.campaigns.id, name: trainer.campaigns.name } : null
   const bookmarked = await isBookmarked(supabase, user.id, 'trainer', id)
 
@@ -309,6 +316,10 @@ export default async function NpcPage({
           initialLabels={(campaignLabels ?? []).map((l) => ({ id: l.id, name: l.name, color: l.color as LabelColor }))}
           initialSelectedLabelIds={selectedLabelIds}
         />
+      )}
+
+      {isGM && (
+        <TemporaryPartySection campaignId={campaignId} trainerId={id} initialValue={trainer.is_temporary_party_member ?? false} />
       )}
 
       <div className="flex w-full max-w-6xl items-start gap-4">

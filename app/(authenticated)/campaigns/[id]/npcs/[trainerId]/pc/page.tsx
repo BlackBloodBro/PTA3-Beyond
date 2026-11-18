@@ -38,6 +38,12 @@ export default async function NpcPcPage({ params }: { params: Promise<{ id: stri
 
   const isOwner = trainer.user_id === user.id
   const isGM = trainer.campaigns?.gm_user_id === user.id
+  // [[Improvement - Let a GM temporarily add an NPC to the party]]: a party NPC's row is readable by players
+  // (RLS, 20261118100000_temporary_party_member.sql) so Breeding can list its Pokemon -- but its sheet stays the
+  // GM's. Before that, RLS alone kept players out of this route; now it has to be checked here.
+  if (!isOwner && !isGM) {
+    notFound()
+  }
   // Routine action (same tier as HP adjustment), not GM-tier-gated -- the owner or that Campaign's
   // GM can both freely manage the Team/PC split.
   const canManage = isOwner || isGM

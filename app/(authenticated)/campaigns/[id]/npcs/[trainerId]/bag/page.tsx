@@ -33,6 +33,12 @@ export default async function NpcBagPage({ params }: { params: Promise<{ id: str
 
   const isOwner = trainer.user_id === user.id
   const isGM = trainer.campaigns?.gm_user_id === user.id
+  // [[Improvement - Let a GM temporarily add an NPC to the party]]: a party NPC's row is readable by players
+  // (RLS, 20261118100000_temporary_party_member.sql) so Breeding can list its Pokemon -- but its sheet stays the
+  // GM's. Before that, RLS alone kept players out of this route; now it has to be checked here.
+  if (!isOwner && !isGM) {
+    notFound()
+  }
   const canManage = isOwner || isGM
   // This route only ever serves campaign trainers -- always GM-only, no campaign-less-owner case here.
   const canAdjustMoney = isGM

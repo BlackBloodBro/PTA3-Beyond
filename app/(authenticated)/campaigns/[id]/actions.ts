@@ -258,6 +258,42 @@ export async function setTrainerLabels(trainerId: string, labelIds: string[]): P
   return { labelIds }
 }
 
+// [[Improvement - Let a GM temporarily add an NPC to the party]]: GM-only. Marks one of this Campaign's NPCs as
+// travelling with the party (or not). While true, players can see the NPC and its Pokemon, and its Pokemon show up
+// in the Breeding picker (see 20261118100000_temporary_party_member.sql). Called directly from a client component.
+export async function setTemporaryPartyMember(
+  campaignId: string,
+  trainerId: string,
+  value: boolean,
+): Promise<{ error: string } | { isTemporaryPartyMember: boolean }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: campaign } = await supabase.from('campaigns').select('id').eq('id', campaignId).eq('gm_user_id', user.id).maybeSingle()
+  if (!campaign) {
+    return { error: 'You are not the GM of this campaign' }
+  }
+
+  const { data: trainer, error } = await supabase
+    .from('trainers')
+    .update({ is_temporary_party_member: value })
+    .eq('id', trainerId)
+    .eq('campaign_id', campaignId)
+    .eq('is_npc', true)
+    .select('is_temporary_party_member')
+    .maybeSingle()
+
+  if (error) return { error: error.message }
+  if (!trainer) return { error: 'NPC not found in this campaign' }
+  return { isTemporaryPartyMember: trainer.is_temporary_party_member as boolean }
+}
+
 // GM-only, same replace-all shape as setTrainerLabels. Called directly from a client component, so
 // editing a Wild Pokemon's labels updates that row in place instead of reloading the whole list
 // (which previously had to redirect back via a `returnTo` field since Wild Pokemon have no detail

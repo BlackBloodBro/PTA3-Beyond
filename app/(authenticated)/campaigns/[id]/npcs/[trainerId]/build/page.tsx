@@ -63,6 +63,12 @@ export default async function NpcBuildPage({
 
   const isOwner = trainer.user_id === user.id
   const isGM = trainer.campaigns?.gm_user_id === user.id
+  // [[Improvement - Let a GM temporarily add an NPC to the party]]: a party NPC's row is readable by players
+  // (RLS, 20261118100000_temporary_party_member.sql) so Breeding can list its Pokemon -- but its sheet stays the
+  // GM's. Before that, RLS alone kept players out of this route; now it has to be checked here.
+  if (!isOwner && !isGM) {
+    notFound()
+  }
 
   const milestones = await loadQualifyingMilestones(supabase, id, trainer.level)
   const baseStats = {
