@@ -64,11 +64,13 @@ export function breedingTargetNumber(params: {
 // [[Feature - Add a Pokemon Breeding Check mechanic]]: every Pokemon belonging to a *player* Trainer in
 // a Campaign -- the breeding pool a Campaign Trainer picks from, shared by both the player-Trainer and
 // NPC "Breeding" page variants (same shape as BagBoard.tsx being shared across its own 3 page.tsx
-// variants) so the query/mapping isn't duplicated. Deliberately excludes NPC-owned Pokemon at the query
-// level, not just in the UI -- per the user (2026-09-03), a player Trainer shouldn't be able to select
-// an NPC's Pokemon at all for now (an earlier opt-in "Include NPC Pokemon" toggle was tried and then
-// deliberately removed); a real flow for picking an NPC's Pokemon is being designed separately as its
-// own Concept.
+// variants) so the query/mapping isn't duplicated. Excludes NPC-owned Pokemon, not just in the UI --
+// per the user (2026-09-03), a player Trainer shouldn't be able to select an NPC's Pokemon (an earlier
+// opt-in "Include NPC Pokemon" toggle was tried and then deliberately removed) -- *except* an NPC the GM
+// has marked as travelling with the party ([[Improvement - Let a GM temporarily add an NPC to the
+// party]], trainers.is_temporary_party_member), whose Pokemon count as the party's own while that's on.
+// Filtered after the fetch rather than with an .or() on the embedded trainers row: RLS already limits a
+// player to party Trainers, and for the GM this is one Campaign's roster either way.
 export async function loadCampaignBreedingCandidates(supabase: SupabaseClient, campaignId: string): Promise<BreedingCandidate[]> {
   const [{ data: pokemonRows }, loyaltyRows] = await Promise.all([
     supabase
@@ -81,11 +83,10 @@ export async function loadCampaignBreedingCandidates(supabase: SupabaseClient, c
           pokedex(name, pokedex_egg_groups(egg_group_id)),
           pokemon_afflictions(affliction_id)
         ),
-        trainers!inner(id, name, is_npc, campaign_id)
+        trainers!inner(id, name, is_npc, is_temporary_party_member, campaign_id)
       `,
       )
-      .eq('trainers.campaign_id', campaignId)
-      .eq('trainers.is_npc', false),
+      .eq('trainers.campaign_id', campaignId),
     loadLoyaltyTiers(supabase, campaignId),
   ])
 
@@ -105,11 +106,11 @@ export async function loadCampaignBreedingCandidates(supabase: SupabaseClient, c
       pokedex: { name: string; pokedex_egg_groups: { egg_group_id: number }[] } | null
       pokemon_afflictions: { affliction_id: number }[]
     } | null
-    trainers: { id: string; name: string; is_npc: boolean; campaign_id: string | null } | null
+    trainers: { id: string; name: string; is_npc: boolean; is_temporary_party_member: boolean; campaign_id: string | null } | null
   }
 
   return ((pokemonRows ?? []) as unknown as Row[])
-    .filter((r) => r.pokemon && r.trainers)
+    .filter((r) => r.pokemon && r.trainers && (!r.trainers.is_npc || r.trainers.is_temporary_party_member))
     .map((r) => ({
       id: r.pokemon!.id,
       name: r.pokemon!.nickname ?? r.pokemon!.pokedex?.name ?? 'Unknown',
