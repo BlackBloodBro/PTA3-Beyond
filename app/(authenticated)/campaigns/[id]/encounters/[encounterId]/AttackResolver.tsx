@@ -159,7 +159,13 @@ export function AttackResolver({
           rewardsResult.grantedExp > 0 ? `${rewardsResult.grantedExp} EXP` : null,
           rewardsResult.grantedLoyaltyPoints > 0 ? `${rewardsResult.grantedLoyaltyPoints} LP` : null,
         ].filter((p): p is string => p !== null)
-        setExpMessage(`${attacker?.name ?? 'Attacker'} gained ${parts.join(' and ')} for using a Move.`)
+        // [[Feature - Let the GM approve EXP and LP gained in an Encounter]]: pending totals are GM only, so a player
+        // gets no message for a held grant; the GM gets a pointer to the approval panel.
+        if ('pending' in rewardsResult) {
+          if (isGM) setExpMessage(`${parts.join(' and ')} for ${attacker?.name ?? 'the attacker'} added to "EXP & LP to approve".`)
+        } else {
+          setExpMessage(`${attacker?.name ?? 'Attacker'} gained ${parts.join(' and ')} for using a Move.`)
+        }
       }
     }
 

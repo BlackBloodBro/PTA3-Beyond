@@ -934,8 +934,23 @@ export async function adjustPokemonHp(
     // [[Feature - Fully turn off EXP]]: EXP off means EXP itself stops moving entirely, including from
     // automated triggers -- LP keeps granting per its own independent settings regardless.
     const faintExp = (await loadCampaignExpDisabled(supabase, effectiveCampaignIdForLoyalty)) ? 0 : rawFaintExp
-    updates.loyalty_points = Math.max(0, pokemon.loyalty_points + faintPoints)
-    updates.current_exp = Math.max(0, pokemon.current_exp + faintExp)
+    // [[Feature - Let the GM approve EXP and LP gained in an Encounter]]: while this Pokemon is a combatant in an
+    // active Encounter, the grant goes into the GM's pending total instead (the RPC returns that Encounter's id).
+    // Outside one it returns null and the grant applies immediately, as before.
+    let heldForApproval = false
+    if (faintExp !== 0 || faintPoints !== 0) {
+      const { data: pendingEncounterId, error: pendingError } = await supabase.rpc('record_encounter_pending_grant', {
+        target_pokemon_id: pokemonId,
+        add_exp: faintExp,
+        add_loyalty_points: faintPoints,
+      })
+      if (pendingError) return { error: pendingError.message }
+      heldForApproval = !!pendingEncounterId
+    }
+    if (!heldForApproval) {
+      updates.loyalty_points = Math.max(0, pokemon.loyalty_points + faintPoints)
+      updates.current_exp = Math.max(0, pokemon.current_exp + faintExp)
+    }
   }
 
   // Bug fix (2026-09-14): the plain update above only ever actually writes when the caller is this

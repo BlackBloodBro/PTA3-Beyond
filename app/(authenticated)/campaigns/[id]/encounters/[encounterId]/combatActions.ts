@@ -355,6 +355,8 @@ export async function maybeGrantAffirmationBonus(attackerPokemonId: string, isKo
 export type MoveUseRewardsResult =
   | { error: string }
   | { grantedExp: number; grantedLoyaltyPoints: number; newExp: number; level: number }
+  // [[Feature - Let the GM approve EXP and LP gained in an Encounter]]: recorded as pending for the GM to approve.
+  | { grantedExp: number; grantedLoyaltyPoints: number; pending: true }
   | { grantedExp: 0; grantedLoyaltyPoints: 0 }
 
 // [[Feature - Add triggers for a Pokemon to gain EXP automatically]] +
@@ -407,6 +409,24 @@ export async function grantMoveUseRewards(attackerCombatantId: string): Promise<
     // consumed below? No -- nothing to consume if it grants nothing; leave the throttle column
     // untouched so a later re-enable this same turn (unlikely, but cheap to get right) isn't pre-blocked.
     return { grantedExp: 0, grantedLoyaltyPoints: 0 }
+  }
+
+  // [[Feature - Let the GM approve EXP and LP gained in an Encounter]]: in an active Encounter the grant goes into the
+  // GM's pending total instead of onto the Pokemon. The RPC returns null only if there's no active Encounter for this
+  // Pokemon, in which case it falls through to applying immediately, as before.
+  const { data: pendingEncounterId, error: pendingError } = await supabase.rpc('record_encounter_pending_grant', {
+    target_pokemon_id: combatant.pokemon_id,
+    add_exp: expAmount,
+    add_loyalty_points: lpAmount,
+  })
+  if (pendingError) return { error: pendingError.message }
+  if (pendingEncounterId) {
+    const { error: throttleError } = await supabase
+      .from('encounter_combatants')
+      .update({ last_exp_grant_turn_position: encounter.current_turn_position })
+      .eq('id', attackerCombatantId)
+    if (throttleError) return { error: throttleError.message }
+    return { grantedExp: expAmount, grantedLoyaltyPoints: lpAmount, pending: true }
   }
 
   const newExp = Math.max(0, pokemon.current_exp + expAmount)

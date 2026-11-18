@@ -182,6 +182,10 @@ export async function resetEncounterToDraft(campaignId: string, encounterId: str
       .in('attacker_combatant_id', combatantIds.map((c) => c.id))
   }
 
+  // [[Feature - Let the GM approve EXP and LP gained in an Encounter]]: unapproved EXP/LP is discarded on reset (the
+  // confirmation warned the GM first). Deleting the Encounter cascades it away.
+  await supabase.from('encounter_pending_grants').delete().eq('encounter_id', encounterId)
+
   redirect(`/campaigns/${campaignId}/encounters/${encounterId}`)
 }
 
