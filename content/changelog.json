@@ -1,5 +1,28 @@
 [
   {
+    "version": "1.4.0",
+    "date": "2026-11-18",
+    "title": "Encounters & Class Features update",
+    "entries": [
+      { "category": "feature", "summary": "Catch wild Pokémon in an Encounter: throw a Poké Ball at them on your turn. The app works out your odds, and you roll the d100." },
+      { "category": "feature", "summary": "Trainers can now gain, use and drop Trainer Moves, and rest-based Trainer Moves recharge on Sleep." },
+      { "category": "feature", "summary": "Campaigns now have a shared fund and item pool. Trainers can deposit and withdraw money and items on the new Shared inventory page." },
+      { "category": "feature", "summary": "GMs can turn on a discovery-only Pokédex, so players only see species the party has scanned or owns." },
+      { "category": "feature", "summary": "Ace trainer: Intimidate now lowers a target Pokémon's Attack or Special Attack by 2 for the rest of the Encounter." },
+      { "category": "feature", "summary": "Ace trainer: Constructive Criticism now adds +2 to accuracy for each miss in a row with the same Move against the same target." },
+      { "category": "feature", "summary": "Ace trainer: Press can now be used in Encounters. It gives one of your Pokémon +2 to all stats and applies its HP and Loyalty cost." },
+      { "category": "feature", "summary": "Ace trainer: Grand master's Pokémon can now deal damage with Moves that have no Damage value." },
+      { "category": "feature", "summary": "Researcher: Critical advice now marks a target, and attacks against it are critical hits on a natural 18–20. Critical hits are now announced too." },
+      { "category": "feature", "summary": "Researcher: Repel crafting now gives a free handmade Repel after each Sleep, if you have a Portable Chemistry Set." },
+      { "category": "feature", "summary": "GMs can mark an NPC as travelling with the party, so players can breed with its Pokémon." },
+      { "category": "feature", "summary": "GMs now review and approve the EXP and LP Pokémon earn during an Encounter, instead of it being applied straight away." },
+      { "category": "improve", "summary": "Class Features such as Game plan and Commander's Rally now show their worked-out distance or duration, e.g. \"up to 15 ft\"." },
+      { "category": "improve", "summary": "An Encounter's Items list now only shows battle items, with a \"Show all items\" toggle." },
+      { "category": "improve", "summary": "Advancing or skipping a turn in an Encounter is now much faster." },
+      { "category": "fix", "summary": "Players now see fellow players' Pokémon on the Breeding page, and teammates' teams on the Campaign page. Before, they only saw their own." }
+    ]
+  },
+  {
     "version": "1.3.4",
     "date": "2026-11-02",
     "entries": [
