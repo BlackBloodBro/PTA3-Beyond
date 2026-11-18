@@ -13,6 +13,7 @@ import {
 } from '@/app/(authenticated)/trainers/actions'
 import type { TrainerFeature, TrainerAdvancedClass } from '@/lib/pta3/trainerFeatures'
 import { ClickTooltip } from '@/components/ClickTooltip'
+import { computeFeatureNumber } from '@/lib/pta3/featureNumbers'
 
 export type { TrainerFeature, TrainerAdvancedClass }
 
@@ -570,6 +571,7 @@ export function ActiveFeaturesSection({ trainerId }: { trainerId: string }) {
                   </summary>
                   <p className="mt-1 text-sm text-muted">{f.description}</p>
                 </details>
+                <FeatureNumberLine featureName={f.name} />
                 {f.max_uses !== null &&
                   (() => {
                     // [[Add checkboxes for Trainer features that have uses per day]]: same
@@ -641,6 +643,20 @@ export function ActiveFeaturesSection({ trainerId }: { trainerId: string }) {
   )
 }
 
+// [[Improvement - Show computed numbers on Class Features]]: the distance/duration a Feature works out from the
+// Trainer's own modifiers, e.g. "Game plan: up to 15 ft". Renders nothing for Features without such a number.
+// Kept outside the <details>/<summary> so the tooltip button doesn't also toggle the description.
+function FeatureNumberLine({ featureName, className = '' }: { featureName: string; className?: string }) {
+  const { attack, defense, special_attack, special_defense, speed } = useTrainerState()
+  const computed = computeFeatureNumber(featureName, { attack, defense, special_attack, special_defense, speed })
+  if (!computed) return null
+  return (
+    <p className={`mt-1 text-sm ${className}`}>
+      <ClickTooltip label={computed.label} tooltip={computed.tooltip} />
+    </p>
+  )
+}
+
 export function PassiveFeaturesSection() {
   const { passiveFeatures } = useTrainerState()
   return (
@@ -658,6 +674,7 @@ export function PassiveFeaturesSection() {
                 </summary>
                 <p className="mt-1 pl-4 text-sm text-muted">{f.description}</p>
               </details>
+              <FeatureNumberLine featureName={f.name} className="pl-4" />
             </li>
           ))}
         </ul>

@@ -6,7 +6,8 @@ import { trainerHref } from '@/lib/pta3/trainerPaths'
 import { pokemonHref } from '@/lib/pta3/pokemonPaths'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { RollInputButton } from '@/components/RollInputButton'
-import { loadQualifyingMilestones, computeMaxHp, loadTrainerDerived } from '@/lib/pta3/trainerFeatures'
+import { loadQualifyingMilestones, computeMaxHp, loadTrainerDerived, computeEffectiveStats, type TrainerMilestoneRow } from '@/lib/pta3/trainerFeatures'
+import { computeFeatureNumber } from '@/lib/pta3/featureNumbers'
 import { loadCampaignEvDisabled, computePokemonMaxHp } from '@/lib/pta3/pokemonEv'
 import { loadPokemonEffectiveType } from '@/lib/pta3/pokemonStats'
 import { loadBagSnapshot } from '@/lib/pta3/bag'
@@ -38,6 +39,7 @@ type CombatantRow = {
   turn_order: number | null
   trainers: {
     id: string; name: string; level: number; current_hp: number; is_npc: boolean; campaign_id: string | null; class_id: number | null; classes: { name: string } | null
+    base_attack: number; base_defense: number; base_special_attack: number; base_special_defense: number; base_speed: number
   } | null
   pokemon: {
     id: string; nickname: string | null; current_hp: number; is_shiny: boolean; bonus_base_hp: number; ev_hp: number; pokedex_id: number
@@ -137,7 +139,7 @@ export default async function EncounterDetailPage({
       .select(
         `
       id, side, trainer_id, pokemon_id, turn_order,
-      trainers(id, name, level, current_hp, is_npc, campaign_id, class_id, classes(name)),
+      trainers(id, name, level, current_hp, is_npc, campaign_id, class_id, base_attack, base_defense, base_special_attack, base_special_defense, base_speed, classes(name)),
       pokemon(id, nickname, current_hp, is_shiny, bonus_base_hp, ev_hp, pokedex_id, pokedex(name, sprite_code, base_hp))
     `,
       )
@@ -204,12 +206,17 @@ export default async function EncounterDetailPage({
     return t.type2 ? `${t.type1} / ${t.type2}` : t.type1
   }
 
-  const trainerMaxHpById = new Map<string, number>(
+  // Loaded once per Trainer and reused for both max HP and (below) effective stats, so the Trainer actions panel's
+  // computed Feature numbers cost no extra queries.
+  const trainerMilestonesById = new Map<string, TrainerMilestoneRow[]>(
     await Promise.all(
       combatants
         .filter((c): c is CombatantRow & { trainers: NonNullable<CombatantRow['trainers']> } => c.trainers !== null)
-        .map(async (c) => [c.trainers.id, computeMaxHp(await loadQualifyingMilestones(supabase, c.trainers.id, c.trainers.level))] as const),
+        .map(async (c) => [c.trainers.id, await loadQualifyingMilestones(supabase, c.trainers.id, c.trainers.level)] as const),
     ),
+  )
+  const trainerMaxHpById = new Map<string, number>(
+    Array.from(trainerMilestonesById, ([trainerId, milestones]) => [trainerId, computeMaxHp(milestones)] as const),
   )
 
   // [[Bug - Combat encounter page is slow, fails to load, and ejects players]]: "down" (0 HP), initiative
@@ -395,6 +402,16 @@ export default async function EncounterDetailPage({
           loadBagSnapshot(supabase, trainerId),
         ])
         const usesRemainingByFeature = Object.fromEntries((featureUses ?? []).map((fu) => [fu.feature_id, fu.uses_remaining]))
+        const effectiveStats = computeEffectiveStats(
+          {
+            attack: c.trainers.base_attack,
+            defense: c.trainers.base_defense,
+            special_attack: c.trainers.base_special_attack,
+            special_defense: c.trainers.base_special_defense,
+            speed: c.trainers.base_speed,
+          },
+          trainerMilestonesById.get(trainerId) ?? [],
+        )
         // [[Feature - Apply Press's stat boost, damage and loyalty cost in Encounters (Ace trainer)]]: Press targets one of
         // this Trainer's own Pokemon that is a combatant here, and its damage is known up front so it can be confirmed.
         let press: TrainerActionsData['press'] = null
@@ -427,6 +444,7 @@ export default async function EncounterDetailPage({
             description: f.description,
             usesRemaining: f.max_uses !== null ? (usesRemainingByFeature[f.id] ?? f.max_uses) : null,
             maxUses: f.max_uses,
+            computed: computeFeatureNumber(f.name, effectiveStats),
           })),
           items: bag.items
             .filter((i) => i.quantity > 0)
