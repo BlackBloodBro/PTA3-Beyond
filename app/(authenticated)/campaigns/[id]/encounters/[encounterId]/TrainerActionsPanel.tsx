@@ -6,6 +6,8 @@ import { setFeatureUsesRemaining } from '@/app/(authenticated)/trainers/actions'
 import { useItem } from '@/app/(authenticated)/trainers/[id]/bag/actions'
 import { attemptCatch } from './catchActions'
 import { useCriticalAdvice, useIntimidate, usePress } from './featureActions'
+import { ClickTooltip } from '@/components/ClickTooltip'
+import type { FeatureNumber } from '@/lib/pta3/featureNumbers'
 
 export type TrainerActionsData = {
   trainerId: string
@@ -15,7 +17,9 @@ export type TrainerActionsData = {
   isCurrentTurn: boolean
   moves: { name: string; usesRemaining: number | null }[]
   // maxUses: what an absent trainer_feature_uses row means (a rest deletes the row to recharge it).
-  features: { id: number; name: string; description: string; usesRemaining: number | null; maxUses: number | null }[]
+  // computed: [[Improvement - Show computed numbers on Class Features]] -- the distance/duration this Feature works
+  // out from the Trainer's modifiers (e.g. "up to 15 ft"), or null for Features without one.
+  features: { id: number; name: string; description: string; usesRemaining: number | null; maxUses: number | null; computed: FeatureNumber | null }[]
   // battle: in a category flagged show_in_encounters -- the only items listed unless "Show all items" is on.
   // ball: a Poke Ball with catch data -- thrown at a wild Pokemon (see attemptCatch) instead of just "used".
   // condition is its free-text rule (e.g. "If the Pokemon is in water."); isTimer is the Timer Ball's duration tier.
@@ -303,6 +307,11 @@ export function TrainerActionsPanel({
                           {isExpanded ? '▾' : '▸'} {f.name}
                           {f.usesRemaining !== null && <span className="text-xs text-muted"> ({f.usesRemaining} left)</span>}
                         </button>
+                        {f.computed && (
+                          <span className="text-xs">
+                            <ClickTooltip label={f.computed.label} tooltip={f.computed.tooltip} />
+                          </span>
+                        )}
                         {f.name === 'Press' && encounterId && t.press ? (
                           <button
                             type="button"
