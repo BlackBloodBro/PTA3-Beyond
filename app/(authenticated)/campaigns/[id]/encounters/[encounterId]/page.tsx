@@ -12,6 +12,8 @@ import { loadCampaignEvDisabled, computePokemonMaxHp } from '@/lib/pta3/pokemonE
 import { loadPokemonEffectiveType } from '@/lib/pta3/pokemonStats'
 import { loadBagSnapshot } from '@/lib/pta3/bag'
 import { loadPressDamage } from '@/lib/pta3/press'
+import { loadEncounterPendingGrants } from '@/lib/pta3/pendingGrants'
+import { PendingGrantsPanel } from './PendingGrantsPanel'
 import {
   startEncounter,
   resetEncounterToDraft,
@@ -122,6 +124,12 @@ export default async function EncounterDetailPage({
   const encounter = encounterRaw!
   const isDraft = encounter.status === 'draft'
   const isActive = encounter.status === 'active'
+  // [[Feature - Let the GM approve EXP and LP gained in an Encounter]]: GM only (RLS returns nothing to players).
+  const pendingGrants = isGM ? await loadEncounterPendingGrants(supabase, encounterId) : []
+  const pendingWarning =
+    pendingGrants.length > 0
+      ? ` ${pendingGrants.length} Pokémon still ${pendingGrants.length === 1 ? 'has' : 'have'} EXP/LP waiting for approval -- continuing discards it. Cancel to approve it first.`
+      : ''
 
   // [[Feature - Create Pokemon catching mechanic]]: the choices for how a battle started (ambushed / Pokemon
   // initiated / knew they were there) -- three seeded rows, shown while the Encounter can still be caught in.
@@ -565,7 +573,7 @@ export default async function EncounterDetailPage({
                       <AdvanceTurnButton encounterId={encounterId} campaignId={campaignId} />
                       <form action={resetEncounterToDraft.bind(null, campaignId, encounterId)}>
                         <ConfirmButton
-                          confirmMessage="Reset this encounter back to Draft? Every combatant's initiative and the current turn will be cleared -- you'll need to Start it again to re-roll."
+                          confirmMessage={`Reset this encounter back to Draft? Every combatant's initiative and the current turn will be cleared -- you'll need to Start it again to re-roll.${pendingWarning}`}
                           className="rounded border px-4 py-2 text-sm"
                         >
                           Reset to draft
@@ -574,7 +582,7 @@ export default async function EncounterDetailPage({
                     </>
                   )}
                   <form action={deleteEncounter.bind(null, campaignId, encounterId)}>
-                    <ConfirmButton confirmMessage={`Permanently delete "${encounter.name}"? This cannot be undone.`} className="rounded border border-danger px-4 py-2 text-sm text-danger">
+                    <ConfirmButton confirmMessage={`Permanently delete "${encounter.name}"? This cannot be undone.${pendingWarning}`} className="rounded border border-danger px-4 py-2 text-sm text-danger">
                       Delete
                     </ConfirmButton>
                   </form>
@@ -583,6 +591,8 @@ export default async function EncounterDetailPage({
             </div>
 
             {error && <p className="w-full max-w-2xl text-danger">{error}</p>}
+
+            {isGM && (isActive || pendingGrants.length > 0) && <PendingGrantsPanel encounterId={encounterId} initialGrants={pendingGrants} />}
 
             {/* [[Feature - Create Pokemon catching mechanic]]: how the battle started feeds every catch attempt in
                 it, so it is set once here by the GM instead of being asked on each throw. */}
