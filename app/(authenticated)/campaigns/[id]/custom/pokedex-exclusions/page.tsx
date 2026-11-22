@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PokedexExclusionsBrowser } from './PokedexExclusionsBrowser'
+import { fetchAllPages } from '@/lib/supabase/fetchAllPages'
 
 export default async function PokedexExclusionsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -22,11 +23,15 @@ export default async function PokedexExclusionsPage({ params }: { params: Promis
   }
 
   const [{ data: species }, { data: excluded }] = await Promise.all([
-    supabase
-      .from('pokedex')
-      .select('id, name, sprite_code, type_1:types!type_1_id(name), type_2:types!type_2_id(name)')
-      .is('campaign_id', null)
-      .order('name'),
+    fetchAllPages((from, to) =>
+      supabase
+        .from('pokedex')
+        .select('id, name, sprite_code, type_1:types!type_1_id(name), type_2:types!type_2_id(name)')
+        .is('campaign_id', null)
+        .order('name')
+        .order('id')
+        .range(from, to),
+    ),
     supabase.from('campaign_excluded_pokedex').select('pokedex_id').eq('campaign_id', id),
   ])
 
