@@ -1,8 +1,9 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { signOut } from '@/app/auth/actions'
 import { LABEL_COLORS, LABEL_SWATCH_CLASSES } from '@/lib/pta3/labelColors'
-import { updateThemePreferences, updateUsername, updatePassword } from './actions'
+import { updateThemePreferences, updateUsername, updatePassword, deleteAccount } from './actions'
 import packageJson from '@/package.json'
 
 export default async function SettingsPage({
@@ -21,6 +22,26 @@ export default async function SettingsPage({
   }
 
   const { data: profile } = await supabase.from('users').select('display_name, theme_mode, theme_accent').eq('id', user.id).single()
+
+  // What "Delete account" would remove, and which of the user's GM'd Campaigns still block it (another user's
+  // player Trainer in it -- the same rule delete_own_account enforces).
+  const [{ data: ownTrainers }, { data: gmCampaigns }] = await Promise.all([
+    supabase.from('trainers').select('id, is_npc').eq('user_id', user.id),
+    supabase.from('campaigns').select('id, name').eq('gm_user_id', user.id).order('name'),
+  ])
+  const gmCampaignIds = (gmCampaigns ?? []).map((c) => c.id)
+  const { data: otherPlayerTrainers } = gmCampaignIds.length
+    ? await supabase
+        .from('trainers')
+        .select('campaign_id')
+        .in('campaign_id', gmCampaignIds)
+        .eq('is_npc', false)
+        .neq('user_id', user.id)
+    : { data: [] as { campaign_id: string | null }[] }
+  const blockingIds = new Set((otherPlayerTrainers ?? []).map((t) => t.campaign_id))
+  const blockingCampaigns = (gmCampaigns ?? []).filter((c) => blockingIds.has(c.id))
+  const playerTrainerCount = (ownTrainers ?? []).filter((t) => !t.is_npc).length
+  const npcCount = (ownTrainers ?? []).filter((t) => t.is_npc).length
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-24">
@@ -124,6 +145,64 @@ export default async function SettingsPage({
           Sign out
         </button>
       </form>
+
+      <section id="delete-account" className="flex w-full max-w-sm flex-col gap-2 rounded border border-danger p-4">
+        <h2 className="text-sm font-semibold text-danger">Delete account</h2>
+        <p className="text-sm">
+          Permanently deletes your account and everything only you have. This can&apos;t be undone.
+        </p>
+        <ul className="list-disc pl-5 text-sm text-muted">
+          <li>
+            {playerTrainerCount} Trainer{playerTrainerCount === 1 ? '' : 's'}
+            {npcCount > 0 && ` and ${npcCount} NPC${npcCount === 1 ? '' : 's'}`}, with their Pokémon and items
+          </li>
+          <li>
+            {gmCampaigns?.length ?? 0} campaign{gmCampaigns?.length === 1 ? '' : 's'} you GM
+            {gmCampaigns && gmCampaigns.length > 0 && `: ${gmCampaigns.map((c) => c.name).join(', ')}`}
+          </li>
+          <li>Pokémon you created that are now another player&apos;s, or in another GM&apos;s campaign, are kept for them</li>
+        </ul>
+        {blockingCampaigns.length > 0 ? (
+          <div className="text-sm text-danger">
+            <p>Other players still have Trainers in these campaigns. Remove their Trainers or delete the campaigns first:</p>
+            <ul className="list-disc pl-5">
+              {blockingCampaigns.map((c) => (
+                <li key={c.id}>
+                  <Link href={`/campaigns/${c.id}`} className="underline">
+                    {c.name}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <form action={deleteAccount} className="flex flex-col gap-2">
+            <input
+              name="password"
+              type="password"
+              placeholder="Your password"
+              required
+              autoComplete="current-password"
+              className="bg-surface-subtle rounded border px-3 py-2"
+            />
+            <label htmlFor="deleteConfirmation" className="text-sm">
+              Type <span className="font-mono font-semibold">DELETE</span> to confirm
+            </label>
+            <input
+              id="deleteConfirmation"
+              name="confirmation"
+              type="text"
+              required
+              autoComplete="off"
+              pattern="DELETE"
+              className="bg-surface-subtle rounded border px-3 py-2"
+            />
+            <button type="submit" className="w-fit rounded bg-danger px-4 py-2 text-white">
+              Delete my account
+            </button>
+          </form>
+        )}
+      </section>
 
       <p className="text-xs text-muted">Version {packageJson.version}</p>
     </main>
