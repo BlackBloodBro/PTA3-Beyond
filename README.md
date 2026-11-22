@@ -11,7 +11,7 @@ it was generated on, so nothing has been run yet. You'll need:
 - [Node.js](https://nodejs.org/) 20+
 - [pnpm](https://pnpm.io/installation) (`npm install -g pnpm` if you don't have it)
 - [Supabase CLI](https://supabase.com/docs/guides/cli/getting-started) (for local dev / migrations)
-- A Supabase project (or the local `supabase start` stack)
+- Access to the Supabase projects (live and dev, see Database below)
 
 ## Setup
 
@@ -33,21 +33,28 @@ pnpm dev
 
 ## Database
 
-The initial schema lives in [`supabase/migrations/20260724120000_initial_schema.sql`](supabase/migrations/20260724120000_initial_schema.sql).
-
-If this repo doesn't have a linked Supabase project yet:
+Migrations live in [`supabase/migrations/`](supabase/migrations/). There are two hosted Supabase projects:
+**live** (used by the hosted site) and **dev** (day-to-day development and testing). Put each project's
+`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.live.local` and `.env.dev.local`
+(both gitignored), then:
 
 ```bash
-supabase init      # only if supabase/config.toml doesn't already exist
-supabase link --project-ref your-project-ref
-supabase db push   # applies the migration
+pnpm db:target        # show which project the app (.env.local) and the CLI (supabase link) point at
+pnpm db:target dev    # copy .env.dev.local over .env.local (prints the matching supabase link command)
 ```
 
-For local development against the Supabase CLI's Docker stack instead:
+New migrations are pushed to dev while building (`supabase db push` with the CLI linked to dev) and to live
+only when releasing to `production`. Keep them additive: the hosted site picks up new code on its own schedule,
+so the new schema briefly runs under the old code.
 
-```bash
-supabase start
-supabase db reset  # applies all migrations to the local stack
+**A fresh project can't be built by replaying the migrations**: the live reference tables' ids don't start at 1
+and have gaps, and older migrations insert rows by fixed id. To (re)build the dev project as a copy of live's
+schema and reference data (no player data or accounts), use the PostgreSQL client tools
+(`scoop install postgresql`) and:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\refresh-dev-db.ps1 -Step dump      # reads live (read-only)
+powershell -ExecutionPolicy Bypass -File scripts\refresh-dev-db.ps1 -Step restore   # wipes and rebuilds dev
 ```
 
 After the schema changes, regenerate types:
