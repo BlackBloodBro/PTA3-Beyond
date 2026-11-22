@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "db:target": "node scripts/db-target.mjs",
     "db:types": "supabase gen types typescript --linked > types/database.types.ts"
   },
   "dependencies": {
