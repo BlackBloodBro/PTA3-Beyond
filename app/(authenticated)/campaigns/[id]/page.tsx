@@ -73,7 +73,8 @@ export default async function CampaignPage({
   if (isGM) {
     const [{ count: npcCountRaw }, { data: poolForCount }] = await Promise.all([
       supabase.from('trainers').select('id', { count: 'exact', head: true }).eq('campaign_id', id).eq('is_npc', true),
-      supabase.from('pokemon').select('id, trainers_pokemon(trainer_id)').eq('campaign_id', id).eq('created_by_user_id', user.id),
+      // Every unassigned Pokemon tagged to this campaign, whoever created it -- same set the Wild Pokemon page lists.
+      supabase.from('pokemon').select('id, trainers_pokemon(trainer_id)').eq('campaign_id', id),
     ])
     npcCount = npcCountRaw ?? 0
     wildPokemonCount = (poolForCount ?? []).filter((p) => !p.trainers_pokemon).length
