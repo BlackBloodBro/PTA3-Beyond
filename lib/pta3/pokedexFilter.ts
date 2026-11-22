@@ -1,4 +1,5 @@
 import type { createClient } from '@/lib/supabase/server'
+import { fetchAllPages } from '@/lib/supabase/fetchAllPages'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -33,27 +34,35 @@ export async function fetchFilteredSpecies(
   supabase: SupabaseClient,
   filters: { typeIds: number[]; habitatIds: number[]; excludeIds?: number[] },
 ): Promise<{ id: number; name: string; sprite_code: string; growth_rate_id: number | null }[]> {
-  let query = supabase.from('pokedex').select('id, name, sprite_code, growth_rate_id')
-
-  // A species matches on EITHER of its two types, same as how type effectiveness/matchups treat a
-  // dual-type Pokemon -- extended here to match on ANY of the selected type ids too.
-  if (filters.typeIds.length > 0) {
-    const clause = filters.typeIds.flatMap((id) => [`type_1_id.eq.${id}`, `type_2_id.eq.${id}`]).join(',')
-    query = query.or(clause)
-  }
-
+  // Both lookups are paged (fetchAllPages): the Pokedex and its habitat links each exceed one 1000-row response.
+  let habitatPokedexIds: number[] | null = null
   if (filters.habitatIds.length > 0) {
-    const { data: habitatRows } = await supabase
-      .from('pokedex_habitats')
-      .select('pokedex_id')
-      .in('habitat_id', filters.habitatIds)
-    query = query.in('id', (habitatRows ?? []).map((r) => r.pokedex_id))
+    const { data: habitatRows } = await fetchAllPages((from, to) =>
+      supabase
+        .from('pokedex_habitats')
+        .select('pokedex_id')
+        .in('habitat_id', filters.habitatIds)
+        .order('pokedex_id')
+        .order('habitat_id')
+        .range(from, to),
+    )
+    habitatPokedexIds = [...new Set(habitatRows.map((r) => r.pokedex_id))]
   }
 
-  if (filters.excludeIds && filters.excludeIds.length > 0) {
-    query = query.not('id', 'in', `(${filters.excludeIds.join(',')})`)
-  }
+  const { data } = await fetchAllPages((from, to) => {
+    let query = supabase.from('pokedex').select('id, name, sprite_code, growth_rate_id')
 
-  const { data } = await query.order('name')
-  return data ?? []
+    // A species matches on EITHER of its two types, same as how type effectiveness/matchups treat a
+    // dual-type Pokemon -- extended here to match on ANY of the selected type ids too.
+    if (filters.typeIds.length > 0) {
+      const clause = filters.typeIds.flatMap((id) => [`type_1_id.eq.${id}`, `type_2_id.eq.${id}`]).join(',')
+      query = query.or(clause)
+    }
+    if (habitatPokedexIds) query = query.in('id', habitatPokedexIds)
+    if (filters.excludeIds && filters.excludeIds.length > 0) {
+      query = query.not('id', 'in', `(${filters.excludeIds.join(',')})`)
+    }
+    return query.order('name').order('id').range(from, to)
+  })
+  return data
 }

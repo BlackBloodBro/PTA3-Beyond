@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadBagSnapshot, loadItemCatalog, loadTmEligibleMoves, loadTmPrices } from '@/lib/pta3/bag'
 import { BagBoard, type BagPokemonOption } from '@/app/(authenticated)/trainers/[id]/bag/BagBoard'
+import { fetchAllPages } from '@/lib/supabase/fetchAllPages'
 
 export default async function CampaignTrainerBagPage({ params }: { params: Promise<{ id: string; trainerId: string }> }) {
   const { id: campaignId, trainerId: id } = await params
@@ -45,7 +46,7 @@ export default async function CampaignTrainerBagPage({ params }: { params: Promi
       .select('party_slot, pokemon(id, nickname, held_item_id, pokedex(name))')
       .eq('trainer_id', id),
     // Needed for the Catalog's Egg species picker ([[Add Eggs as Item]]).
-    supabase.from('pokedex').select('id, name, sprite_code').order('name'),
+    fetchAllPages((from, to) => supabase.from('pokedex').select('id, name, sprite_code').order('name').order('id').range(from, to)),
     // Needed for the Catalog's TM/TR move picker ([[When buying a Technical Machine you should
     // choose a move]]).
     loadTmEligibleMoves(supabase),

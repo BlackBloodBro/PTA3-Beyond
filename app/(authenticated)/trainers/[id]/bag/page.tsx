@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadBagSnapshot, loadItemCatalog, loadTmEligibleMoves, loadTmPrices } from '@/lib/pta3/bag'
 import { BagBoard, type BagPokemonOption } from './BagBoard'
+import { fetchAllPages } from '@/lib/supabase/fetchAllPages'
 
 export default async function BagPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -49,7 +50,7 @@ export default async function BagPage({ params }: { params: Promise<{ id: string
       .eq('trainer_id', id),
     // Needed for the Catalog's Egg species picker ([[Add Eggs as Item]]) -- same small-columns-only
     // shape as /pokemon/new's own species list fetch.
-    supabase.from('pokedex').select('id, name, sprite_code').order('name'),
+    fetchAllPages((from, to) => supabase.from('pokedex').select('id, name, sprite_code').order('name').order('id').range(from, to)),
     // Needed for the Catalog's TM/TR move picker ([[When buying a Technical Machine you should
     // choose a move]]).
     loadTmEligibleMoves(supabase),

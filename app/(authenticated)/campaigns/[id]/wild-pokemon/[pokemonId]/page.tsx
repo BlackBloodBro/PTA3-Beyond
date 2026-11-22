@@ -42,6 +42,7 @@ import {
   type PassiveLearnsetEntry,
   type SpeciesTypeInfo,
 } from '@/app/(authenticated)/pokemon/[pokemonId]/PokemonInteractive'
+import { fetchAllPages } from '@/lib/supabase/fetchAllPages'
 
 const GENDER_LABELS: Record<string, string> = {
   male: 'Male',
@@ -403,7 +404,9 @@ export default async function WildPokemonPage({
     // than folded into type_matchups -- see effectivenessFor's comment for why.
     supabase.from('type_immunities').select('attacking_type:types!attacking_type_id(name), defending_type:types!defending_type_id(name)'),
     supabase.from('types').select('name').neq('name', 'Special/Variable').order('name'),
-    supabase.from('pokedex').select('name, sprite_code, type_1:types!type_1_id(name), type_2:types!type_2_id(name)').order('name'),
+    fetchAllPages((from, to) =>
+      supabase.from('pokedex').select('name, sprite_code, type_1:types!type_1_id(name), type_2:types!type_2_id(name)').order('name').order('id').range(from, to),
+    ),
   ])
   const typeMatchups = (typeMatchupRows ?? []).map((r) => ({
     attacking_type: (r.attacking_type as unknown as { name: string }).name,

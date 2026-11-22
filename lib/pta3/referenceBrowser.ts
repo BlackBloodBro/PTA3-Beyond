@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadExcludedPokedexIds } from './pokedexExclusions'
+import { fetchAllPages } from '@/lib/supabase/fetchAllPages'
 
 export type PokedexBrowseRow = {
   id: number
@@ -117,36 +118,37 @@ export async function loadPokedexBrowse(
   onlyPokedexIds?: number[] | null,
 ): Promise<PokedexBrowseRow[]> {
   if (onlyPokedexIds && onlyPokedexIds.length === 0) return []
-  let query = supabase
-    .from('pokedex')
-    .select(
-      `
-      id, name, description, base_hp, base_atk, base_def, base_sp_atk, base_sp_def, base_speed,
-      catch_rate, egg_hatch_rate, sprite_code,
-      type_1:types!type_1_id(name), type_2:types!type_2_id(name),
-      size:sizes!size_id(name), weight:weights!weight_id(name),
-      growth_rate:growth_rates!growth_rate_id(name),
-      pokedex_habitats(habitats(name)),
-      pokedex_diets(diets(name)),
-      pokedex_egg_groups(egg_groups(name)),
-      pokedex_proficiencies(proficiencies(name))
-    `,
-    )
-    .order('name')
-  if (campaignId !== undefined) {
-    query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
-  }
   // [[Feature - GM can restrict global catalog entries from a Campaign]]: applied for GM and player
   // alike -- this is a read-only browse of "what this Campaign's world contains," not an enforcement
   // point, so there's no reason to show the GM their own exclusions still sitting in the list.
-  if (campaignId) {
-    const excludedIds = await loadExcludedPokedexIds(supabase, campaignId)
+  const excludedIds = campaignId ? await loadExcludedPokedexIds(supabase, campaignId) : []
+  // Paged (fetchAllPages): the global Pokedex is past one 1000-row response.
+  const { data } = await fetchAllPages((from, to) => {
+    let query = supabase
+      .from('pokedex')
+      .select(
+        `
+        id, name, description, base_hp, base_atk, base_def, base_sp_atk, base_sp_def, base_speed,
+        catch_rate, egg_hatch_rate, sprite_code,
+        type_1:types!type_1_id(name), type_2:types!type_2_id(name),
+        size:sizes!size_id(name), weight:weights!weight_id(name),
+        growth_rate:growth_rates!growth_rate_id(name),
+        pokedex_habitats(habitats(name)),
+        pokedex_diets(diets(name)),
+        pokedex_egg_groups(egg_groups(name)),
+        pokedex_proficiencies(proficiencies(name))
+      `,
+      )
+      .order('name')
+    if (campaignId !== undefined) {
+      query = campaignId ? query.or(`campaign_id.is.null,campaign_id.eq.${campaignId}`) : query.is('campaign_id', null)
+    }
     if (excludedIds.length > 0) {
       query = query.not('id', 'in', `(${excludedIds.join(',')})`)
     }
-  }
-  if (onlyPokedexIds) query = query.in('id', onlyPokedexIds)
-  const { data } = await query
+    if (onlyPokedexIds) query = query.in('id', onlyPokedexIds)
+    return query.order('id').range(from, to)
+  })
 
   // Same reverse/forward-embed quirk documented elsewhere in this codebase (lib/pta3/bag.ts) --
   // a single-row FK embed (type_1, type_2, size, weight, growth_rate) comes back as one object at
