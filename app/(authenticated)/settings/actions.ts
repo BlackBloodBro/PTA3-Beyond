@@ -99,3 +99,43 @@ export async function updatePassword(formData: FormData) {
 
   redirect(`/settings?message=${encodeURIComponent('Password updated')}`)
 }
+
+// [[Feature - Add account deletion]]: the checks and deletes all happen in one database transaction
+// (delete_own_account, supabase/migrations/20261122100000_delete_own_account.sql), which refuses while a
+// Campaign this user GMs still has other players' Trainers. Two gates before calling it: the user types
+// DELETE, and re-enters their password (signInWithPassword as the check, same as updatePassword).
+export async function deleteAccount(formData: FormData) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user || !user.email) {
+    redirect('/login')
+  }
+
+  const confirmation = (formData.get('confirmation') as string | null)?.trim()
+  const password = formData.get('password') as string | null
+
+  if (confirmation !== 'DELETE') {
+    redirect(`/settings?error=${encodeURIComponent('Type DELETE to confirm deleting your account')}#delete-account`)
+  }
+  if (!password) {
+    redirect(`/settings?error=${encodeURIComponent('Enter your password to delete your account')}#delete-account`)
+  }
+
+  const { error: verifyError } = await supabase.auth.signInWithPassword({ email: user.email, password })
+  if (verifyError) {
+    redirect(`/settings?error=${encodeURIComponent('Password is incorrect')}#delete-account`)
+  }
+
+  const { error } = await supabase.rpc('delete_own_account')
+  if (error) {
+    redirect(`/settings?error=${encodeURIComponent(error.message)}#delete-account`)
+  }
+
+  // The login no longer exists; clear the session cookies. signOut's own server call can fail now, which is fine.
+  await supabase.auth.signOut().catch(() => {})
+  revalidatePath('/', 'layout')
+  redirect(`/login?message=${encodeURIComponent('Your account has been deleted.')}`)
+}
