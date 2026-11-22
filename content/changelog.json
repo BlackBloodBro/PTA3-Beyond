@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.4.1",
+    "date": "2026-11-22",
+    "entries": [
+      { "category": "feature", "summary": "You can now delete your account from Settings. This removes your Trainers, their Pokémon and the campaigns you GM. Pokémon you created that now belong to another player stay with them." },
+      { "category": "fix", "summary": "A campaign's Wild Pokémon count now includes Pokémon added by players." }
+    ]
+  },
+  {
     "version": "1.4.0",
     "date": "2026-11-18",
     "title": "Encounters & Class Features update",
